@@ -1,0 +1,111 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="apple-mobile-web-app-title" content="Links">
+  <meta name="theme-color" content="#f2f2f7" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#000000" media="(prefers-color-scheme: dark)">
+  <link rel="manifest" href="/manifest.webmanifest">
+  <link rel="apple-touch-icon" href="/icon-180.png">
+  <link rel="icon" type="image/png" href="/icon-192.png">
+  <link rel="stylesheet" href="/app.css">
+  <title>Links</title>
+</head>
+<body>
+  <header class="nav" id="nav">
+    <div class="nav-bar">
+      <span></span>
+      <div class="nav-title">Links</div>
+      <button class="avatar-btn" id="whoBtn" aria-label="Switch person"></button>
+    </div>
+  </header>
+
+  <main>
+    <h1 class="large-title">Links</h1>
+
+    <label class="search">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M10.5 3a7.5 7.5 0 0 1 5.96 12.05l4.25 4.24a1 1 0 0 1-1.42 1.42l-4.24-4.25A7.5 7.5 0 1 1 10.5 3Zm0 2a5.5 5.5 0 1 0 0 11 5.5 5.5 0 0 0 0-11Z"/></svg>
+      <input id="search" type="search" placeholder="Search" autocomplete="off" enterkeyhint="search">
+    </label>
+
+    <div class="segmented" id="filters" role="tablist">
+      <button role="tab" data-filter="unseen">To Watch<span class="seg-count" id="unseenCount"></span></button>
+      <button role="tab" data-filter="seen">Watched</button>
+      <button role="tab" data-filter="sent">Sent</button>
+      <button role="tab" data-filter="all">All</button>
+    </div>
+
+    <section class="list" id="list" aria-live="polite"></section>
+    <div class="empty" id="empty" hidden></div>
+  </main>
+
+  <footer class="toolbar">
+    <button class="new-btn" id="addBtn">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="11"/><path d="M12 7v10M7 12h10" stroke="#fff" stroke-width="2.2" stroke-linecap="round"/></svg>
+      New Link
+    </button>
+    <span class="toolbar-status" id="status"></span>
+  </footer>
+
+  <!-- New link sheet -->
+  <div class="backdrop" id="addSheet" hidden>
+    <form class="sheet" id="addForm" autocomplete="off">
+      <div class="grabber"></div>
+      <div class="sheet-header">
+        <button type="button" class="text-btn" data-close>Cancel</button>
+        <div class="sheet-title">New Link</div>
+        <button type="submit" class="text-btn bold" id="saveBtn" disabled>Add</button>
+      </div>
+      <div class="group">
+        <input id="urlInput" class="field" type="url" inputmode="url" placeholder="Paste a TikTok or Reel link">
+        <input id="noteInput" class="field" type="text" maxlength="500" placeholder="Add a note (optional)">
+      </div>
+      <button type="button" class="paste-btn" id="pasteBtn">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 2h6a1 1 0 0 1 1 1v1h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2V3a1 1 0 0 1 1-1Zm1 2v2h4V4h-4Z"/></svg>
+        Paste from Clipboard
+      </button>
+      <p class="hint">Tip: you can paste the whole message. The link gets pulled out automatically.</p>
+    </form>
+  </div>
+
+  <!-- Who are you? sheet -->
+  <div class="backdrop" id="nameSheet" hidden>
+    <form class="sheet" id="nameForm" autocomplete="off">
+      <div class="grabber"></div>
+      <div class="sheet-hero">
+        <div class="hero-icon">👋</div>
+        <h2>Who's this?</h2>
+        <p>Pick your name so we know what <em>you've</em> watched. No password needed.</p>
+      </div>
+      <div class="group" id="peopleList"></div>
+      <div class="group">
+        <input id="nameInput" class="field" type="text" maxlength="30" placeholder="Or type a new name" autocapitalize="words">
+      </div>
+      <button type="submit" class="primary-btn" id="nameBtn" disabled>Continue</button>
+    </form>
+  </div>
+
+  <!-- Room code sheet (only when the server sets APP_KEY) -->
+  <div class="backdrop" id="lockSheet" hidden>
+    <form class="sheet" id="lockForm" autocomplete="off">
+      <div class="grabber"></div>
+      <div class="sheet-hero">
+        <div class="hero-icon">🔒</div>
+        <h2>Enter Room Code</h2>
+        <p>Ask whoever set this up for the code, or open the invite link they sent you.</p>
+      </div>
+      <div class="group"><input id="keyInput" class="field" type="password" placeholder="Room code"></div>
+      <button type="submit" class="primary-btn">Unlock</button>
+    </form>
+  </div>
+
+  <div class="backdrop action-backdrop" id="actionSheet" hidden></div>
+  <div class="toast" id="toast" role="status"></div>
+
+  <script src="/app.js"></script>
+</body>
+</html>
