@@ -48,9 +48,18 @@ public extension Color {
         self.init(uiColor: UIColor { $0.userInterfaceStyle == .dark ? UIColor(dark) : UIColor(light) })
     }
 
-    /// The app's pink-to-purple brand gradient colors.
-    static let linksPink = Color(red: 1, green: 0.22, blue: 0.37)
-    static let linksPurple = Color(red: 0.47, green: 0.24, blue: 0.86)
+    /// The app icon's green and graphite (assets/icon/SharedLinks.icon), for fills and artwork.
+    static let linksGreen = Color(hex: BrandMark.greenRGB)
+    static let linksGraphite = Color(hex: BrandMark.graphiteRGB)
+
+    /// The accent: the icon's green, darkened just enough to read. Light #0F8751 is 4.6:1 as text
+    /// on white and under white text; dark #12A765 is 6.7:1 on black and 3.1:1 under white text.
+    /// (The app target has the same values in its AccentColor asset; extensions use this.)
+    static let linksAccent = Color(light: Color(hex: 0x0F8751), dark: Color(hex: 0x12A765))
+
+    /// Brand surface with white text on it (widgets): the two accent greens, top to bottom.
+    static let linksSurface = LinearGradient(colors: [Color(hex: 0x12A765), Color(hex: 0x0F8751)],
+                                             startPoint: .top, endPoint: .bottom)
 }
 
 /// A link's thumbnail (or its platform placeholder), as used in lists and widgets.

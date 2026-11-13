@@ -20,6 +20,7 @@ struct ShareComposeView: View {
                     }
                 }
         }
+        .tint(Color.linksAccent) // extensions don't get the app's AccentColor asset
         .overlay { resultOverlay }
         .sensoryFeedback(.success, trigger: model.phase) { _, new in new == .sent }
     }
@@ -100,7 +101,8 @@ private struct ResultBadge: View {
         VStack(spacing: 10) {
             Image(systemName: symbol)
                 .font(.system(size: 56, weight: .semibold))
-                .foregroundStyle(Color.linksPink, Color.linksPurple)
+                .symbolRenderingMode(.hierarchical)
+                .foregroundStyle(Color.linksAccent)
                 .symbolEffect(.bounce, value: appeared)
             Text(title).font(.title3.bold())
             if let subtitle {

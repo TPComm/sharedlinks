@@ -106,7 +106,7 @@ private struct ListView: View {
             HStack {
                 Label(feed == .toWatch ? "To Watch" : "Sent", systemImage: feed == .toWatch ? "play.rectangle.on.rectangle" : "paperplane")
                     .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(LinearGradient(colors: [.linksPink, .linksPurple], startPoint: .leading, endPoint: .trailing))
+                    .foregroundStyle(Color.linksAccent)
                 Spacer()
                 if feed == .toWatch, count > 0 {
                     Text("\(count)")
@@ -272,7 +272,7 @@ private struct SignedOutView: View {
 
 private struct BrandBackground: View {
     var body: some View {
-        LinearGradient(colors: [.linksPink, .linksPurple], startPoint: .top, endPoint: .bottom)
+        Rectangle().fill(Color.linksSurface)
     }
 }
 

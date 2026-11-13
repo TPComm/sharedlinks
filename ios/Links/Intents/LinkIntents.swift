@@ -108,5 +108,5 @@ struct LinksShortcuts: AppShortcutsProvider {
             "New \(.applicationName)",
         ], shortTitle: "New Link", systemImageName: "plus")
     }
-    static let shortcutTileColor: ShortcutTileColor = .pink
+    static let shortcutTileColor: ShortcutTileColor = .teal // closest to the icon's green
 }
