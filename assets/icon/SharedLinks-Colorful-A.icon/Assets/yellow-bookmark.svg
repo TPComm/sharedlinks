@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <defs>
+    <path id="silhouette" d="M 629.57 238.93 L 802.13 278.76 C 883.67 297.72 921.6 352.71 906.43 434.25 L 840.06 779.38 C 832.47 830.58 798.34 845.75 762.31 811.61 L 678.87 724.39 C 659.91 701.63 644.74 701.63 621.99 714.9 L 521.48 773.69 C 470.28 802.13 436.15 764.21 443.73 709.21 L 487.35 371.67 C 500.62 269.27 548.03 221.87 629.57 238.93 Z"/>
+    <linearGradient id="volume" x1="15%" y1="0%" x2="82%" y2="100%">
+      <stop offset="0" stop-color="#FFE287"/>
+      <stop offset="0.32" stop-color="#FFCB27"/>
+      <stop offset="0.67" stop-color="#FFC819"/>
+      <stop offset="1" stop-color="#B89012"/>
+    </linearGradient>
+    <radialGradient id="crown" cx="30%" cy="5%" r="80%" gradientTransform="translate(0 .025) scale(1 .68)">
+      <stop offset="0" stop-color="#FFFFFF" stop-opacity=".64"/>
+      <stop offset=".26" stop-color="#FFFFFF" stop-opacity=".26"/>
+      <stop offset=".7" stop-color="#FFFFFF" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+  <use href="#silhouette" fill="url(#volume)"/>
+  <use href="#silhouette" fill="url(#crown)"/>
+</svg>
