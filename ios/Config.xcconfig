@@ -1,0 +1,12 @@
+// Settings for all three targets. Change these, not the project file.
+
+// Your Apple Developer team (Xcode > Settings > Accounts). Needed for a real device.
+DEVELOPMENT_TEAM =
+
+// Base bundle id. The Share Extension and widgets append .share / .widgets, and the
+// App Group is group.$(LINKS_BUNDLE_ID). Use something you own, e.g. com.yourname.links.
+LINKS_BUNDLE_ID = com.example.links
+
+// Where server/ runs. The Simulator can use localhost; a phone needs your VPS's https URL.
+// ("//" starts a comment in xcconfig files, hence the $() in the middle.)
+LINKS_SERVER_URL = http:/$()/localhost:8000

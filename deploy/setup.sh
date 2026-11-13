@@ -1,0 +1,132 @@
+#!/usr/bin/env bash
+# One-time setup of a fresh Debian 12/13 or Ubuntu 22.04/24.04 VPS for Links, then a first deploy.
+#
+#   WORKOS_CLIENT_ID=client_... WORKOS_API_KEY=sk_... ALLOWED_EMAILS=you@x.com,friend@y.com \
+#     deploy/setup.sh root@203.0.113.7 links.example.com
+#
+# The hostname's DNS A (and AAAA, if any) record must already point at the VPS, because Caddy
+# fetches a Let's Encrypt certificate for it. Safe to re-run: it only changes what's missing.
+# Secrets go over SSH stdin, never on a command line.
+set -euo pipefail
+
+HOST=${1:?usage: deploy/setup.sh user@host hostname}
+DOMAIN=${2:?usage: deploy/setup.sh user@host hostname}
+HERE=$(cd "$(dirname "$0")" && pwd)
+[[ $DOMAIN =~ ^[A-Za-z0-9]([A-Za-z0-9.-]*[A-Za-z0-9])?$ ]] || { echo "Not a hostname: $DOMAIN" >&2; exit 1; }
+
+# Run the script on stdin on the VPS as root (directly, or through sudo for a non-root login).
+# ssh joins its arguments into one remote shell command, so quote them into it ourselves.
+remote() {
+  local args
+  args=$(printf ' %q' "$@")
+  ssh "$HOST" "if [ \"\$(id -u)\" = 0 ]; then bash -s --$args; else sudo bash -s --$args; fi"
+}
+upload() { ssh "$HOST" "cat > '$2'" < "$1"; }
+
+echo "==> Uploading service files"
+ssh "$HOST" 'mkdir -p /tmp/links-setup'
+for f in links.service links-backup.service links-backup.timer; do upload "$HERE/$f" "/tmp/links-setup/$f"; done
+sed "s/links.example.com/$DOMAIN/" "$HERE/Caddyfile" | ssh "$HOST" 'cat > /tmp/links-setup/Caddyfile'
+
+# Only the settings you pass are sent; the VPS merges them into /etc/links/links.env, so re-running
+# with just WORKOS_API_KEY=... keeps your ALLOWED_EMAILS.
+{
+  echo "PUBLIC_URL=https://$DOMAIN"
+  for key in WORKOS_CLIENT_ID WORKOS_API_KEY ALLOWED_EMAILS; do
+    [[ -n "${!key:-}" ]] && echo "$key=${!key}"
+  done
+} | ssh "$HOST" 'umask 077; cat > /tmp/links-setup/links.env.new'
+
+echo "==> Configuring the VPS"
+remote "$DOMAIN" <<'REMOTE'
+set -euo pipefail
+DOMAIN=$1
+export DEBIAN_FRONTEND=noninteractive
+
+# Small boxes: give apt and Bun's GC some room.
+# (Best effort: container-based VPSes don't allow swapon, and that's fine.)
+if [ "$(free -m | awk '/^Mem:/{print $2}')" -lt 1500 ] && [ -z "$(swapon --show --noheadings 2>/dev/null)" ] \
+   && [ ! -e /swapfile ]; then
+  echo "    adding a 1 GB swapfile"
+  if { fallocate -l 1G /swapfile 2>/dev/null || dd if=/dev/zero of=/swapfile bs=1M count=1024 status=none; } \
+     && chmod 600 /swapfile && mkswap /swapfile >/dev/null && swapon /swapfile 2>/dev/null; then
+    grep -q '^/swapfile' /etc/fstab || echo '/swapfile none swap sw 0 0' >> /etc/fstab
+  else
+    echo "    this host doesn't allow swap; skipping"
+    swapoff /swapfile 2>/dev/null || true
+    rm -f /swapfile
+  fi
+fi
+
+# A freshly booted cloud image is often still running cloud-init / apt in the background.
+command -v cloud-init >/dev/null && cloud-init status --wait >/dev/null 2>&1 || true
+APT="apt-get -o DPkg::Lock::Timeout=300 -qq"
+
+$APT update
+$APT install -y curl gnupg debian-keyring debian-archive-keyring apt-transport-https \
+  unattended-upgrades ufw >/dev/null
+
+# Caddy from its official repo (distro packages lag far behind).
+if ! command -v caddy >/dev/null; then
+  echo "    installing Caddy"
+  curl -1sLf https://dl.cloudsmith.io/public/caddy/stable/gpg.key \
+    | gpg --dearmor --yes -o /usr/share/keyrings/caddy-stable-archive-keyring.gpg
+  curl -1sLf https://dl.cloudsmith.io/public/caddy/stable/debian.deb.txt \
+    > /etc/apt/sources.list.d/caddy-stable.list
+  chmod o+r /usr/share/keyrings/caddy-stable-archive-keyring.gpg /etc/apt/sources.list.d/caddy-stable.list
+  $APT update && $APT install -y caddy >/dev/null
+fi
+
+# Automatic security updates for the OS and for Caddy. (The Links binary embeds its runtime:
+# update it by re-running deploy/deploy.sh after `bun upgrade`.)
+cat > /etc/apt/apt.conf.d/20auto-upgrades <<'EOF'
+APT::Periodic::Update-Package-Lists "1";
+APT::Periodic::Unattended-Upgrade "1";
+EOF
+cat > /etc/apt/apt.conf.d/52links-caddy <<'EOF'
+Unattended-Upgrade::Origins-Pattern { "site=dl.cloudsmith.io"; };
+EOF
+
+# Service account and directories.
+id links >/dev/null 2>&1 || useradd --system --home-dir /var/lib/links --shell /usr/sbin/nologin links
+install -d -o links -g links -m 750 /var/lib/links
+install -d -m 755 /opt/links
+install -d -m 750 -g links /etc/links
+touch /etc/links/links.env
+while IFS='=' read -r key value; do
+  [ -n "$key" ] || continue
+  grep -v "^$key=" /etc/links/links.env > /etc/links/links.env.tmp || true
+  printf '%s=%s\n' "$key" "$value" >> /etc/links/links.env.tmp
+  mv /etc/links/links.env.tmp /etc/links/links.env
+done < /tmp/links-setup/links.env.new
+chown root:links /etc/links/links.env && chmod 640 /etc/links/links.env
+grep -q '^WORKOS_CLIENT_ID=.' /etc/links/links.env \
+  || echo "    NOTE: set WORKOS_CLIENT_ID in /etc/links/links.env (or re-run setup.sh with it), then: systemctl restart links"
+
+install -m 644 /tmp/links-setup/links.service /tmp/links-setup/links-backup.service \
+  /tmp/links-setup/links-backup.timer /etc/systemd/system/
+install -m 644 /tmp/links-setup/Caddyfile /etc/caddy/Caddyfile
+rm -rf /tmp/links-setup
+
+# Firewall: SSH and web only. (Skipped quietly on hosts whose kernel lacks the needed modules.)
+# Allow every port sshd actually listens on (not just 22) before turning the firewall on.
+SSH_PORTS=$(sshd -T 2>/dev/null | awk '$1 == "port" {print $2}' | sort -u)
+[ -n "$SSH_PORTS" ] || SSH_PORTS=22
+ok=1
+for port in $SSH_PORTS; do ufw allow "$port/tcp" >/dev/null || ok=0; done
+ufw allow 80/tcp >/dev/null && ufw allow 443 >/dev/null || ok=0
+if [ "$ok" = 1 ]; then
+  ufw --force enable >/dev/null || echo "    ufw could not be enabled; configure your provider's firewall instead"
+else
+  echo "    ufw isn't usable here; configure your provider's firewall instead"
+fi
+
+systemctl daemon-reload
+systemctl enable links.service links-backup.timer >/dev/null 2>&1
+systemctl start links-backup.timer
+systemctl reload caddy || systemctl restart caddy
+echo "    VPS ready for $DOMAIN"
+REMOTE
+
+echo "==> First deploy"
+"$HERE/deploy.sh" "$HOST"

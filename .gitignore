@@ -1,2 +1,15 @@
 data/
 __pycache__/
+.DS_Store
+
+# iOS
+ios/build/
+xcuserdata/
+*.xcuserstate
+ios/LinksKit/.build/
+ios/LinksKit/.swiftpm/
+
+# server
+server/node_modules/
+server/dist/
+server/data/

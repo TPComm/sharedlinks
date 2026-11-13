@@ -1,0 +1,591 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 77;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		1A2B3C4D0000000000000101 /* LinksKit in Frameworks */ = {isa = PBXBuildFile; productRef = 1A2B3C4D0000000000000091 /* LinksKit */; };
+		1A2B3C4D0000000000000102 /* LinksKit in Frameworks */ = {isa = PBXBuildFile; productRef = 1A2B3C4D0000000000000092 /* LinksKit */; };
+		1A2B3C4D0000000000000103 /* LinksKit in Frameworks */ = {isa = PBXBuildFile; productRef = 1A2B3C4D0000000000000093 /* LinksKit */; };
+		1A2B3C4D0000000000000104 /* LinksShare.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 1A2B3C4D0000000000000032 /* LinksShare.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		1A2B3C4D0000000000000105 /* LinksWidgets.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 1A2B3C4D0000000000000033 /* LinksWidgets.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+/* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		1A2B3C4D0000000000000111 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 1A2B3C4D0000000000000001 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 1A2B3C4D0000000000000042;
+			remoteInfo = LinksShare;
+		};
+		1A2B3C4D0000000000000112 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 1A2B3C4D0000000000000001 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 1A2B3C4D0000000000000043;
+			remoteInfo = LinksWidgets;
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXCopyFilesBuildPhase section */
+		1A2B3C4D0000000000000064 /* Embed Foundation Extensions */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 13;
+			files = (
+				1A2B3C4D0000000000000104 /* LinksShare.appex in Embed Foundation Extensions */,
+				1A2B3C4D0000000000000105 /* LinksWidgets.appex in Embed Foundation Extensions */,
+			);
+			name = "Embed Foundation Extensions";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
+
+/* Begin PBXFileReference section */
+		1A2B3C4D0000000000000031 /* Links.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Links.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		1A2B3C4D0000000000000032 /* LinksShare.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = LinksShare.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+		1A2B3C4D0000000000000033 /* LinksWidgets.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = LinksWidgets.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+		1A2B3C4D0000000000000034 /* Config.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Config.xcconfig; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXFileSystemSynchronizedRootGroup section */
+		1A2B3C4D0000000000000021 /* Links */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = Links;
+			sourceTree = "<group>";
+		};
+		1A2B3C4D0000000000000022 /* LinksShare */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = LinksShare;
+			sourceTree = "<group>";
+		};
+		1A2B3C4D0000000000000023 /* LinksWidgets */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = LinksWidgets;
+			sourceTree = "<group>";
+		};
+		1A2B3C4D0000000000000024 /* Support */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = Support;
+			sourceTree = "<group>";
+		};
+/* End PBXFileSystemSynchronizedRootGroup section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		1A2B3C4D0000000000000052 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				1A2B3C4D0000000000000101 /* LinksKit in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		1A2B3C4D0000000000000055 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				1A2B3C4D0000000000000102 /* LinksKit in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		1A2B3C4D0000000000000058 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				1A2B3C4D0000000000000103 /* LinksKit in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		1A2B3C4D0000000000000011 = {
+			isa = PBXGroup;
+			children = (
+				1A2B3C4D0000000000000034 /* Config.xcconfig */,
+				1A2B3C4D0000000000000021 /* Links */,
+				1A2B3C4D0000000000000022 /* LinksShare */,
+				1A2B3C4D0000000000000023 /* LinksWidgets */,
+				1A2B3C4D0000000000000024 /* Support */,
+				1A2B3C4D0000000000000012 /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		1A2B3C4D0000000000000012 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				1A2B3C4D0000000000000031 /* Links.app */,
+				1A2B3C4D0000000000000032 /* LinksShare.appex */,
+				1A2B3C4D0000000000000033 /* LinksWidgets.appex */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		1A2B3C4D0000000000000041 /* Links */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 1A2B3C4D0000000000000072 /* Build configuration list for PBXNativeTarget "Links" */;
+			buildPhases = (
+				1A2B3C4D0000000000000051 /* Sources */,
+				1A2B3C4D0000000000000052 /* Frameworks */,
+				1A2B3C4D0000000000000053 /* Resources */,
+				1A2B3C4D0000000000000064 /* Embed Foundation Extensions */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				1A2B3C4D0000000000000121 /* PBXTargetDependency */,
+				1A2B3C4D0000000000000122 /* PBXTargetDependency */,
+			);
+			fileSystemSynchronizedGroups = (
+				1A2B3C4D0000000000000021 /* Links */,
+			);
+			name = Links;
+			packageProductDependencies = (
+				1A2B3C4D0000000000000091 /* LinksKit */,
+			);
+			productName = Links;
+			productReference = 1A2B3C4D0000000000000031 /* Links.app */;
+			productType = "com.apple.product-type.application";
+		};
+		1A2B3C4D0000000000000042 /* LinksShare */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 1A2B3C4D0000000000000073 /* Build configuration list for PBXNativeTarget "LinksShare" */;
+			buildPhases = (
+				1A2B3C4D0000000000000054 /* Sources */,
+				1A2B3C4D0000000000000055 /* Frameworks */,
+				1A2B3C4D0000000000000056 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			fileSystemSynchronizedGroups = (
+				1A2B3C4D0000000000000022 /* LinksShare */,
+			);
+			name = LinksShare;
+			packageProductDependencies = (
+				1A2B3C4D0000000000000092 /* LinksKit */,
+			);
+			productName = LinksShare;
+			productReference = 1A2B3C4D0000000000000032 /* LinksShare.appex */;
+			productType = "com.apple.product-type.app-extension";
+		};
+		1A2B3C4D0000000000000043 /* LinksWidgets */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 1A2B3C4D0000000000000074 /* Build configuration list for PBXNativeTarget "LinksWidgets" */;
+			buildPhases = (
+				1A2B3C4D0000000000000057 /* Sources */,
+				1A2B3C4D0000000000000058 /* Frameworks */,
+				1A2B3C4D0000000000000059 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			fileSystemSynchronizedGroups = (
+				1A2B3C4D0000000000000023 /* LinksWidgets */,
+			);
+			name = LinksWidgets;
+			packageProductDependencies = (
+				1A2B3C4D0000000000000093 /* LinksKit */,
+			);
+			productName = LinksWidgets;
+			productReference = 1A2B3C4D0000000000000033 /* LinksWidgets.appex */;
+			productType = "com.apple.product-type.app-extension";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		1A2B3C4D0000000000000001 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = 1;
+				LastSwiftUpdateCheck = 2700;
+				LastUpgradeCheck = 2700;
+				TargetAttributes = {
+					1A2B3C4D0000000000000041 = {
+						CreatedOnToolsVersion = 27.0;
+					};
+					1A2B3C4D0000000000000042 = {
+						CreatedOnToolsVersion = 27.0;
+					};
+					1A2B3C4D0000000000000043 = {
+						CreatedOnToolsVersion = 27.0;
+					};
+				};
+			};
+			buildConfigurationList = 1A2B3C4D0000000000000071 /* Build configuration list for PBXProject "Links" */;
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				en,
+				Base,
+			);
+			mainGroup = 1A2B3C4D0000000000000011;
+			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				1A2B3C4D0000000000000090 /* XCLocalSwiftPackageReference "LinksKit" */,
+			);
+			preferredProjectObjectVersion = 77;
+			productRefGroup = 1A2B3C4D0000000000000012 /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				1A2B3C4D0000000000000041 /* Links */,
+				1A2B3C4D0000000000000042 /* LinksShare */,
+				1A2B3C4D0000000000000043 /* LinksWidgets */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		1A2B3C4D0000000000000053 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		1A2B3C4D0000000000000056 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		1A2B3C4D0000000000000059 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		1A2B3C4D0000000000000051 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		1A2B3C4D0000000000000054 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		1A2B3C4D0000000000000057 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		1A2B3C4D0000000000000121 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 1A2B3C4D0000000000000042 /* LinksShare */;
+			targetProxy = 1A2B3C4D0000000000000111 /* PBXContainerItemProxy */;
+		};
+		1A2B3C4D0000000000000122 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 1A2B3C4D0000000000000043 /* LinksWidgets */;
+			targetProxy = 1A2B3C4D0000000000000112 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
+
+/* Begin XCBuildConfiguration section */
+		1A2B3C4D0000000000000081 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReference = 1A2B3C4D0000000000000034 /* Config.xcconfig */;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu17;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"DEBUG=1",
+					"$(inherited)",
+				);
+				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
+				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				ONLY_ACTIVE_ARCH = YES;
+				SDKROOT = iphoneos;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG $(inherited)";
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_VERSION = 6.0;
+			};
+			name = Debug;
+		};
+		1A2B3C4D0000000000000082 /* Release */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReference = 1A2B3C4D0000000000000034 /* Config.xcconfig */;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu17;
+				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
+				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				SDKROOT = iphoneos;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 6.0;
+				VALIDATE_PRODUCT = YES;
+			};
+			name = Release;
+		};
+		1A2B3C4D0000000000000083 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = Support/Links.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				ENABLE_PREVIEWS = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = "Support/Links-Info.plist";
+				INFOPLIST_KEY_CFBundleDisplayName = Links;
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.social-networking";
+				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
+				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
+				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = UIInterfaceOrientationPortrait;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 2.0;
+				PRODUCT_BUNDLE_IDENTIFIER = "$(LINKS_BUNDLE_ID)";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		1A2B3C4D0000000000000084 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = Support/Links.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				ENABLE_PREVIEWS = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = "Support/Links-Info.plist";
+				INFOPLIST_KEY_CFBundleDisplayName = Links;
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.social-networking";
+				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
+				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
+				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = UIInterfaceOrientationPortrait;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 2.0;
+				PRODUCT_BUNDLE_IDENTIFIER = "$(LINKS_BUNDLE_ID)";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
+		1A2B3C4D0000000000000085 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				APPLICATION_EXTENSION_API_ONLY = YES;
+				CODE_SIGN_ENTITLEMENTS = Support/LinksShare.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = "Support/LinksShare-Info.plist";
+				INFOPLIST_KEY_CFBundleDisplayName = Links;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 2.0;
+				PRODUCT_BUNDLE_IDENTIFIER = "$(LINKS_BUNDLE_ID).share";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		1A2B3C4D0000000000000086 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				APPLICATION_EXTENSION_API_ONLY = YES;
+				CODE_SIGN_ENTITLEMENTS = Support/LinksShare.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = "Support/LinksShare-Info.plist";
+				INFOPLIST_KEY_CFBundleDisplayName = Links;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 2.0;
+				PRODUCT_BUNDLE_IDENTIFIER = "$(LINKS_BUNDLE_ID).share";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
+		1A2B3C4D0000000000000087 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				APPLICATION_EXTENSION_API_ONLY = YES;
+				CODE_SIGN_ENTITLEMENTS = Support/LinksWidgets.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = "Support/LinksWidgets-Info.plist";
+				INFOPLIST_KEY_CFBundleDisplayName = Links;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 2.0;
+				PRODUCT_BUNDLE_IDENTIFIER = "$(LINKS_BUNDLE_ID).widgets";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		1A2B3C4D0000000000000088 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				APPLICATION_EXTENSION_API_ONLY = YES;
+				CODE_SIGN_ENTITLEMENTS = Support/LinksWidgets.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = "Support/LinksWidgets-Info.plist";
+				INFOPLIST_KEY_CFBundleDisplayName = Links;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 2.0;
+				PRODUCT_BUNDLE_IDENTIFIER = "$(LINKS_BUNDLE_ID).widgets";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		1A2B3C4D0000000000000071 /* Build configuration list for PBXProject "Links" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				1A2B3C4D0000000000000081 /* Debug */,
+				1A2B3C4D0000000000000082 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		1A2B3C4D0000000000000072 /* Build configuration list for PBXNativeTarget "Links" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				1A2B3C4D0000000000000083 /* Debug */,
+				1A2B3C4D0000000000000084 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		1A2B3C4D0000000000000073 /* Build configuration list for PBXNativeTarget "LinksShare" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				1A2B3C4D0000000000000085 /* Debug */,
+				1A2B3C4D0000000000000086 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		1A2B3C4D0000000000000074 /* Build configuration list for PBXNativeTarget "LinksWidgets" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				1A2B3C4D0000000000000087 /* Debug */,
+				1A2B3C4D0000000000000088 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+/* End XCConfigurationList section */
+
+/* Begin XCLocalSwiftPackageReference section */
+		1A2B3C4D0000000000000090 /* XCLocalSwiftPackageReference "LinksKit" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = LinksKit;
+		};
+/* End XCLocalSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		1A2B3C4D0000000000000091 /* LinksKit */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = LinksKit;
+		};
+		1A2B3C4D0000000000000092 /* LinksKit */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = LinksKit;
+		};
+		1A2B3C4D0000000000000093 /* LinksKit */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = LinksKit;
+		};
+/* End XCSwiftPackageProductDependency section */
+	};
+	rootObject = 1A2B3C4D0000000000000001 /* Project object */;
+}
