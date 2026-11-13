@@ -197,6 +197,11 @@ final class AppModel {
 
     /// The app icon badge shows the To Watch count. iOS only asks once; later calls are no-ops.
     func requestBadgePermission() {
+        #if DEBUG
+        // No system prompt in UI tests: while it's up the app is inactive and doesn't fetch, and a
+        // fresh CI Simulator shows it whenever it likes (ios/scripts/ui-tests.sh).
+        if ProcessInfo.processInfo.environment["LINKS_UI_TESTS"] == "1" { return }
+        #endif
         Task { _ = try? await UNUserNotificationCenter.current().requestAuthorization(options: [.badge]) }
     }
 

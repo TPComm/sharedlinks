@@ -29,8 +29,7 @@ final class LinksUITests: XCTestCase {
         let note = "Watch this \(shortID())"
         let link = try seed(by: server.friend, note: note)
         launch()
-        let row = row(link, in: "toWatch")
-        XCTAssert(row.waitForExistence(timeout: 10))
+        let row = waitForRow(link, in: "toWatch")
         XCTAssert(row.label.contains(note), row.label)
         XCTAssert(row.label.contains("Friend"), row.label)
         XCTAssert(row.label.contains("Not watched"), row.label)
@@ -39,8 +38,7 @@ final class LinksUITests: XCTestCase {
     func testOpeningALinkMarksItWatched() throws {
         let link = try seed(by: server.friend)
         launch()
-        let row = row(link, in: "toWatch")
-        XCTAssert(row.waitForExistence(timeout: 10))
+        let row = waitForRow(link, in: "toWatch")
         row.tap() // hands the link to Safari, which takes over the screen
         let me = try server.state(as: server.me).me
         try server.eventually("seen by me") { try server.state(as: server.friend).link(link.id)?.seen[me] }
@@ -49,8 +47,7 @@ final class LinksUITests: XCTestCase {
     func testMarkingWatchedMovesItToWatchedAndTellsTheServer() throws {
         let link = try seed(by: server.friend)
         launch()
-        let row = row(link, in: "toWatch")
-        XCTAssert(row.waitForExistence(timeout: 10))
+        let row = waitForRow(link, in: "toWatch")
         row.swipeRight()
         app.collectionViews["links.toWatch"].buttons["Watched"].tap()
         XCTAssert(row.waitForNonExistence(timeout: 5), "still in To Watch")
@@ -68,8 +65,7 @@ final class LinksUITests: XCTestCase {
         let link = try seed(by: server.me, note: "Sent \(shortID())")
         launch()
         app.tabBars.buttons["Sent"].tap()
-        let row = row(link, in: "sent")
-        XCTAssert(row.waitForExistence(timeout: 10))
+        let row = waitForRow(link, in: "sent")
         XCTAssert(row.label.contains("Not seen yet"), row.label)
 
         try server.setSeen(link.id, true, as: server.friend)
@@ -83,7 +79,7 @@ final class LinksUITests: XCTestCase {
         let other = try seed(by: server.friend, note: "Something else")
         launch()
         app.tabBars.buttons["Search"].tap()
-        XCTAssert(row(other, in: "all").waitForExistence(timeout: 10))
+        waitForRow(other, in: "all")
 
         // The search field stays tucked under the title until the list is pulled down.
         app.collectionViews["links.all"].swipeDown()
@@ -156,8 +152,7 @@ final class LinksUITests: XCTestCase {
     func testReactingAndEditingTheNote() throws {
         let link = try seed(by: server.friend)
         launch()
-        let row = row(link, in: "toWatch")
-        XCTAssert(row.waitForExistence(timeout: 10))
+        let row = waitForRow(link, in: "toWatch")
         let me = try server.state(as: server.me).me
 
         menu(on: row, item: "❤️").tap()
@@ -183,8 +178,7 @@ final class LinksUITests: XCTestCase {
         let link = try seed(by: server.me)
         launch()
         app.tabBars.buttons["Sent"].tap()
-        let row = row(link, in: "sent")
-        XCTAssert(row.waitForExistence(timeout: 10))
+        let row = waitForRow(link, in: "sent")
         row.swipeLeft()
         app.collectionViews["links.sent"].buttons["Delete"].tap()
 
@@ -218,24 +212,26 @@ final class LinksUITests: XCTestCase {
         app.launchEnvironment = [
             "LINKS_SERVER_URL": server.url.absoluteString,
             "LINKS_DEV_TOKEN": token ?? server.me,
+            "LINKS_UI_TESTS": "1", // no badge-permission prompt (see AppModel.requestBadgePermission)
         ]
         app.launch()
         XCTAssert(app.tabBars.buttons["To Watch"].waitForExistence(timeout: 20), "no inbox")
-        allowBadgesIfAsked()
-    }
-
-    /// The app asks for badge permission on its first launch on a Simulator; answer it once.
-    private static var answeredBadgePrompt = false
-
-    private func allowBadgesIfAsked() {
-        guard !Self.answeredBadgePrompt else { return }
-        Self.answeredBadgePrompt = true
-        let allow = XCUIApplication(bundleIdentifier: "com.apple.springboard").alerts.buttons["Allow"]
-        if allow.waitForExistence(timeout: 3) { allow.tap() }
     }
 
     private func row(_ link: LinksServer.Link, in list: String) -> XCUIElement {
         app.collectionViews["links.\(list)"].buttons["link.\(link.id)"]
+    }
+
+    /// The row of a link the server already had at launch. If the launch fetch hasn't landed yet
+    /// (a slow CI Simulator), pull to refresh once, as a person would, before failing.
+    @discardableResult
+    private func waitForRow(_ link: LinksServer.Link, in list: String) -> XCUIElement {
+        let row = row(link, in: list)
+        if !row.waitForExistence(timeout: 10) {
+            app.collectionViews["links.\(list)"].swipeDown()
+            XCTAssert(row.waitForExistence(timeout: 10), "link \(link.id) never showed up in \(list)")
+        }
+        return row
     }
 
     /// Long-presses a row for its context menu and returns one of the menu's buttons.
