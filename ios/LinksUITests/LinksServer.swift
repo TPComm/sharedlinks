@@ -12,15 +12,18 @@ struct LinksServer: Sendable {
     let friend: String
     /// Another session of "Me", for the test that signs out (which ends the session).
     let spare: String
+    /// A third person, for the test that deletes their account.
+    let deletable: String
 
     static func fromEnvironment() throws -> LinksServer {
         let env = ProcessInfo.processInfo.environment
         guard let raw = env["LINKS_SERVER_URL"], let url = URL(string: raw),
               let me = env["LINKS_DEV_TOKEN"], let friend = env["LINKS_FRIEND_TOKEN"],
-              let spare = env["LINKS_SPARE_TOKEN"], ![me, friend, spare].contains("") else {
+              let spare = env["LINKS_SPARE_TOKEN"], let deletable = env["LINKS_DELETABLE_TOKEN"],
+              ![me, friend, spare, deletable].contains("") else {
             throw XCTSkip("Run ios/scripts/ui-tests.sh, which starts a server for these tests.")
         }
-        return LinksServer(url: url, me: me, friend: friend, spare: spare)
+        return LinksServer(url: url, me: me, friend: friend, spare: spare, deletable: deletable)
     }
 
     struct Link: Decodable, Sendable {

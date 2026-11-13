@@ -1,6 +1,6 @@
 import type { Database } from "bun:sqlite";
 import type { Config } from "./config.ts";
-import { LEGACY, now, type UserRow } from "./db.ts";
+import { DELETED_USER, LEGACY, now, type UserRow } from "./db.ts";
 import { BadRequest, clip } from "./links.ts";
 
 export class AuthError extends Error {
@@ -106,6 +106,41 @@ export class Accounts {
     })();
   }
 
+  /**
+   * Delete an account (App Store guideline 5.1.1(v)), in one transaction: the user, their sessions,
+   * and their seen marks and reactions. The links they sent stay for everyone else, from
+   * DELETED_USER, so signing up again (same WorkOS id, same email) starts with nothing. Then the
+   * WorkOS user goes too, if the server has an API key to do that with.
+   */
+  async deleteUser(userId: string): Promise<{ links: number; workos: "deleted" | "skipped" | "failed" }> {
+    const links = this.db.transaction(() => {
+      const { changes } = this.db.run("UPDATE links SET added_by = ? WHERE added_by = ?", [DELETED_USER, userId]);
+      this.db.run("DELETE FROM seen WHERE person = ?", [userId]);
+      this.db.run("DELETE FROM reactions WHERE person = ?", [userId]);
+      this.db.run("DELETE FROM users WHERE id = ?", [userId]); // sessions cascade
+      return changes;
+    })();
+    return { links, workos: await this.deleteWorkOSUser(userId) };
+  }
+
+  /** Best effort: the Links account is already gone, so a failure here is only logged. */
+  private async deleteWorkOSUser(userId: string): Promise<"deleted" | "skipped" | "failed"> {
+    // Only WorkOS ids: not mint-session's local_ people or legacy ones.
+    if (!this.config.workosApiKey || !userId.startsWith("user_")) return "skipped";
+    try {
+      const res = await fetch(`${this.config.workosApi}/user_management/users/${encodeURIComponent(userId)}`, {
+        method: "DELETE",
+        headers: { Authorization: `Bearer ${this.config.workosApiKey}`, "User-Agent": "SharedLinks/2.0" },
+        signal: AbortSignal.timeout(10_000),
+      });
+      if (res.ok || res.status === 404) return "deleted"; // 404: already gone
+      console.error(`WorkOS delete user ${userId} failed (${res.status}): ${(await res.text()).slice(0, 500)}`);
+    } catch (e) {
+      console.error(`WorkOS delete user ${userId} failed: ${e}`);
+    }
+    return "failed";
+  }
+
   // -- WorkOS AuthKit
 
   authorizeUrl(challenge: string, state: string, screenHint?: string | null): string {
@@ -158,6 +193,12 @@ export class Accounts {
     const name = user.first_name || titleCase((email.split("@")[0] ?? "").replace(/\./g, " ")) || "Someone";
     this.upsertUser(user.id, email, name, user.profile_picture_url || null);
     return { token: this.newSession(user.id), ...this.mePayload(user.id) };
+  }
+
+  /** Signed-in people (not legacy ones) with this email, for the admin commands. */
+  usersWithEmail(email: string): UserRow[] {
+    return this.db.query("SELECT * FROM users WHERE email = ? COLLATE NOCASE AND id NOT LIKE ? ORDER BY created_at")
+      .all(email, `${LEGACY}%`) as UserRow[];
   }
 
   /** Admin escape hatch (and how to sign in a Simulator build without WorkOS). */

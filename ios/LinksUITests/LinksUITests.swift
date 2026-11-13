@@ -240,6 +240,37 @@ final class LinksUITests: XCTestCase {
         }
     }
 
+    func testDeletingTheAccountSignsOutAndLeavesItsLinksFromDeletedUser() throws {
+        // An account of its own: deleting "Me" would sign every later test out.
+        let sent = try seed(by: server.deletable, note: "Mine \(shortID())")
+        let friends = try seed(by: server.friend)
+        try server.setSeen(friends.id, true, as: server.deletable)
+        let deleted = try server.state(as: server.deletable).me
+        launch(as: server.deletable)
+        app.tabBars.buttons["Sent"].tap()
+        waitForRow(sent, in: "sent") // so the warning can count it
+
+        app.buttons["account"].tap()
+        app.buttons["Delete Account…"].tap()
+        let alert = app.alerts["Delete Your Account?"]
+        XCTAssert(alert.waitForExistence(timeout: 5), "no confirmation")
+        let warning = NSPredicate(format: "label CONTAINS %@", "The link you sent stays for your friends, from “Deleted user”.")
+        XCTAssert(alert.staticTexts.matching(warning).firstMatch.exists, "the warning doesn't say what goes")
+        alert.buttons["Delete Account"].tap()
+
+        XCTAssert(app.buttons["signIn"].waitForExistence(timeout: 15), "not back at sign-in")
+        XCTAssertFalse(app.tabBars.firstMatch.exists)
+        XCTAssertEqual(try server.status("GET", "api/state", as: server.deletable), 401)
+        let state = try server.state(as: server.friend)
+        XCTAssertEqual(try XCTUnwrap(state.link(sent.id), "the link they sent went").addedBy, "deleted")
+        let kept = try XCTUnwrap(state.link(friends.id), "the friend's link went")
+        XCTAssertNil(kept.seen[deleted], "their watched mark is still there")
+
+        // The friend sees it as from "Deleted user".
+        launch(as: server.friend)
+        waitFor(waitForRow(sent, in: "toWatch"), labelContaining: "Deleted user")
+    }
+
     // MARK: Helpers
 
     /// Launches signed in (DEBUG builds take a session token from LINKS_DEV_TOKEN).

@@ -2,7 +2,7 @@ import type { Database } from "bun:sqlite";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, setSystemTime, spyOn, test } from "bun:test";
 import { Accounts, AuthError, cleanName, publicUser } from "../../src/accounts.ts";
 import { configFromEnv, type Config } from "../../src/config.ts";
-import { openDatabase } from "../../src/db.ts";
+import { DELETED_USER, openDatabase } from "../../src/db.ts";
 import { BadRequest } from "../../src/links.ts";
 import { closedPort, stubServer, tempDir } from "./helpers.ts";
 
@@ -249,6 +249,123 @@ describe("mintSession", () => {
     addUser("legacy:Sam", "sam@x.com", "Sam");
     const a = accounts();
     expect(a.sessionUser(a.mintSession("sam@x.com"))).toMatch(/^local_/);
+  });
+});
+
+describe("deleteUser", () => {
+  const workosCalls: { method: string; path: string; auth: string | null }[] = [];
+  let workosStatus = 200;
+  // Not stubServer, which routes by exact path: this one's path carries the user id.
+  const deletes = Bun.serve({
+    hostname: "127.0.0.1",
+    port: 0,
+    fetch(req) {
+      workosCalls.push({ method: req.method, path: new URL(req.url).pathname, auth: req.headers.get("authorization") });
+      return new Response(workosStatus < 300 ? null : "nope", { status: workosStatus });
+    },
+  });
+  let consoleError: ReturnType<typeof spyOn>;
+  beforeAll(() => {
+    consoleError = spyOn(console, "error").mockImplementation(() => {});
+  });
+  beforeEach(() => {
+    workosCalls.length = 0;
+    workosStatus = 200;
+  });
+  afterAll(() => {
+    consoleError.mockRestore();
+    deletes.stop(true);
+  });
+
+  function setup(over: Partial<Config> = {}) {
+    addUser("user_A", "a@x.com", "Riley");
+    addUser("user_B", "b@x.com", "Bo");
+    db.exec(`
+      INSERT INTO links (id, url, platform, thumb_type, added_by, added_at) VALUES
+        (1, 'https://a.com/1', 'web', 'image/png', 'user_A', 1), (2, 'https://a.com/2', 'web', NULL, 'user_A', 1),
+        (3, 'https://a.com/3', 'web', 'image/png', 'user_B', 1);
+      INSERT INTO seen VALUES (1, 'user_B', 5), (3, 'user_A', 6), (3, 'user_B', 7);
+      INSERT INTO reactions VALUES (1, 'user_B', '🔥'), (3, 'user_A', '😂'), (3, 'user_B', '❤️');
+    `);
+    const a = accounts({ workosApi: `http://127.0.0.1:${deletes.port}`, ...over });
+    for (const user of ["user_A", "user_A", "user_B"]) a.newSession(user);
+    return a;
+  }
+
+  test("deletes the account, its sessions, marks and reactions; its links stay, from no one", async () => {
+    expect(await setup().deleteUser("user_A")).toEqual({ links: 2, workos: "skipped" });
+    expect(rows("SELECT id FROM users")).toEqual([{ id: "user_B" }]);
+    expect(rows("SELECT user_id FROM sessions")).toEqual([{ user_id: "user_B" }]);
+    expect(rows("SELECT id, added_by FROM links ORDER BY id")).toEqual([
+      { id: 1, added_by: DELETED_USER }, { id: 2, added_by: DELETED_USER }, { id: 3, added_by: "user_B" },
+    ]);
+    // Everyone else's marks and reactions stay, on her links too.
+    expect(rows("SELECT link_id, person FROM seen ORDER BY link_id")).toEqual([
+      { link_id: 1, person: "user_B" }, { link_id: 3, person: "user_B" },
+    ]);
+    expect(rows("SELECT link_id, person FROM reactions ORDER BY link_id")).toEqual([
+      { link_id: 1, person: "user_B" }, { link_id: 3, person: "user_B" },
+    ]);
+    expect(workosCalls).toEqual([]); // no API key
+  });
+
+  test("an account made later with the same id starts empty", async () => {
+    const a = setup();
+    await a.deleteUser("user_A");
+    a.upsertUser("user_A", "a@x.com", "Riley", null); // signing in again with the same WorkOS user
+    expect(rows("SELECT id FROM links WHERE added_by = 'user_A'")).toEqual([]);
+    expect(a.mePayload("user_A").claimable).toEqual([]);
+  });
+
+  test("two deleted people's links share one sender", async () => {
+    const a = setup();
+    await a.deleteUser("user_A");
+    await a.deleteUser("user_B");
+    expect(rows("SELECT DISTINCT added_by FROM links")).toEqual([{ added_by: DELETED_USER }]);
+    expect([count("users"), count("sessions"), count("seen"), count("reactions")]).toEqual([0, 0, 0, 0]);
+  });
+
+  test("an id with nothing tied to it is a no-op", async () => {
+    const a = setup();
+    expect(await a.deleteUser("user_Nobody")).toEqual({ links: 0, workos: "skipped" });
+    expect([count("users"), count("sessions"), count("links"), count("seen"), count("reactions")]).toEqual([2, 3, 3, 3, 3]);
+  });
+
+  test("with an API key, deletes the WorkOS user too", async () => {
+    expect((await setup({ workosApiKey: "sk_test_1" }).deleteUser("user_A")).workos).toBe("deleted");
+    expect(workosCalls).toEqual([{ method: "DELETE", path: "/user_management/users/user_A", auth: "Bearer sk_test_1" }]);
+  });
+
+  test("a WorkOS user that's already gone counts as deleted", async () => {
+    workosStatus = 404;
+    expect((await setup({ workosApiKey: "sk_test_1" }).deleteUser("user_A")).workos).toBe("deleted");
+  });
+
+  test("a WorkOS failure is logged, and the Links account is gone anyway", async () => {
+    workosStatus = 500;
+    expect(await setup({ workosApiKey: "sk_test_1" }).deleteUser("user_A")).toEqual({ links: 2, workos: "failed" });
+    expect(rows("SELECT id FROM users")).toEqual([{ id: "user_B" }]);
+    expect(consoleError).toHaveBeenLastCalledWith(expect.stringContaining("WorkOS delete user user_A failed (500): nope"));
+
+    const unreachable = accounts({ workosApiKey: "sk_test_1", workosApi: `http://127.0.0.1:${closedPort()}` });
+    expect((await unreachable.deleteUser("user_B")).workos).toBe("failed");
+    expect(count("users")).toBe(0);
+  });
+
+  test("never calls WorkOS for people it didn't sign in (mint-session's local_ ids)", async () => {
+    const a = setup({ workosApiKey: "sk_test_1" });
+    const local = a.sessionUser(a.mintSession("local@x.com"))!;
+    expect((await a.deleteUser(local)).workos).toBe("skipped");
+    expect(workosCalls).toEqual([]);
+  });
+
+  test("usersWithEmail: any case, oldest first, never legacy people", () => {
+    addUser("user_A", "Sam@X.com", "Sam", 2);
+    addUser("local_1", "sam@x.com", "Sam L", 1);
+    addUser("legacy:Sam", "sam@x.com", "Sam", 0);
+    addUser("user_B", "other@x.com", "Bo", 3);
+    expect(accounts().usersWithEmail("SAM@x.com").map((u) => u.id)).toEqual(["local_1", "user_A"]);
+    expect(accounts().usersWithEmail("nobody@x.com")).toEqual([]);
   });
 });
 

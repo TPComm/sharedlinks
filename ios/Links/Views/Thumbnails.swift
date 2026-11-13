@@ -13,6 +13,9 @@ enum ThumbnailCache {
         return image
     }
 
+    /// On sign-out, with the files under it (InboxSnapshot.clear).
+    static func clear() { images.removeAllObjects() }
+
     static func image(for link: SharedLink, client: APIClient) async -> UIImage? {
         if let image = cachedImage(for: link) { return image }
         guard let data = await ThumbnailStore.shared.data(for: link, client: client),

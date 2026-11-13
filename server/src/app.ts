@@ -180,6 +180,11 @@ export function createApp(config: Config) {
         accounts.rename(me, (await readJson(req)).name);
         return json(accounts.mePayload(me));
       }),
+      // Delete the account. The links it sent stay, from "Deleted user" (see Accounts.deleteUser).
+      DELETE: route(async (_req, me) => {
+        await accounts.deleteUser(me);
+        return json({ ok: true });
+      }),
     },
     "/api/me/claim": {
       POST: route(async (req, me) => {

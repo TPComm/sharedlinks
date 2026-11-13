@@ -368,9 +368,32 @@ describe("a day with Links", () => {
     expect((await call("/api/me", { token: mallory.stdout.trim() })).status).toBe(401);
   });
 
+  e2e("delete-user deletes an account the running server knows; its links stay, from no one", async () => {
+    const carol = (await cli(dataDir, "mint-session", "carol@team.test")).stdout.trim();
+    const id = (await call("/api/me", { token: carol })).data.user.id;
+    const sent = await call("/api/links", { token: carol, body: { url: `${origin}/from-carol` } });
+    expect(sent.status, sent.text).toBe(201);
+
+    const run = await cli(dataDir, "delete-user", "Carol@Team.test");
+    expect(run.code, run.logs()).toBe(0);
+    // No WORKOS_API_KEY here, and a local_ id isn't a WorkOS user anyway.
+    expect(run.stdout).toBe(`deleted Carol Jones (${id}); 1 sent link kept as "Deleted user"; WorkOS user: skipped\n`);
+    expect((await call("/api/me", { token: carol })).status).toBe(401);
+    const state = (await call("/api/state", { token: alice.token })).data;
+    expect(linkIn(state, sent.data.link.id).added_by).toBe("deleted");
+    expect(state.users.map((u: any) => u.id)).not.toContain(id);
+
+    const again = await cli(dataDir, "delete-user", "carol@team.test");
+    expect([again.code, again.stdout, again.stderr]).toEqual([1, "", "no account with the email carol@team.test\n"]);
+  });
+
   e2e("exits 1 with a message for mint-session without an email, or an unknown command", async () => {
     const usage = await cli(dataDir, "mint-session");
     expect([usage.code, usage.stdout, usage.stderr]).toEqual([1, "", "usage: links-server mint-session <email> [name]\n"]);
+    for (const args of [["delete-user"], ["delete-user", "a@example.com", "b@example.com"]]) {
+      const run = await cli(dataDir, ...args);
+      expect([run.code, run.stdout, run.stderr]).toEqual([1, "", "usage: links-server delete-user <email>\n"]);
+    }
     const unknown = await cli(dataDir, "frobnicate");
     expect([unknown.code, unknown.stdout, unknown.stderr]).toEqual([1, "", "unknown command: frobnicate\n"]);
   });

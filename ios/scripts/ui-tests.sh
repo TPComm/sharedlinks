@@ -66,6 +66,8 @@ me_token="$(mint me@e2e.test Me)"
 friend_token="$(mint friend@e2e.test Friend)"
 # A second session of "me" for the sign-out test, which ends the session it signs out of.
 spare_token="$(mint me@e2e.test)"
+# Someone else, for the test that deletes their account.
+deletable_token="$(mint deletable@e2e.test Deletable)"
 
 # -- destination: a Simulator of our own, so tests never take over the one you're using.
 destination="${LINKS_UI_TEST_DESTINATION:-}"
@@ -91,6 +93,7 @@ status=0
   TEST_RUNNER_LINKS_DEV_TOKEN="$me_token" \
   TEST_RUNNER_LINKS_FRIEND_TOKEN="$friend_token" \
   TEST_RUNNER_LINKS_SPARE_TOKEN="$spare_token" \
+  TEST_RUNNER_LINKS_DELETABLE_TOKEN="$deletable_token" \
   xcodebuild "${LINKS_UI_TEST_ACTION:-test}" \
     -project Links.xcodeproj \
     -scheme Links \
