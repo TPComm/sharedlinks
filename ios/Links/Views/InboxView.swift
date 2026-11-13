@@ -63,6 +63,7 @@ struct LinkListScreen: View {
                         } label: {
                             Label("New Link", systemImage: "plus")
                         }
+                        .accessibilityIdentifier("newLink")
                     }
                 }
         }
@@ -80,6 +81,7 @@ struct LinkList: View {
             LinkRow(link: link)
         }
         .listStyle(.plain)
+        .accessibilityIdentifier("links.\(filter.rawValue)")
         .animation(.default, value: links.map(\.id))
         .refreshable { await model.refresh() }
         .overlay {

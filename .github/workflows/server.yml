@@ -35,3 +35,8 @@ jobs:
       - run: bun test
       # The x64 and arm64 binaries deploy/deploy.sh ships to the VPS.
       - run: bun run build
+      # The shipped x64 (baseline) binary as a real process: sign-in, the API, its CLI, migrations
+      # and shutdown, over HTTP. Offline too.
+      - run: bun run test:e2e
+        env:
+          LINKS_BINARY: dist/links-server-linux-x64

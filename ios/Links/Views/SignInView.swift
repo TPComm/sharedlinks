@@ -35,6 +35,7 @@ struct SignInView: View {
                 }
                 .buttonStyle(.borderedProminent)
                 .controlSize(.large)
+                .accessibilityIdentifier("signIn")
 
                 Button("Create Account") {
                     Task { await model.signIn(with: webAuthenticationSession, signUp: true) }

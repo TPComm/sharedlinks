@@ -34,15 +34,20 @@ struct LinkRow: View {
             }
         }
         .swipeActions(edge: .trailing) {
-            Button(role: .destructive) { confirmingDelete = true } label: {
+            // Not role: .destructive: that makes the List remove the row at once, taking the
+            // confirmation below with it, so nothing would be deleted.
+            Button { confirmingDelete = true } label: {
                 Label("Delete", systemImage: "trash")
             }
+            .tint(.red)
             ShareLink(item: link.url, subject: Text(link.displayTitle), preview: sharePreview) {
                 Label("Share", systemImage: "square.and.arrow.up")
             }
             .tint(.indigo)
         }
-        .contextMenu { menu } preview: { LinkPreviewCard(link: link) }
+        // The preview is hosted in its own view graph, which doesn't inherit AppModel; without
+        // it ThumbnailView's @Environment lookup crashes on every long-press.
+        .contextMenu { menu } preview: { LinkPreviewCard(link: link).environment(model) }
         .confirmationDialog("Delete this \(link.platform.noun.lowercased()) for everyone?",
                             isPresented: $confirmingDelete, titleVisibility: .visible) {
             Button("Delete", role: .destructive) { Task { await model.delete(link) } }
@@ -53,6 +58,7 @@ struct LinkRow: View {
             Button("Cancel", role: .cancel) {}
         }
         .accessibilityElement(children: .combine)
+        .accessibilityIdentifier("link.\(link.id)")
         .accessibilityAction(named: seen ? "Mark as Not Watched" : "Mark as Watched") {
             Task { await model.setSeen(link, !seen) }
         }

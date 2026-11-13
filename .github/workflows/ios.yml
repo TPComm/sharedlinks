@@ -3,10 +3,11 @@ name: iOS
 on:
   pull_request:
     # The app icon lives outside ios/ (assets/icon/SharedLinks.icon), so changes there count too.
-    paths: ["ios/**", "assets/icon/**", ".github/workflows/ios.yml"]
+    # The UI tests run the app against server/, so server changes count as well.
+    paths: ["ios/**", "assets/icon/**", "server/**", ".github/workflows/ios.yml"]
   push:
     branches: [main]
-    paths: ["ios/**", "assets/icon/**", ".github/workflows/ios.yml"]
+    paths: ["ios/**", "assets/icon/**", "server/**", ".github/workflows/ios.yml"]
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -18,34 +19,49 @@ permissions:
 
 jobs:
   build:
-    name: LinksKit tests and app build
-    # The only hosted image with Xcode 27. One job for both steps: macOS minutes cost ~10x Linux
+    name: LinksKit tests, app build and UI tests
+    # The only hosted image with Xcode 27. One job for everything: macOS minutes cost ~10x Linux
     # and each job pays its own start-up and rounding.
     runs-on: xcode-27
-    timeout-minutes: 25
+    timeout-minutes: 40
     env:
       # The image defaults to Xcode 27.1; use 27.2, the same build as local development.
       DEVELOPER_DIR: /Applications/Xcode_27.2.app/Contents/Developer
     steps:
       - uses: actions/checkout@v7
 
-      - name: Xcode version
-        run: xcodebuild -version
+      - name: Xcode version and Simulator runtimes
+        run: |
+          xcodebuild -version
+          xcrun simctl list runtimes
 
       - name: LinksKit tests
         working-directory: ios/LinksKit
         run: swift test
 
-      # Compile the app, Share Extension and widgets for the Simulator. No signing: CI only checks
-      # that everything builds (arm64 only, which halves the work).
-      - name: Build Links for the iOS Simulator
+      # Compile the app, Share Extension, widgets and UI tests for the Simulator, once: the UI
+      # test step runs these products. Signed ad hoc (the Simulator default), since the app needs
+      # its App Group entitlement for the keychain. arm64 only, which halves the work.
+      - name: Build Links and its UI tests
         working-directory: ios
         run: >-
-          xcodebuild build
+          xcodebuild build-for-testing
           -project Links.xcodeproj
           -scheme Links
           -configuration Debug
           -destination 'generic/platform=iOS Simulator'
           -derivedDataPath build
           ARCHS=arm64
-          CODE_SIGNING_ALLOWED=NO
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          # Same Bun as server.yml and local development.
+          bun-version: 1.4.4
+
+      # Starts the server from source with an empty database, creates a "Links UI Tests"
+      # Simulator, and drives the app in it.
+      - name: UI tests
+        timeout-minutes: 20
+        env:
+          LINKS_UI_TEST_ACTION: test-without-building
+        run: ios/scripts/ui-tests.sh

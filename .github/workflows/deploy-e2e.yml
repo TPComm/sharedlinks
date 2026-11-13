@@ -1,0 +1,136 @@
+name: Deploy end-to-end
+
+# Runs deploy/setup.sh and deploy/deploy.sh for real against the runner itself, logged in as root
+# over SSH like on a fresh VPS: provisioning, merging settings on a re-run, a redeploy, and the
+# automatic rollback of a build that can't start. The checks are in deploy/test/e2e.sh.
+
+on:
+  pull_request:
+    paths: ["deploy/**", "server/**", ".github/workflows/deploy-e2e.yml"]
+  push:
+    branches: [main]
+    paths: ["deploy/**", "server/**", ".github/workflows/deploy-e2e.yml"]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  # Supersede older runs of a PR; let runs on main finish.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+jobs:
+  e2e:
+    name: setup.sh and deploy.sh as root on Ubuntu 24.04
+    # A throwaway VM with systemd and passwordless sudo, which setup.sh needs (containers lack systemd).
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    defaults:
+      run:
+        # An explicit shell: bash adds -o pipefail, so `script | tee log` fails when the script does.
+        shell: bash
+    steps:
+      - uses: actions/checkout@v7
+      - uses: oven-sh/setup-bun@v2
+        with:
+          # deploy.sh tests and compiles with the bun on PATH: the same Bun as server.yml.
+          bun-version: 1.4.4
+      - name: Install server dependencies
+        working-directory: server
+        run: bun install --frozen-lockfile
+
+      - name: Let root log in over SSH to localhost
+        timeout-minutes: 3
+        run: deploy/test/e2e.sh ssh-root
+
+      - name: Wait for cloud-init
+        timeout-minutes: 4
+        run: deploy/test/e2e.sh cloud-init
+
+      # "localhost" gets its certificate from Caddy's own CA: no ACME, no DNS. The runner doesn't
+      # trust that CA yet, so this first run's deploy.sh prints its "Couldn't reach" note; the check
+      # step then trusts it, and every later deploy.sh must reach https://localhost itself.
+      - name: setup.sh, first run
+        timeout-minutes: 12
+        run: |
+          WORKOS_CLIENT_ID=client_E2E ALLOWED_EMAILS=e2e@example.com \
+            deploy/setup.sh root@localhost localhost 2>&1 | tee "$RUNNER_TEMP/setup-1.log" \
+            || { echo "::error::setup.sh exited $? after: $(tail -n 1 "$RUNNER_TEMP/setup-1.log")"; exit 1; }
+
+      - name: Check the fresh install
+        timeout-minutes: 3
+        run: |
+          deploy/test/e2e.sh finished "$RUNNER_TEMP/setup-1.log"
+          deploy/test/e2e.sh stack
+          deploy/test/e2e.sh trust-caddy
+          deploy/test/e2e.sh env-file PUBLIC_URL=https://localhost WORKOS_CLIENT_ID=client_E2E \
+            ALLOWED_EMAILS=e2e@example.com -WORKOS_API_KEY
+          deploy/test/e2e.sh firewall "$RUNNER_TEMP/setup-1.log"
+          deploy/test/e2e.sh api
+          deploy/test/e2e.sh backup
+          deploy/test/e2e.sh first-deploy
+          deploy/test/e2e.sh tidy
+
+      # Only WORKOS_API_KEY this time: what the first run set must survive.
+      - name: setup.sh again with only WORKOS_API_KEY
+        timeout-minutes: 10
+        run: |
+          WORKOS_API_KEY=sk_test_e2e \
+            deploy/setup.sh root@localhost localhost 2>&1 | tee "$RUNNER_TEMP/setup-2.log" \
+            || { echo "::error::setup.sh exited $? after: $(tail -n 1 "$RUNNER_TEMP/setup-2.log")"; exit 1; }
+
+      - name: Check the settings were merged
+        timeout-minutes: 3
+        run: |
+          deploy/test/e2e.sh finished "$RUNNER_TEMP/setup-2.log" live
+          deploy/test/e2e.sh env-file PUBLIC_URL=https://localhost WORKOS_CLIENT_ID=client_E2E \
+            ALLOWED_EMAILS=e2e@example.com WORKOS_API_KEY=sk_test_e2e
+          deploy/test/e2e.sh service-env WORKOS_API_KEY=sk_test_e2e ALLOWED_EMAILS=e2e@example.com
+          deploy/test/e2e.sh stack
+          deploy/test/e2e.sh data
+          deploy/test/e2e.sh tidy
+
+      - name: deploy.sh again
+        timeout-minutes: 6
+        run: |
+          deploy/test/e2e.sh checksum running
+          # The second deploy (setup.sh's) already made a .prev; this one must replace it.
+          deploy/test/e2e.sh checksum prev-before /opt/links/links-server.prev
+          deploy/deploy.sh root@localhost 2>&1 | tee "$RUNNER_TEMP/deploy-3.log" \
+            || { echo "::error::deploy.sh exited $? after: $(tail -n 1 "$RUNNER_TEMP/deploy-3.log")"; exit 1; }
+
+      - name: Check the redeploy kept a rollback target
+        timeout-minutes: 3
+        run: |
+          deploy/test/e2e.sh finished "$RUNNER_TEMP/deploy-3.log" live
+          deploy/test/e2e.sh same-binary running /opt/links/links-server.prev
+          deploy/test/e2e.sh new-file prev-before /opt/links/links-server.prev
+          deploy/test/e2e.sh stack
+          deploy/test/e2e.sh data
+          deploy/test/e2e.sh tidy
+
+      # fake-bun.sh "builds" an executable that exits 1, so the new release never gets healthy.
+      - name: deploy.sh rolls back a build that can't start
+        timeout-minutes: 4
+        run: |
+          deploy/test/e2e.sh checksum good
+          deploy/test/e2e.sh checksum prev /opt/links/links-server.prev
+          rc=0
+          BUN="$GITHUB_WORKSPACE/deploy/test/fake-bun.sh" deploy/deploy.sh root@localhost 2>&1 \
+            | tee "$RUNNER_TEMP/deploy-bad.log" || rc=$?
+          deploy/test/e2e.sh rolled-back "$rc" "$RUNNER_TEMP/deploy-bad.log"
+          deploy/test/e2e.sh same-binary good
+          deploy/test/e2e.sh same-binary prev /opt/links/links-server.prev
+          deploy/test/e2e.sh same-file prev /opt/links/links-server.prev
+          deploy/test/e2e.sh stack
+          deploy/test/e2e.sh data
+          deploy/test/e2e.sh tidy
+
+      - name: Diagnostics
+        if: always()
+        timeout-minutes: 2
+        env:
+          JOB_STATUS: ${{ job.status }}
+        run: |
+          if [ "$JOB_STATUS" = success ]; then echo "Every check passed."; exit 0; fi
+          deploy/test/e2e.sh diagnostics

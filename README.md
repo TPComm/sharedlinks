@@ -63,8 +63,11 @@ Then open `ios/Links.xcodeproj`. In `ios/Config.xcconfig` set `DEVELOPMENT_TEAM`
 cd server && bun run mint-session you@example.com "Your Name"
 ```
 
-Put the printed token in the Links scheme (Edit Scheme → Run → Environment Variables) as
-`LINKS_DEV_TOKEN`, run once, and the app is signed in (Debug builds only).
+Put the printed token in a private copy of the Links scheme, not the shared one: the shared
+scheme is committed, and CI and `ios/scripts/ui-tests.sh` use it. In Product → Scheme → Manage
+Schemes, select Links, click Duplicate, and make sure **Shared** is unchecked on the copy (Xcode
+then keeps it in the gitignored `xcuserdata/`). Add `LINKS_DEV_TOKEN` under that copy's Edit
+Scheme → Run → Environment Variables, run it once, and the app is signed in (Debug builds only).
 
 `ios/LinksKit` is a Swift package shared by all three targets; `swift test` in that folder runs
 its tests on the Mac.

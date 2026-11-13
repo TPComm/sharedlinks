@@ -108,14 +108,21 @@ final class AppModel {
         claimable = me.claimable
     }
 
-    func claim(_ legacy: LinkUser) async {
-        await perform {
-            let me = try await self.client.claim(legacy.id)
-            self.setAccount(me.user)
-            self.claimable = me.claimable
-            self.showClaimSheet = false
-            self.toast = "Welcome back, \(me.user.name)"
-            await self.refresh()
+    /// Throws rather than using the app-wide alert, which would close ClaimSheet.
+    func claim(_ legacy: LinkUser) async throws {
+        do {
+            let me = try await client.claim(legacy.id)
+            setAccount(me.user)
+            claimable = me.claimable
+            showClaimSheet = false
+            toast = "Welcome back, \(me.user.name)"
+            await refresh()
+        } catch APIError.signedOut {
+            endSession() // closes the sheet along with the inbox
+        } catch {
+            // Someone else may have claimed that person meanwhile; don't offer them again.
+            await loadAccount()
+            throw error
         }
     }
 
@@ -198,23 +205,29 @@ final class AppModel {
     @discardableResult
     func add(_ text: String, note: String = "") async -> Bool {
         do {
-            let result = try await client.add(text, note: note)
-            patch(result.link)
-            if result.duplicate {
-                let link = result.link
-                toast = inbox.isMine(link)
-                    ? "You already added this one"
-                    : "Already here: \(inbox.name(of: link.addedBy)) sent it \(LinkFormat.ago(link.addedAt).lowercased())"
-            } else {
-                toast = "Sent"
-                if tab != .search { tab = .sent }
-                fastPollUntil = .now.addingTimeInterval(15)
-                ShareSuggestions.donateSend(in: inbox)
-            }
+            try await send(text, note: note)
             return true
         } catch {
             errorMessage = error.localizedDescription
             return false
+        }
+    }
+
+    /// `add` without the app-wide alert, for the New Link sheet: RootView's alert would close
+    /// the sheet and lose what was typed, so the sheet shows the error over itself.
+    func send(_ text: String, note: String = "") async throws {
+        let result = try await client.add(text, note: note)
+        patch(result.link)
+        if result.duplicate {
+            let link = result.link
+            toast = inbox.isMine(link)
+                ? "You already added this one"
+                : "Already here: \(inbox.name(of: link.addedBy)) sent it \(LinkFormat.ago(link.addedAt).lowercased())"
+        } else {
+            toast = "Sent"
+            if tab != .search { tab = .sent }
+            fastPollUntil = .now.addingTimeInterval(15)
+            ShareSuggestions.donateSend(in: inbox)
         }
     }
 
