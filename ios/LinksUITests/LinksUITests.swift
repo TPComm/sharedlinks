@@ -166,6 +166,8 @@ final class LinksUITests: XCTestCase {
         let alert = app.alerts["Add Note"]
         let field = alert.textFields.firstMatch
         XCTAssert(field.waitForExistence(timeout: 5))
+        // The alert focuses its field itself, but not always in time on a slow CI Simulator.
+        field.tap()
         field.typeText(note)
         alert.buttons["Save"].tap()
         try server.eventually("the note") {
