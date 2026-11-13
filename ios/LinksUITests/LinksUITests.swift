@@ -174,6 +174,38 @@ final class LinksUITests: XCTestCase {
         waitFor(row, labelContaining: note)
     }
 
+    func testReactingFromTheFeed() throws {
+        let link = try seed(by: server.friend)
+        launch()
+        let row = waitForRow(link, in: "toWatch")
+        let me = try server.state(as: server.me).me
+
+        let react = app.buttons["react.\(link.id)"]
+        XCTAssertEqual(react.label, "React")
+        react.tap()
+        let heart = app.buttons["reaction.❤️"]
+        XCTAssert(heart.waitForExistence(timeout: 5), "no reaction bar")
+        heart.tap()
+        XCTAssert(heart.waitForNonExistence(timeout: 5), "the reaction bar stayed open")
+        waitFor(row, labelContaining: "❤️ You")
+        try server.eventually("my reaction") {
+            try server.state(as: server.friend).link(link.id)?.reactions[me] == "❤️" ? true : nil
+        }
+        XCTAssertEqual(react.label, "Your reaction, ❤️")
+        // The react button sits on the row, but tapping it mustn't open (and so watch) the link.
+        XCTAssertEqual(app.state, .runningForeground)
+        XCTAssertNil(try server.state(as: server.friend).link(link.id)?.seen[me], "the link was opened")
+
+        // Picking the same one again takes it back.
+        react.tap()
+        XCTAssert(heart.waitForExistence(timeout: 5))
+        heart.tap()
+        try server.eventually("no reaction") {
+            try server.state(as: server.friend).link(link.id)?.reactions[me] == nil ? true : nil
+        }
+        XCTAssertEqual(react.label, "React")
+    }
+
     func testDeletingALinkRemovesItForEveryone() throws {
         let link = try seed(by: server.me)
         launch()
@@ -197,8 +229,11 @@ final class LinksUITests: XCTestCase {
         launch(as: server.spare)
         app.buttons["account"].tap()
         app.buttons["Sign Out"].tap()
-        XCTAssert(app.buttons["signIn"].waitForExistence(timeout: 10))
+        let signIn = app.buttons["signIn"]
+        XCTAssert(signIn.waitForExistence(timeout: 10))
         XCTAssertFalse(app.tabBars.firstMatch.exists)
+        XCTAssertEqual(app.buttons["Create Account"].frame.width, signIn.frame.width, accuracy: 1,
+                       "the sign-in buttons differ in width")
         // The server ended that session too.
         try server.eventually("the session ended") {
             try server.status("GET", "api/state", as: server.spare) == 401 ? true : nil

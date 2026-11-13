@@ -237,15 +237,48 @@ final class AppModel {
     }
 
     func setSeen(_ link: SharedLink, _ seen: Bool) async {
+        let me = inbox.me
         var optimistic = link
-        optimistic.seen[inbox.me] = seen ? .now : nil
-        patch(optimistic)
-        await perform { self.patch(try await self.client.setSeen(link.id, seen)) }
+        optimistic.seen[me] = seen ? .now : nil
+        let mark = optimistic.seen[me]
+        await patchOptimistically(optimistic, undo: { now in
+            guard now.seen[me] == mark else { return nil }
+            var restored = now
+            restored.seen[me] = link.seen[me]
+            return restored
+        }) { try await self.client.setSeen(link.id, seen) }
     }
 
     func react(_ link: SharedLink, _ emoji: String) async {
-        let next = link.reactions[inbox.me] == emoji ? nil : emoji
-        await perform { self.patch(try await self.client.react(link.id, next)) }
+        let me = inbox.me
+        let next = link.reactions[me] == emoji ? nil : emoji
+        var optimistic = link
+        optimistic.reactions[me] = next
+        await patchOptimistically(optimistic, undo: { now in
+            guard now.reactions[me] == next else { return nil }
+            var restored = now
+            restored.reactions[me] = link.reactions[me]
+            return restored
+        }) { try await self.client.react(link.id, next) }
+    }
+
+    /// Shows `optimistic` at once, then saves it. The server's copy is applied only if nothing
+    /// newer was patched meanwhile: a later tap already shows the right state, and the next poll
+    /// brings anything else. If saving fails, `undo` rolls back this one change (returning nil when
+    /// something newer has replaced it), since offline the refresh that follows can't.
+    private func patchOptimistically(_ optimistic: SharedLink,
+                                     undo: @escaping (SharedLink) -> SharedLink?,
+                                     save: @escaping () async throws -> SharedLink) async {
+        patch(optimistic)
+        let edits = localEdits
+        await perform(onFailure: {
+            if let now = self.inbox.links.first(where: { $0.id == optimistic.id }), let restored = undo(now) {
+                self.patch(restored)
+            }
+        }) {
+            let saved = try await save()
+            if edits == self.localEdits { self.patch(saved) }
+        }
     }
 
     func setNote(_ link: SharedLink, _ note: String) async {
@@ -295,14 +328,15 @@ final class AppModel {
         }
     }
 
-    private func perform(_ work: @escaping () async throws -> Void) async {
+    private func perform(onFailure: (() -> Void)? = nil, _ work: @escaping () async throws -> Void) async {
         do {
             try await work()
         } catch APIError.signedOut {
             endSession()
         } catch {
             errorMessage = error.localizedDescription
-            await refresh()
+            onFailure?()     // offline, the refresh below can't replace an optimistic change
+            await refresh()  // refused, the server's copy wins anyway
         }
     }
 }
