@@ -14,6 +14,7 @@ struct LinkRow: View {
     @ScaledMetric(relativeTo: .footnote) private var topLineCenter: CGFloat = 9
 
     private var reactGlyph: CGFloat { min(scaledReactGlyph, 30) }
+    private static let trailingInset: CGFloat = 16
     private var inbox: InboxState { model.inbox }
     private var mine: Bool { inbox.isMine(link) }
     private var seen: Bool { inbox.isSeenByMe(link) }
@@ -23,9 +24,9 @@ struct LinkRow: View {
         Button {
             model.open(link, with: openURL)
         } label: {
-            // The vertical insets live here, not in listRowInsets, so a tap there still opens it.
+            // The row's insets live here, not in listRowInsets, so a tap anywhere in it opens it.
             content
-                .padding(.vertical, 10)
+                .padding(EdgeInsets(top: 10, leading: 8, bottom: 10, trailing: Self.trailingInset))
                 .contentShape(.rect)
         }
         // Not the default style: in a List that makes the whole row one button, which then takes
@@ -38,11 +39,14 @@ struct LinkRow: View {
         }
         // After the accessibility settings above, so it isn't merged into the row's element.
         .overlay(alignment: .topTrailing) {
-            // Centred on the top line (below the 10pt padding), its capsule at the row's trailing edge.
+            // Centred on the top line (below the 10pt padding), its capsule ending where the text
+            // column does: the tap frame is wider than the capsule, by `slack` on each side.
+            let slack = (ReactButton.frameWidth(reactGlyph) - ReactButton.capsule(reactGlyph).width) / 2
             ReactButton(link: link, glyph: reactGlyph)
-                .offset(x: 6, y: 10 + topLineCenter - ReactButton.frameHeight(reactGlyph) / 2)
+                .offset(x: slack - Self.trailingInset,
+                        y: 10 + topLineCenter - ReactButton.frameHeight(reactGlyph) / 2)
         }
-        .listRowInsets(EdgeInsets(top: 0, leading: 8, bottom: 0, trailing: 16))
+        .listRowInsets(EdgeInsets())
         .swipeActions(edge: .leading) {
             if !mine {
                 Button {
@@ -127,23 +131,37 @@ struct LinkRow: View {
 
     @ViewBuilder private var footer: some View {
         let others = inbox.seenByOthers(link)
-        let reactions = link.reactions.sorted { $0.key < $1.key }
-            .map { (text: "\($0.value) \($0.key == inbox.me ? "You" : inbox.name(of: $0.key))", mine: $0.key == inbox.me) }
+        let reactions = link.reactions.sorted { $0.key < $1.key }.map {
+            Reaction(person: $0.key, text: "\($0.value) \($0.key == inbox.me ? "You" : inbox.name(of: $0.key))",
+                     mine: $0.key == inbox.me)
+        }
         if mine || !others.isEmpty || !reactions.isEmpty {
-            // One line when it fits; at large text sizes the chips go on their own line(s) rather
-            // than truncating to an emoji, which would hide who reacted.
+            // One line when it fits. Otherwise the chips go under the "seen" text, side by side if
+            // they fit and stacked if not, rather than truncating to an emoji and hiding who reacted.
             ViewThatFits(in: .horizontal) {
                 HStack(spacing: 8) { seenText(others); chips(reactions) }
                     .lineLimit(1)
                 VStack(alignment: .leading, spacing: 4) {
                     seenText(others)
-                    HStack(spacing: 6) { chips(reactions) }.lineLimit(1)
+                    if !reactions.isEmpty {
+                        // Decided by the chips' own width, whatever the seen text does above.
+                        ViewThatFits(in: .horizontal) {
+                            HStack(spacing: 6) { chips(reactions) }.lineLimit(1)
+                            VStack(alignment: .leading, spacing: 4) { chips(reactions) }
+                        }
+                    }
                 }
-                VStack(alignment: .leading, spacing: 4) { seenText(others); chips(reactions) }
             }
             .font(.footnote)
             .padding(.top, 2)
         }
+    }
+
+    /// A chip under the link; `person` is the identity, since two people's chips can read the same.
+    private struct Reaction {
+        let person: String
+        let text: String
+        let mine: Bool
     }
 
     @ViewBuilder private func seenText(_ others: [String]) -> some View {
@@ -160,8 +178,8 @@ struct LinkRow: View {
         }
     }
 
-    private func chips(_ reactions: [(text: String, mine: Bool)]) -> some View {
-        ForEach(reactions, id: \.text) { reaction in
+    private func chips(_ reactions: [Reaction]) -> some View {
+        ForEach(reactions, id: \.person) { reaction in
             Text(reaction.text)
                 .foregroundStyle(.secondary)
                 .padding(.horizontal, 7)
@@ -263,7 +281,8 @@ private struct ReactButton: View {
 
     /// The visible capsule: 32x26 at the default size.
     static func capsule(_ glyph: CGFloat) -> CGSize { CGSize(width: glyph * 16 / 9, height: glyph * 13 / 9) }
-    /// The tap area: 6pt either side of the capsule, and at least 44pt.
+    /// The tap area: 6pt either side of the capsule, and at least 44pt each way.
+    static func frameWidth(_ glyph: CGFloat) -> CGFloat { max(44, capsule(glyph).width + 12) }
     static func frameHeight(_ glyph: CGFloat) -> CGFloat { max(44, capsule(glyph).height) }
 
     var body: some View {
@@ -287,7 +306,7 @@ private struct ReactButton: View {
                         .frame(width: capsule.width, height: capsule.height)
                 }
             }
-            .frame(width: max(44, capsule.width + 12), height: Self.frameHeight(glyph))
+            .frame(width: Self.frameWidth(glyph), height: Self.frameHeight(glyph))
             .contentShape(.rect)
         }
         .buttonStyle(.borderless)

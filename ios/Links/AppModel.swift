@@ -25,6 +25,8 @@ final class AppModel {
     private var sessionID = UUID()
     /// Bumped by every local change, so a poll that started before it doesn't undo it.
     private var localEdits = 0
+    /// Like localEdits, per link: a save's reply is dropped only if that link changed since.
+    private var linkEdits: [Int: Int] = [:]
 
     var isSignedIn: Bool { token != nil }
     var client: APIClient { APIClient(token: token) }
@@ -186,6 +188,7 @@ final class AppModel {
 
     private func patch(_ link: SharedLink) {
         localEdits += 1
+        linkEdits[link.id, default: 0] += 1
         var state = inbox
         if let i = state.links.firstIndex(where: { $0.id == link.id }) {
             state.links[i] = link
@@ -262,22 +265,22 @@ final class AppModel {
         }) { try await self.client.react(link.id, next) }
     }
 
-    /// Shows `optimistic` at once, then saves it. The server's copy is applied only if nothing
-    /// newer was patched meanwhile: a later tap already shows the right state, and the next poll
+    /// Shows `optimistic` at once, then saves it. The server's copy is applied only if that link
+    /// wasn't patched again meanwhile: a later tap already shows the right state, and the next poll
     /// brings anything else. If saving fails, `undo` rolls back this one change (returning nil when
     /// something newer has replaced it), since offline the refresh that follows can't.
     private func patchOptimistically(_ optimistic: SharedLink,
                                      undo: @escaping (SharedLink) -> SharedLink?,
                                      save: @escaping () async throws -> SharedLink) async {
         patch(optimistic)
-        let edits = localEdits
+        let edits = linkEdits[optimistic.id]
         await perform(onFailure: {
             if let now = self.inbox.links.first(where: { $0.id == optimistic.id }), let restored = undo(now) {
                 self.patch(restored)
             }
         }) {
             let saved = try await save()
-            if edits == self.localEdits { self.patch(saved) }
+            if edits == self.linkEdits[optimistic.id] { self.patch(saved) }
         }
     }
 
@@ -287,6 +290,7 @@ final class AppModel {
 
     func delete(_ link: SharedLink) async {
         localEdits += 1
+        linkEdits[link.id, default: 0] += 1
         var state = inbox
         state.links.removeAll { $0.id == link.id }
         setInbox(state)

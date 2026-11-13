@@ -19,6 +19,9 @@ struct SignInView: View {
             }
             .scrollBounceBehavior(.basedOnSize)
         }
+        // No text field here: another app's keyboard (iPad Split View) mustn't shrink the screen
+        // into the compact layout and replay the hero's entrance.
+        .ignoresSafeArea(.keyboard)
         .background { SignInBackground() }
     }
 
@@ -104,7 +107,7 @@ private struct SignInHero: View {
         Bubble(id: 1, content: .platform(.tiktok), x: 100, y: -78),
         Bubble(id: 2, content: .emoji("😂"), x: 110, y: 34),
         Bubble(id: 3, content: .platform(.instagram), x: -98, y: 64),
-        Bubble(id: 4, content: .emoji("🔥"), x: 34, y: 92),
+        Bubble(id: 4, content: .emoji("🔥"), x: 34, y: 90),
     ]
 
     var body: some View {
@@ -127,6 +130,9 @@ private struct SignInHero: View {
             }
         }
         .frame(height: 240)
+        // Decorative (hidden from VoiceOver), and its badges are placed for this text size; larger
+        // ones would run into the icon.
+        .dynamicTypeSize(...DynamicTypeSize.large)
         .onAppear { shown = true }
         .accessibilityHidden(true)
     }
