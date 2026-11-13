@@ -148,4 +148,5 @@ All endpoints except sign-in need `Authorization: Bearer <session token>`.
 
 Admin: `links-server mint-session <email> [name]` and `links-server backup [dir]`.
 
-`tools/make-icon.ts` redraws the app icon (`bun tools/make-icon.ts`).
+The app icon is `assets/icon/SharedLinks.icon`, a layered Icon Composer document the Xcode project uses
+directly; open it in Icon Composer to edit. `assets/icon/README.md` has previews and the alternate design.

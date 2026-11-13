@@ -71,20 +71,21 @@ public enum ShareSuggestions {
 
     static func groupImage() -> INImage? {
         render { rect in
-            let colors = [UIColor(red: 1, green: 0.22, blue: 0.37, alpha: 1).cgColor,
-                          UIColor(red: 0.47, green: 0.24, blue: 0.86, alpha: 1).cgColor]
-            let ctx = UIGraphicsGetCurrentContext()!
             UIBezierPath(ovalIn: rect).addClip()
-            let gradient = CGGradient(colorsSpace: nil, colors: colors as CFArray, locations: [0, 1])!
-            ctx.drawLinearGradient(gradient, start: .zero, end: CGPoint(x: 0, y: rect.maxY), options: [])
-            let play = UIBezierPath()
-            play.move(to: CGPoint(x: rect.width * 0.40, y: rect.height * 0.30))
-            play.addLine(to: CGPoint(x: rect.width * 0.40, y: rect.height * 0.70))
-            play.addLine(to: CGPoint(x: rect.width * 0.70, y: rect.height * 0.50))
-            play.close()
-            UIColor.white.setFill()
-            play.fill()
+            uiColor(BrandMark.backgroundRGB).setFill()
+            UIRectFill(rect)
+            // The mark fills the icon square edge to edge; inset it so it sits inside the circle.
+            let mark = rect.insetBy(dx: rect.width * 0.12, dy: rect.height * 0.12)
+            uiColor(BrandMark.graphiteRGB).setFill()
+            UIBezierPath(cgPath: BrandMark.graphitePath(in: mark)).fill()
+            uiColor(BrandMark.greenRGB).setFill()
+            UIBezierPath(cgPath: BrandMark.greenPath(in: mark)).fill()
         }
+    }
+
+    static func uiColor(_ rgb: UInt32) -> UIColor {
+        UIColor(red: CGFloat(rgb >> 16 & 0xFF) / 255, green: CGFloat(rgb >> 8 & 0xFF) / 255,
+                blue: CGFloat(rgb & 0xFF) / 255, alpha: 1)
     }
 
     static func render(_ draw: (CGRect) -> Void) -> INImage? {

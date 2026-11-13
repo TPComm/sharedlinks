@@ -12,6 +12,7 @@
 		1A2B3C4D0000000000000103 /* LinksKit in Frameworks */ = {isa = PBXBuildFile; productRef = 1A2B3C4D0000000000000093 /* LinksKit */; };
 		1A2B3C4D0000000000000104 /* LinksShare.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 1A2B3C4D0000000000000032 /* LinksShare.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		1A2B3C4D0000000000000105 /* LinksWidgets.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 1A2B3C4D0000000000000033 /* LinksWidgets.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		1A2B3C4D0000000000000106 /* SharedLinks.icon in Resources */ = {isa = PBXBuildFile; fileRef = 1A2B3C4D0000000000000035 /* SharedLinks.icon */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -51,6 +52,7 @@
 		1A2B3C4D0000000000000032 /* LinksShare.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = LinksShare.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		1A2B3C4D0000000000000033 /* LinksWidgets.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = LinksWidgets.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		1A2B3C4D0000000000000034 /* Config.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Config.xcconfig; sourceTree = "<group>"; };
+		1A2B3C4D0000000000000035 /* SharedLinks.icon */ = {isa = PBXFileReference; lastKnownFileType = folder.iconcomposer.icon; name = SharedLinks.icon; path = ../assets/icon/SharedLinks.icon; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -108,6 +110,7 @@
 			isa = PBXGroup;
 			children = (
 				1A2B3C4D0000000000000034 /* Config.xcconfig */,
+				1A2B3C4D0000000000000035 /* SharedLinks.icon */,
 				1A2B3C4D0000000000000021 /* Links */,
 				1A2B3C4D0000000000000022 /* LinksShare */,
 				1A2B3C4D0000000000000023 /* LinksWidgets */,
@@ -251,6 +254,7 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				1A2B3C4D0000000000000106 /* SharedLinks.icon in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -369,7 +373,7 @@
 		1A2B3C4D0000000000000083 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
-				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_APPICON_NAME = SharedLinks;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_ENTITLEMENTS = Support/Links.entitlements;
 				CODE_SIGN_STYLE = Automatic;
@@ -400,7 +404,7 @@
 		1A2B3C4D0000000000000084 /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
-				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_APPICON_NAME = SharedLinks;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_ENTITLEMENTS = Support/Links.entitlements;
 				CODE_SIGN_STYLE = Automatic;
