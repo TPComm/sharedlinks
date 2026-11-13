@@ -1,0 +1,51 @@
+name: iOS
+
+on:
+  pull_request:
+    # The app icon lives outside ios/ (assets/icon/SharedLinks.icon), so changes there count too.
+    paths: ["ios/**", "assets/icon/**", ".github/workflows/ios.yml"]
+  push:
+    branches: [main]
+    paths: ["ios/**", "assets/icon/**", ".github/workflows/ios.yml"]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  # Supersede older runs of a PR; let runs on main finish.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: LinksKit tests and app build
+    # The only hosted image with Xcode 27. One job for both steps: macOS minutes cost ~10x Linux
+    # and each job pays its own start-up and rounding.
+    runs-on: xcode-27
+    timeout-minutes: 25
+    env:
+      # The image defaults to Xcode 27.1; use 27.2, the same build as local development.
+      DEVELOPER_DIR: /Applications/Xcode_27.2.app/Contents/Developer
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Xcode version
+        run: xcodebuild -version
+
+      - name: LinksKit tests
+        working-directory: ios/LinksKit
+        run: swift test
+
+      # Compile the app, Share Extension and widgets for the Simulator. No signing: CI only checks
+      # that everything builds (arm64 only, which halves the work).
+      - name: Build Links for the iOS Simulator
+        working-directory: ios
+        run: >-
+          xcodebuild build
+          -project Links.xcodeproj
+          -scheme Links
+          -configuration Debug
+          -destination 'generic/platform=iOS Simulator'
+          -derivedDataPath build
+          ARCHS=arm64
+          CODE_SIGNING_ALLOWED=NO

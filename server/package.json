@@ -1,0 +1,20 @@
+{
+  "name": "links-server",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "bun --watch src/main.ts",
+    "start": "bun src/main.ts",
+    "test": "bun test",
+    "typecheck": "tsc --noEmit",
+    "mint-session": "bun src/main.ts mint-session",
+    "build": "bun run build:x64 && bun run build:arm64",
+    "build:x64": "bun build src/main.ts --compile --minify --sourcemap=inline --compile-exec-argv=--smol --no-compile-autoload-dotenv --no-compile-autoload-bunfig --target=bun-linux-x64-baseline --outfile dist/links-server-linux-x64",
+    "build:arm64": "bun build src/main.ts --compile --minify --sourcemap=inline --compile-exec-argv=--smol --no-compile-autoload-dotenv --no-compile-autoload-bunfig --target=bun-linux-arm64 --outfile dist/links-server-linux-arm64",
+    "backup": "bun src/main.ts backup"
+  },
+  "devDependencies": {
+    "@types/bun": "1.4.4",
+    "typescript": "^5.9.0"
+  }
+}

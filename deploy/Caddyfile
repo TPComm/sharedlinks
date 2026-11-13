@@ -1,0 +1,6 @@
+# /etc/caddy/Caddyfile — Caddy gets and renews the HTTPS certificate on its own.
+# setup.sh replaces links.example.com with your hostname.
+links.example.com {
+	encode zstd gzip
+	reverse_proxy 127.0.0.1:8000
+}

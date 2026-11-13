@@ -1,0 +1,15 @@
+# Daily database snapshot into /var/lib/links/backups (newest 14 kept). Run by links-backup.timer.
+[Unit]
+Description=Back up the Links database
+
+[Service]
+Type=oneshot
+User=links
+Group=links
+EnvironmentFile=/etc/links/links.env
+Environment=DATA_DIR=/var/lib/links
+ExecStart=/opt/links/links-server backup
+ProtectSystem=strict
+ReadWritePaths=/var/lib/links
+NoNewPrivileges=yes
+PrivateTmp=yes

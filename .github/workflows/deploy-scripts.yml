@@ -1,0 +1,27 @@
+name: Deploy scripts
+
+on:
+  pull_request:
+    paths: ["deploy/**", ".github/workflows/deploy-scripts.yml"]
+  push:
+    branches: [main]
+    paths: ["deploy/**", ".github/workflows/deploy-scripts.yml"]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  # Supersede older runs of a PR; let runs on main finish.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+jobs:
+  shellcheck:
+    name: ShellCheck
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+      # shellcheck is preinstalled (0.9.0 on Ubuntu 24.04, pinned so findings stay stable). Warnings
+      # and errors fail the job; style notes (e.g. "expands on the client side", intended in setup.sh) don't.
+      - run: shellcheck --severity=warning deploy/*.sh

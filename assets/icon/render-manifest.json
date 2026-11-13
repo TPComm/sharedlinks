@@ -1,0 +1,119 @@
+{
+  "tool": "{\n  \"bundle-version\" : \"143\",\n  \"short-bundle-version\" : \"27.2\"\n}",
+  "design_generation": 27,
+  "preview_color_profile": "sRGB converted using ColorSync sips",
+  "variants": {
+    "A": "Colorful upright leaning bookmarks",
+    "B": "Grey and green diagonal bookmarks"
+  },
+  "renders": [
+    {
+      "variant": "B",
+      "file": "previews/B/default.png",
+      "rendition": "Default",
+      "width": 1024,
+      "height": 1024,
+      "profile": "sRGB",
+      "sha256": "1f5cef36ed8384608f59875bc7dc04fa48a31fd739e6e62fb28fb3c76beefd92"
+    },
+    {
+      "variant": "B",
+      "file": "previews/B/dark.png",
+      "rendition": "Dark",
+      "width": 512,
+      "height": 512,
+      "profile": "sRGB",
+      "sha256": "74834c348b3e0efe151012d8d42ce5f58c29f9a32d945b438f1287c8afabd500"
+    },
+    {
+      "variant": "B",
+      "file": "previews/B/tinted-light.png",
+      "rendition": "TintedLight",
+      "width": 512,
+      "height": 512,
+      "profile": "sRGB",
+      "sha256": "ee15a7c05a5c882f18dd6fd3d1f75b35544d3da6946159ba83c7402307c5af3c"
+    },
+    {
+      "variant": "B",
+      "file": "previews/B/tinted-dark.png",
+      "rendition": "TintedDark",
+      "width": 512,
+      "height": 512,
+      "profile": "sRGB",
+      "sha256": "2183677760f178838652f114e250d58f7e60bc7c6752cd07ecc8362fb1d2e66f"
+    },
+    {
+      "variant": "B",
+      "file": "previews/B/clear-light.png",
+      "rendition": "ClearLight",
+      "width": 512,
+      "height": 512,
+      "profile": "sRGB",
+      "sha256": "d123a4f08f9fc84ce75b01ae2a67ed3d98ba64b1a30cb5915e0be76b526bf1a6"
+    },
+    {
+      "variant": "B",
+      "file": "previews/B/clear-dark.png",
+      "rendition": "ClearDark",
+      "width": 512,
+      "height": 512,
+      "profile": "sRGB",
+      "sha256": "54da3040fe4ce741af75ec9b814d3ff7d2083a9d44b2d7395b23baee51d64d32"
+    },
+    {
+      "variant": "A",
+      "file": "previews/A/default.png",
+      "rendition": "Default",
+      "width": 1024,
+      "height": 1024,
+      "profile": "sRGB",
+      "sha256": "cb237094c8f49ab8dae18798943d06b28705876f1ed6f408e377ed3661b9026c"
+    },
+    {
+      "variant": "A",
+      "file": "previews/A/dark.png",
+      "rendition": "Dark",
+      "width": 512,
+      "height": 512,
+      "profile": "sRGB",
+      "sha256": "58abd27e3ae37c072fc6b28b80e856508aaa303391797cd1e32c47d20e04d61d"
+    },
+    {
+      "variant": "A",
+      "file": "previews/A/tinted-light.png",
+      "rendition": "TintedLight",
+      "width": 512,
+      "height": 512,
+      "profile": "sRGB",
+      "sha256": "161127d665fc18350d1f3fe1f4fecb2c51aaff4b42006a46047ffccfbd1899ab"
+    },
+    {
+      "variant": "A",
+      "file": "previews/A/tinted-dark.png",
+      "rendition": "TintedDark",
+      "width": 512,
+      "height": 512,
+      "profile": "sRGB",
+      "sha256": "5198c82dd95c1c7c581ee461889428f21b3efc6689dbbbeef6d739339d520239"
+    },
+    {
+      "variant": "A",
+      "file": "previews/A/clear-light.png",
+      "rendition": "ClearLight",
+      "width": 512,
+      "height": 512,
+      "profile": "sRGB",
+      "sha256": "0222a01b89a562df8b064af63f88ec43032a527430de1fc349fb4c89a5ccc04b"
+    },
+    {
+      "variant": "A",
+      "file": "previews/A/clear-dark.png",
+      "rendition": "ClearDark",
+      "width": 512,
+      "height": 512,
+      "profile": "sRGB",
+      "sha256": "20194b35af69d8af086bc3b535e570341beea8218be391c6093aa4dffc0f8450"
+    }
+  ]
+}
