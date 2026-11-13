@@ -25,6 +25,8 @@ final class AppModel {
     private var sessionID = UUID()
     /// Bumped by every local change, so a poll that started before it doesn't undo it.
     private var localEdits = 0
+    /// Like localEdits, per link: a save's reply is dropped only if that link changed since.
+    private var linkEdits: [Int: Int] = [:]
 
     var isSignedIn: Bool { token != nil }
     var client: APIClient { APIClient(token: token) }
@@ -108,14 +110,21 @@ final class AppModel {
         claimable = me.claimable
     }
 
-    func claim(_ legacy: LinkUser) async {
-        await perform {
-            let me = try await self.client.claim(legacy.id)
-            self.setAccount(me.user)
-            self.claimable = me.claimable
-            self.showClaimSheet = false
-            self.toast = "Welcome back, \(me.user.name)"
-            await self.refresh()
+    /// Throws rather than using the app-wide alert, which would close ClaimSheet.
+    func claim(_ legacy: LinkUser) async throws {
+        do {
+            let me = try await client.claim(legacy.id)
+            setAccount(me.user)
+            claimable = me.claimable
+            showClaimSheet = false
+            toast = "Welcome back, \(me.user.name)"
+            await refresh()
+        } catch APIError.signedOut {
+            endSession() // closes the sheet along with the inbox
+        } catch {
+            // Someone else may have claimed that person meanwhile; don't offer them again.
+            await loadAccount()
+            throw error
         }
     }
 
@@ -179,6 +188,7 @@ final class AppModel {
 
     private func patch(_ link: SharedLink) {
         localEdits += 1
+        linkEdits[link.id, default: 0] += 1
         var state = inbox
         if let i = state.links.firstIndex(where: { $0.id == link.id }) {
             state.links[i] = link
@@ -190,6 +200,11 @@ final class AppModel {
 
     /// The app icon badge shows the To Watch count. iOS only asks once; later calls are no-ops.
     func requestBadgePermission() {
+        #if DEBUG
+        // No system prompt in UI tests: while it's up the app is inactive and doesn't fetch, and a
+        // fresh CI Simulator shows it whenever it likes (ios/scripts/ui-tests.sh).
+        if ProcessInfo.processInfo.environment["LINKS_UI_TESTS"] == "1" { return }
+        #endif
         Task { _ = try? await UNUserNotificationCenter.current().requestAuthorization(options: [.badge]) }
     }
 
@@ -198,19 +213,7 @@ final class AppModel {
     @discardableResult
     func add(_ text: String, note: String = "") async -> Bool {
         do {
-            let result = try await client.add(text, note: note)
-            patch(result.link)
-            if result.duplicate {
-                let link = result.link
-                toast = inbox.isMine(link)
-                    ? "You already added this one"
-                    : "Already here: \(inbox.name(of: link.addedBy)) sent it \(LinkFormat.ago(link.addedAt).lowercased())"
-            } else {
-                toast = "Sent"
-                if tab != .search { tab = .sent }
-                fastPollUntil = .now.addingTimeInterval(15)
-                ShareSuggestions.donateSend(in: inbox)
-            }
+            try await send(text, note: note)
             return true
         } catch {
             errorMessage = error.localizedDescription
@@ -218,16 +221,67 @@ final class AppModel {
         }
     }
 
+    /// `add` without the app-wide alert, for the New Link sheet: RootView's alert would close
+    /// the sheet and lose what was typed, so the sheet shows the error over itself.
+    func send(_ text: String, note: String = "") async throws {
+        let result = try await client.add(text, note: note)
+        patch(result.link)
+        if result.duplicate {
+            let link = result.link
+            toast = inbox.isMine(link)
+                ? "You already added this one"
+                : "Already here: \(inbox.name(of: link.addedBy)) sent it \(LinkFormat.ago(link.addedAt).lowercased())"
+        } else {
+            toast = "Sent"
+            if tab != .search { tab = .sent }
+            fastPollUntil = .now.addingTimeInterval(15)
+            ShareSuggestions.donateSend(in: inbox)
+        }
+    }
+
     func setSeen(_ link: SharedLink, _ seen: Bool) async {
+        let me = inbox.me
         var optimistic = link
-        optimistic.seen[inbox.me] = seen ? .now : nil
-        patch(optimistic)
-        await perform { self.patch(try await self.client.setSeen(link.id, seen)) }
+        optimistic.seen[me] = seen ? .now : nil
+        let mark = optimistic.seen[me]
+        await patchOptimistically(optimistic, undo: { now in
+            guard now.seen[me] == mark else { return nil }
+            var restored = now
+            restored.seen[me] = link.seen[me]
+            return restored
+        }) { try await self.client.setSeen(link.id, seen) }
     }
 
     func react(_ link: SharedLink, _ emoji: String) async {
-        let next = link.reactions[inbox.me] == emoji ? nil : emoji
-        await perform { self.patch(try await self.client.react(link.id, next)) }
+        let me = inbox.me
+        let next = link.reactions[me] == emoji ? nil : emoji
+        var optimistic = link
+        optimistic.reactions[me] = next
+        await patchOptimistically(optimistic, undo: { now in
+            guard now.reactions[me] == next else { return nil }
+            var restored = now
+            restored.reactions[me] = link.reactions[me]
+            return restored
+        }) { try await self.client.react(link.id, next) }
+    }
+
+    /// Shows `optimistic` at once, then saves it. The server's copy is applied only if that link
+    /// wasn't patched again meanwhile: a later tap already shows the right state, and the next poll
+    /// brings anything else. If saving fails, `undo` rolls back this one change (returning nil when
+    /// something newer has replaced it), since offline the refresh that follows can't.
+    private func patchOptimistically(_ optimistic: SharedLink,
+                                     undo: @escaping (SharedLink) -> SharedLink?,
+                                     save: @escaping () async throws -> SharedLink) async {
+        patch(optimistic)
+        let edits = linkEdits[optimistic.id]
+        await perform(onFailure: {
+            if let now = self.inbox.links.first(where: { $0.id == optimistic.id }), let restored = undo(now) {
+                self.patch(restored)
+            }
+        }) {
+            let saved = try await save()
+            if edits == self.linkEdits[optimistic.id] { self.patch(saved) }
+        }
     }
 
     func setNote(_ link: SharedLink, _ note: String) async {
@@ -236,6 +290,7 @@ final class AppModel {
 
     func delete(_ link: SharedLink) async {
         localEdits += 1
+        linkEdits[link.id, default: 0] += 1
         var state = inbox
         state.links.removeAll { $0.id == link.id }
         setInbox(state)
@@ -277,14 +332,15 @@ final class AppModel {
         }
     }
 
-    private func perform(_ work: @escaping () async throws -> Void) async {
+    private func perform(onFailure: (() -> Void)? = nil, _ work: @escaping () async throws -> Void) async {
         do {
             try await work()
         } catch APIError.signedOut {
             endSession()
         } catch {
             errorMessage = error.localizedDescription
-            await refresh()
+            onFailure?()     // offline, the refresh below can't replace an optimistic change
+            await refresh()  // refused, the server's copy wins anyway
         }
     }
 }

@@ -63,8 +63,11 @@ Then open `ios/Links.xcodeproj`. In `ios/Config.xcconfig` set `DEVELOPMENT_TEAM`
 cd server && bun run mint-session you@example.com "Your Name"
 ```
 
-Put the printed token in the Links scheme (Edit Scheme → Run → Environment Variables) as
-`LINKS_DEV_TOKEN`, run once, and the app is signed in (Debug builds only).
+Put the printed token in a private copy of the Links scheme, not the shared one: the shared
+scheme is committed, and CI and `ios/scripts/ui-tests.sh` use it. In Product → Scheme → Manage
+Schemes, select Links, click Duplicate, and make sure **Shared** is unchecked on the copy (Xcode
+then keeps it in the gitignored `xcuserdata/`). Add `LINKS_DEV_TOKEN` under that copy's Edit
+Scheme → Run → Environment Variables, run it once, and the app is signed in (Debug builds only).
 
 `ios/LinksKit` is a Swift package shared by all three targets; `swift test` in that folder runs
 its tests on the Mac.
@@ -85,11 +88,13 @@ Avoid IPv6-only plans (TikTok's servers have no IPv6, so previews would fail) an
 plans (ports 80/443 blocked).
 
 **Deploy:** pick Debian 12/13 or Ubuntu 24.04, point a DNS name at the VPS (any domain works;
-a free `sslip.io` name like `203-0-113-7.sslip.io` also does), then from this repo. Log in as
-root, or as a user with passwordless sudo (the scripts run their remote steps without a terminal):
+a free `sslip.io` name like `203-0-113-7.sslip.io` also does), and make sure `ssh root@<ip>` works
+with an SSH key, since the scripts connect about a dozen times. Log in as root, or as a user with
+passwordless sudo (the scripts run their remote steps without a terminal). Then, from this repo:
 
 ```bash
-WORKOS_CLIENT_ID=client_... WORKOS_API_KEY=sk_... ALLOWED_EMAILS=you@x.com,friend@y.com \
+read -rs 'WORKOS_API_KEY?WorkOS API key (Enter to skip): ' && export WORKOS_API_KEY   # zsh: not saved to shell history
+WORKOS_CLIENT_ID=client_... ALLOWED_EMAILS=you@x.com,friend@y.com \
   deploy/setup.sh root@203.0.113.7 links.example.com
 ```
 

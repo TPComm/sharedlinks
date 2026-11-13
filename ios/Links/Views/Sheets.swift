@@ -7,6 +7,7 @@ struct AddLinkSheet: View {
     @State private var text: String
     @State private var note = ""
     @State private var sending = false
+    @State private var failure: String?
     @FocusState private var focused: Bool
 
     init(prefill: String) {
@@ -25,6 +26,7 @@ struct AddLinkSheet: View {
                         .autocorrectionDisabled()
                         .keyboardType(.URL)
                         .focused($focused)
+                        .accessibilityIdentifier("addLink.text")
                     // The system paste control: no "Allow Paste" prompt.
                     PasteButton(payloadType: String.self) { strings in
                         Task { @MainActor in
@@ -43,6 +45,7 @@ struct AddLinkSheet: View {
                 Section {
                     TextField("Add a note (optional)", text: $note, axis: .vertical)
                         .lineLimit(1...5)
+                        .accessibilityIdentifier("addLink.note")
                 } footer: {
                     let people = model.inbox.otherPeople.map(\.name)
                     if !people.isEmpty { Text("Goes to \(LinkFormat.names(people)).") }
@@ -58,13 +61,20 @@ struct AddLinkSheet: View {
                     Button("Send") {
                         sending = true
                         Task {
-                            if await model.add(text, note: note) { dismiss() }
+                            do {
+                                try await model.send(text, note: note)
+                                dismiss()
+                            } catch {
+                                failure = error.localizedDescription
+                            }
                             sending = false
                         }
                     }
                     .disabled(detected == nil || sending)
+                    .accessibilityIdentifier("addLink.send")
                 }
             }
+            .failureAlert($failure)
         }
         .presentationDetents([.medium, .large])
         .onAppear { if text.isEmpty { focused = true } }
@@ -96,6 +106,7 @@ struct AccountMenu: View {
             AvatarView(user: model.me, size: 30)
                 .accessibilityLabel("Account")
         }
+        .accessibilityIdentifier("account")
         .alert("Display Name", isPresented: $renaming) {
             TextField("Name", text: $nameDraft)
                 .textInputAutocapitalization(.words)
@@ -111,6 +122,8 @@ struct AccountMenu: View {
 struct ClaimSheet: View {
     @Environment(AppModel.self) private var model
     @Environment(\.dismiss) private var dismiss
+    @State private var claiming = false
+    @State private var failure: String?
 
     var body: some View {
         NavigationStack {
@@ -118,13 +131,22 @@ struct ClaimSheet: View {
                 Section {
                     ForEach(model.claimable) { person in
                         Button {
-                            Task { await model.claim(person) }
+                            claiming = true
+                            Task {
+                                do {
+                                    try await model.claim(person)
+                                } catch {
+                                    failure = error.localizedDescription
+                                }
+                                claiming = false
+                            }
                         } label: {
                             HStack(spacing: 12) {
                                 AvatarView(user: person, size: 36)
                                 Text(person.name).foregroundStyle(.primary)
                             }
                         }
+                        .disabled(claiming)
                     }
                 } header: {
                     Text("Links were shared here before sign-in. Were you one of these people?")
@@ -140,7 +162,23 @@ struct ClaimSheet: View {
                     Button("None of These") { dismiss() }
                 }
             }
+            .failureAlert($failure)
         }
         .presentationDetents([.medium, .large])
+    }
+}
+
+extension View {
+    /// The app's "Couldn't Do That" alert, for a sheet to show over itself. RootView's alert
+    /// (model.errorMessage) can't be used from a sheet: presenting it closes the sheet.
+    func failureAlert(_ message: Binding<String?>) -> some View {
+        alert("Couldn't Do That", isPresented: Binding(
+            get: { message.wrappedValue != nil },
+            set: { if !$0 { message.wrappedValue = nil } })
+        ) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(message.wrappedValue ?? "")
+        }
     }
 }

@@ -2,10 +2,17 @@ import Foundation
 import ImageIO
 import UniformTypeIdentifiers
 
+/// Where the inbox cache and thumbnails live: the App Group container, unless a test binds
+/// its own folder. Task-local, so parallel tests (and the tasks they start) stay apart.
+enum CacheLocation {
+    @TaskLocal static var testRoot: URL? = nil
+    static var root: URL { testRoot ?? LinksConfig.sharedContainer }
+}
+
 /// The last inbox the app saw, written to the App Group so the widget can draw instantly
 /// (and offline), and the app can launch with content before the first fetch finishes.
 public enum InboxSnapshot {
-    static var fileURL: URL { LinksConfig.sharedContainer.appending(path: "inbox.json") }
+    static var fileURL: URL { CacheLocation.root.appending(path: "inbox.json") }
 
     public static func load() -> InboxState? {
         guard let data = try? Data(contentsOf: fileURL) else { return nil }
@@ -39,7 +46,7 @@ public actor ThumbnailStore {
     private var inFlight: [Int: Task<Data?, Never>] = [:]
 
     static var directory: URL {
-        let dir = LinksConfig.sharedContainer.appending(path: "thumbs", directoryHint: .isDirectory)
+        let dir = CacheLocation.root.appending(path: "thumbs", directoryHint: .isDirectory)
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         return dir
     }

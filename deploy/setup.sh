@@ -1,12 +1,14 @@
 #!/usr/bin/env bash
 # One-time setup of a fresh Debian 12/13 or Ubuntu 22.04/24.04 VPS for Links, then a first deploy.
 #
-#   WORKOS_CLIENT_ID=client_... WORKOS_API_KEY=sk_... ALLOWED_EMAILS=you@x.com,friend@y.com \
+#   read -rs 'WORKOS_API_KEY?WorkOS API key (Enter to skip): ' && export WORKOS_API_KEY   # zsh
+#   WORKOS_CLIENT_ID=client_... ALLOWED_EMAILS=you@x.com,friend@y.com \
 #     deploy/setup.sh root@203.0.113.7 links.example.com
 #
 # The hostname's DNS A (and AAAA, if any) record must already point at the VPS, because Caddy
-# fetches a Let's Encrypt certificate for it. Safe to re-run: it only changes what's missing.
-# Secrets go over SSH stdin, never on a command line.
+# fetches a Let's Encrypt certificate for it. Safe to re-run: it only changes what's missing, and
+# only the settings you pass. Read the API key as above rather than typing it on the command line,
+# which shells save to their history; from there it goes over SSH stdin, never on a command line.
 set -euo pipefail
 
 HOST=${1:?usage: deploy/setup.sh user@host hostname}
@@ -15,16 +17,17 @@ HERE=$(cd "$(dirname "$0")" && pwd)
 [[ $DOMAIN =~ ^[A-Za-z0-9]([A-Za-z0-9.-]*[A-Za-z0-9])?$ ]] || { echo "Not a hostname: $DOMAIN" >&2; exit 1; }
 
 # Run the script on stdin on the VPS as root (directly, or through sudo for a non-root login).
-# ssh joins its arguments into one remote shell command, so quote them into it ourselves.
+# ssh joins its arguments into one remote shell command, so quote them into it ourselves. The
+# script also gets, last, the VPS port this SSH session came in on (sudo drops SSH_CONNECTION).
 remote() {
   local args
   args=$(printf ' %q' "$@")
-  ssh "$HOST" "if [ \"\$(id -u)\" = 0 ]; then bash -s --$args; else sudo bash -s --$args; fi"
+  ssh "$HOST" "p=\${SSH_CONNECTION##* }; if [ \"\$(id -u)\" = 0 ]; then bash -s --$args \"\$p\"; else sudo bash -s --$args \"\$p\"; fi"
 }
 upload() { ssh "$HOST" "cat > '$2'" < "$1"; }
 
 echo "==> Uploading service files"
-ssh "$HOST" 'mkdir -p /tmp/links-setup'
+ssh "$HOST" 'umask 077 && mkdir -p /tmp/links-setup'
 for f in links.service links-backup.service links-backup.timer; do upload "$HERE/$f" "/tmp/links-setup/$f"; done
 sed "s/links.example.com/$DOMAIN/" "$HERE/Caddyfile" | ssh "$HOST" 'cat > /tmp/links-setup/Caddyfile'
 
@@ -33,7 +36,8 @@ sed "s/links.example.com/$DOMAIN/" "$HERE/Caddyfile" | ssh "$HOST" 'cat > /tmp/l
 {
   echo "PUBLIC_URL=https://$DOMAIN"
   for key in WORKOS_CLIENT_ID WORKOS_API_KEY ALLOWED_EMAILS; do
-    [[ -n "${!key:-}" ]] && echo "$key=${!key}"
+    # An if, not &&: a trailing failed test would fail the pipeline and stop the script.
+    if [[ -n "${!key:-}" ]]; then echo "$key=${!key}"; fi
   done
 } | ssh "$HOST" 'umask 077; cat > /tmp/links-setup/links.env.new'
 
@@ -41,7 +45,10 @@ echo "==> Configuring the VPS"
 remote "$DOMAIN" <<'REMOTE'
 set -euo pipefail
 DOMAIN=$1
-export DEBIAN_FRONTEND=noninteractive
+CONN_PORT=${2:-} # the port this SSH session uses (see remote())
+# The uploads include the env file with secrets: never leave them behind, even on failure.
+trap 'rm -rf /tmp/links-setup' EXIT
+export DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=l
 
 # Small boxes: give apt and Bun's GC some room.
 # (Best effort: container-based VPSes don't allow swapon, and that's fine.)
@@ -60,21 +67,36 @@ fi
 
 # A freshly booted cloud image is often still running cloud-init / apt in the background.
 command -v cloud-init >/dev/null && cloud-init status --wait >/dev/null 2>&1 || true
-APT="apt-get -o DPkg::Lock::Timeout=300 -qq"
 
-$APT update
-$APT install -y curl gnupg debian-keyring debian-archive-keyring apt-transport-https \
-  unattended-upgrades ufw >/dev/null
+# stdin is this script, so apt and dpkg must never read it (e.g. a config-file prompt).
+apt_get() {
+  apt-get -o DPkg::Lock::Timeout=300 -o Dpkg::Options::=--force-confdef -o Dpkg::Options::=--force-confold \
+    -qq "$@" </dev/null
+}
+# DPkg::Lock::Timeout doesn't cover `apt-get update`'s lock, and a fresh VPS is often refreshing
+# its package lists in the background, so retry for a couple of minutes.
+apt_update() {
+  for _ in 1 2 3 4 5 6 7 8 9 10 11 12; do
+    apt_get update && return 0
+    echo "    apt-get update failed (often another apt run in progress); retrying in 10 s"
+    sleep 10
+  done
+  apt_get update
+}
 
-# Caddy from its official repo (distro packages lag far behind).
+apt_update
+apt_get install -y ca-certificates curl gnupg unattended-upgrades ufw >/dev/null
+
+# Caddy from its official repo (distro packages lag far behind). The signing key is refreshed on
+# every run: Caddy has rotated it before, which breaks `apt-get update` until it's re-downloaded.
+curl -1sSLf https://dl.cloudsmith.io/public/caddy/stable/gpg.key \
+  | gpg --dearmor --yes -o /usr/share/keyrings/caddy-stable-archive-keyring.gpg
+curl -1sSLf https://dl.cloudsmith.io/public/caddy/stable/debian.deb.txt \
+  > /etc/apt/sources.list.d/caddy-stable.list
+chmod o+r /usr/share/keyrings/caddy-stable-archive-keyring.gpg /etc/apt/sources.list.d/caddy-stable.list
 if ! command -v caddy >/dev/null; then
   echo "    installing Caddy"
-  curl -1sLf https://dl.cloudsmith.io/public/caddy/stable/gpg.key \
-    | gpg --dearmor --yes -o /usr/share/keyrings/caddy-stable-archive-keyring.gpg
-  curl -1sLf https://dl.cloudsmith.io/public/caddy/stable/debian.deb.txt \
-    > /etc/apt/sources.list.d/caddy-stable.list
-  chmod o+r /usr/share/keyrings/caddy-stable-archive-keyring.gpg /etc/apt/sources.list.d/caddy-stable.list
-  $APT update && $APT install -y caddy >/dev/null
+  apt_update && apt_get install -y caddy >/dev/null
 fi
 
 # Automatic security updates for the OS and for Caddy. (The Links binary embeds its runtime:
@@ -93,8 +115,10 @@ install -d -o links -g links -m 750 /var/lib/links
 install -d -m 755 /opt/links
 install -d -m 750 -g links /etc/links
 touch /etc/links/links.env
-while IFS='=' read -r key value; do
-  [ -n "$key" ] || continue
+while IFS= read -r line; do
+  # Split at the first '=' only; the value keeps any '=' (read's IFS splitting would drop a trailing one).
+  key=${line%%=*} value=${line#*=}
+  [ -n "$key" ] && [ "$key" != "$line" ] || continue
   grep -v "^$key=" /etc/links/links.env > /etc/links/links.env.tmp || true
   printf '%s=%s\n' "$key" "$value" >> /etc/links/links.env.tmp
   mv /etc/links/links.env.tmp /etc/links/links.env
@@ -106,11 +130,18 @@ grep -q '^WORKOS_CLIENT_ID=.' /etc/links/links.env \
 install -m 644 /tmp/links-setup/links.service /tmp/links-setup/links-backup.service \
   /tmp/links-setup/links-backup.timer /etc/systemd/system/
 install -m 644 /tmp/links-setup/Caddyfile /etc/caddy/Caddyfile
-rm -rf /tmp/links-setup
 
 # Firewall: SSH and web only. (Skipped quietly on hosts whose kernel lacks the needed modules.)
-# Allow every port sshd actually listens on (not just 22) before turning the firewall on.
-SSH_PORTS=$(sshd -T 2>/dev/null | awk '$1 == "port" {print $2}' | sort -u)
+# Allow every port SSH listens on (not just 22) before turning the firewall on: sshd_config's,
+# ssh.socket's (socket activation, Ubuntu 22.10+: a drop-in there can add ports sshd -T doesn't
+# show), and the one this very session came in on, however it was configured.
+SSH_PORTS=$( {
+  sshd -T 2>/dev/null | awk '$1 == "port" {print $2}'
+  if systemctl is-active --quiet ssh.socket 2>/dev/null; then
+    systemctl show -p Listen --value ssh.socket 2>/dev/null | sed -nE 's/.*:([0-9]+) \(Stream\).*/\1/p'
+  fi
+  if [[ $CONN_PORT =~ ^[0-9]+$ ]]; then echo "$CONN_PORT"; fi
+} | sort -u || true)
 [ -n "$SSH_PORTS" ] || SSH_PORTS=22
 ok=1
 for port in $SSH_PORTS; do ufw allow "$port/tcp" >/dev/null || ok=0; done

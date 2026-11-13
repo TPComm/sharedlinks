@@ -4,6 +4,14 @@ import Foundation
 public enum LinksConfig {
     /// Where the Links API (server.py) runs.
     public static var serverURL: URL {
+        #if DEBUG
+        // UI tests launch the app against their own server (ios/scripts/ui-tests.sh), since the
+        // dev server usually has localhost:8000. Only the app's process sees this, not extensions.
+        if let raw = ProcessInfo.processInfo.environment["LINKS_SERVER_URL"], !raw.isEmpty,
+           let url = URL(string: raw) {
+            return url
+        }
+        #endif
         let raw = Bundle.main.object(forInfoDictionaryKey: "LinksServerURL") as? String ?? ""
         return URL(string: raw.trimmingCharacters(in: .whitespaces)) ?? URL(string: "http://localhost:8000")!
     }

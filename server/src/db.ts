@@ -82,6 +82,7 @@ export function openDatabase(dataDir: string): Database {
   migrateFromNames(db);
   migrateToV2(db);
   migrateToV3(db);
+  migrateToV4(db);
   return db;
 }
 
@@ -146,6 +147,16 @@ function migrateToV3(db: Database) {
   db.transaction(() => {
     respellLinks(db);
     db.run("PRAGMA user_version = 3");
+  })();
+}
+
+/** v4: X links drop their per-share ?t= token (see normalize), so stored links are re-spelled again. */
+function migrateToV4(db: Database) {
+  const { user_version } = db.query("PRAGMA user_version").get() as { user_version: number };
+  if (user_version >= 4) return;
+  db.transaction(() => {
+    respellLinks(db);
+    db.run("PRAGMA user_version = 4");
   })();
 }
 
