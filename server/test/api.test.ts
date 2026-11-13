@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { startServer } from "../src/app.ts";
 import { configFromEnv } from "../src/config.ts";
-import { canonical, extractUrl, platformOf } from "../src/links.ts";
+import { canonical, expandShortLink, extractUrl, platformOf } from "../src/links.ts";
 import { BlockedAddressError, isPrivateAddress, safeFetch } from "../src/net.ts";
 import { decodeEntities, ogTags, previewFromTags } from "../src/previews.ts";
 
@@ -54,6 +54,9 @@ const fakeOrigin = Bun.serve({
       { headers: { "Content-Type": "text/html" } }),
     "/plain": new Response("<html><head><title> Just a &quot;page&quot; </title></head></html>", { headers: { "Content-Type": "text/html" } }),
     "/thumb.png": new Response(PNG, { headers: { "Content-Type": "image/png" } }),
+    // Stand-ins for TikTok short links: a live code, and a dead one (TikTok sends those home).
+    "/t/live": Response.redirect(`https://www.tiktok.com/@/video/7506136711311772958?_r=1&_d=abc&u_code=def&share_item_id=7506136711311772958&utm_campaign=client_share&utm_source=short_fallback`, 302),
+    "/t/dead": Response.redirect("https://www.tiktok.com/?_r=1", 302),
   },
 });
 
@@ -68,6 +71,7 @@ beforeAll(() => {
     INSERT INTO people VALUES ('Sam', 1), ('Alex', 2);
     INSERT INTO links (url, platform, title, meta, added_by, added_at) VALUES ('https://www.youtube.com/watch?v=old', 'youtube', 'Old one', 'done', 'Sam', 10);
     INSERT INTO links (url, platform, title, meta, added_by, added_at) VALUES ('https://de.wikipedia.org/wiki/München', 'web', 'München', 'done', 'Alex', 9);
+    INSERT INTO links (url, platform, title, meta, added_by, added_at) VALUES ('https://www.tiktok.com/@old_handle/video/7506136711311772958', 'tiktok', 'A TikTok', 'done', 'Sam', 8);
     INSERT INTO seen VALUES (1, 'Alex', 11);
     INSERT INTO reactions VALUES (1, 'Alex', '🔥');
   `);
@@ -176,17 +180,21 @@ describe("links", () => {
     friendId = res.data.user.id;
   });
 
-  test("v2 migration: AUTOINCREMENT ids and today's URL spelling", async () => {
+  test("migrations: AUTOINCREMENT ids and today's URL spelling", async () => {
     const db = new Database(join(dataDir, "links.db"), { readonly: true });
     const { sql } = db.query("SELECT sql FROM sqlite_master WHERE name = 'links'").get() as { sql: string };
     expect(sql).toContain("AUTOINCREMENT");
-    expect((db.query("PRAGMA user_version").get() as any).user_version).toBe(2);
+    expect((db.query("PRAGMA user_version").get() as any).user_version).toBe(3);
     db.close();
     const { data } = await call("/api/state", { token });
     expect(data.links.map((l: any) => l.url)).toContain("https://de.wikipedia.org/wiki/M%C3%BCnchen");
     // Sharing it again now finds the migrated row instead of adding a second one.
     const again = await call("/api/links", { token, body: { url: "https://de.wikipedia.org/wiki/München" } });
     expect(again.data.duplicate).toBe(true);
+    // TikTok posts are stored by id, so the same video shared with another handle is a duplicate.
+    expect(data.links.map((l: any) => l.url)).toContain("https://www.tiktok.com/@/video/7506136711311772958");
+    const tiktok = await call("/api/links", { token, body: { url: "https://www.tiktok.com/@new_handle/video/7506136711311772958?_r=1&_t=ZS-abc" } });
+    expect(tiktok.data.duplicate).toBe(true);
   });
 
   test("deleted ids are never reused", async () => {
@@ -311,6 +319,29 @@ describe("helpers", () => {
     expect(platformOf("eviltiktok.com")).toBe("web");
   });
 
+  test("TikTok: one spelling per post, with no tracking", async () => {
+    const want = { url: "https://www.tiktok.com/@/video/7506136711311772958", platform: "tiktok" };
+    for (const raw of [
+      "https://www.tiktok.com/@someone/video/7506136711311772958?_r=1&_t=ZS-92jrA0wKM6y",
+      "https://www.tiktok.com/@someone/video/7506136711311772958?is_from_webapp=1&sender_device=pc&web_id=123",
+      "https://tiktok.com/@/video/7506136711311772958/",
+      "https://www.tiktok.com/@someone/photo/7506136711311772958",
+      "https://m.tiktok.com/v/7506136711311772958.html?u_code=x",
+      "https://www.tiktok.com/share/video/7506136711311772958",
+      "https://www.tiktok.com/embed/v2/7506136711311772958",
+    ]) expect(await canonical(raw)).toEqual(want);
+    // Not a post: kept as is, without the query.
+    expect(await canonical("https://www.tiktok.com/@someone?_t=x&_r=1")).toEqual({ url: "https://www.tiktok.com/@someone", platform: "tiktok" });
+  });
+
+  test("short links stop at the post, and dead TikTok codes are refused", async () => {
+    // The post itself is never fetched (www.tiktok.com is out of reach in tests anyway).
+    const live = await expandShortLink(`${origin}/t/live`, { allowPrivateNetwork: true });
+    expect(live.searchParams.get("share_item_id")).toBe("7506136711311772958");
+    expect(await canonical(live.href)).toEqual({ url: "https://www.tiktok.com/@/video/7506136711311772958", platform: "tiktok" });
+    await expect(expandShortLink(`${origin}/t/dead`, { allowPrivateNetwork: true })).rejects.toThrow("expired");
+  });
+
   test("hostile pages parse in linear time", () => {
     const big = 2_000_000;
     for (const page of [
@@ -328,7 +359,6 @@ describe("helpers", () => {
   test("canonical forms (no network)", async () => {
     expect(await canonical("https://instagram.com/someone/reel/ABC/?igsh=1")).toEqual({ url: "https://www.instagram.com/reel/ABC", platform: "instagram" });
     expect(await canonical("https://m.youtube.com/watch?v=1&si=2&t=3")).toEqual({ url: "https://www.youtube.com/watch?v=1&t=3", platform: "youtube" });
-    expect(await canonical("https://www.tiktok.com/@a/video/9?is_from_webapp=1")).toEqual({ url: "https://www.tiktok.com/@a/video/9", platform: "tiktok" });
     expect(await canonical("http://Example.com:8080/a/b/?utm_medium=x")).toEqual({ url: "http://example.com:8080/a/b", platform: "web" });
     expect(platformOf("old.reddit.com")).toBe("reddit");
   });

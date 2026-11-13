@@ -81,6 +81,7 @@ export function openDatabase(dataDir: string): Database {
   `);
   migrateFromNames(db);
   migrateToV2(db);
+  migrateToV3(db);
   return db;
 }
 
@@ -133,19 +134,37 @@ function migrateToV2(db: Database) {
     }
   }
   db.transaction(() => {
-    for (const { id, url } of db.query("SELECT id, url FROM links").all() as { id: number; url: string }[]) {
-      let respelled: string;
-      try {
-        respelled = normalize(new URL(url)).url;
-      } catch {
-        continue; // leave anything unparseable as it was
-      }
-      if (respelled !== url && !db.query("SELECT 1 FROM links WHERE url = ?").get(respelled)) {
-        db.run("UPDATE links SET url = ? WHERE id = ?", [respelled, id]);
-      }
-    }
+    respellLinks(db);
     db.run("PRAGMA user_version = 2");
   })();
+}
+
+/** v3: TikTok posts are spelled /@/video/<id> (see normalize), so stored links are re-spelled again. */
+function migrateToV3(db: Database) {
+  const { user_version } = db.query("PRAGMA user_version").get() as { user_version: number };
+  if (user_version >= 3) return;
+  db.transaction(() => {
+    respellLinks(db);
+    db.run("PRAGMA user_version = 3");
+  })();
+}
+
+/**
+ * Re-spell stored URLs with today's normalize(). A row whose new spelling another row already has
+ * keeps its old one, so both stay, each with its own note, reactions and receipts.
+ */
+function respellLinks(db: Database) {
+  for (const { id, url } of db.query("SELECT id, url FROM links ORDER BY id").all() as { id: number; url: string }[]) {
+    let respelled: string;
+    try {
+      respelled = normalize(new URL(url)).url;
+    } catch {
+      continue; // leave anything unparseable as it was
+    }
+    if (respelled !== url && !db.query("SELECT 1 FROM links WHERE url = ?").get(respelled)) {
+      db.run("UPDATE links SET url = ? WHERE id = ?", [respelled, id]);
+    }
+  }
 }
 
 export const now = () => Date.now() / 1000;

@@ -28,6 +28,22 @@ export function extractUrl(text: unknown): string | null {
 /** host is domain or a subdomain of it ("m.tiktok.com" yes, "eviltiktok.com" no). */
 const onDomain = (host: string, domain: string) => host === domain || host.endsWith(`.${domain}`);
 
+/**
+ * Every path TikTok uses for one post: /@handle/video/ID, /@handle/photo/ID, /v/ID.html,
+ * /share/video/ID, /embed/v2/ID. The id is all TikTok needs. The handle is often stale, or
+ * empty in links that come from short links.
+ */
+const TIKTOK_POST = /^\/(?:@[^/]*\/(?:video|photo)|v|share\/video|embed(?:\/v2)?)\/(\d{8,20})(?:\.html)?\/?$/;
+
+/** Share short links (vm.tiktok.com/..., tiktok.com/t/..., instagram.com/share/...). */
+function isShortLink(url: URL): boolean {
+  const host = url.hostname.toLowerCase();
+  const path = url.pathname;
+  return host === "vm.tiktok.com" || host === "vt.tiktok.com" ||
+    ((onDomain(host, "tiktok.com") || onDomain(host, "tt.site")) && path.startsWith("/t/")) ||
+    (onDomain(host, "instagram.com") && path.startsWith("/share/"));
+}
+
 export function platformOf(host: string): string {
   for (const [name, domains] of Object.entries(PLATFORMS)) {
     if (domains.some((d) => onDomain(host, d))) return name;
@@ -57,8 +73,22 @@ export async function resolveRedirects(url: string, opts: FetchOptions = {}): Pr
     if (next.protocol !== "https:" && next.protocol !== "http:") return url;
     if (next.pathname.includes("login")) return url;
     url = next.toString();
+    // Out of the short-link service means we've reached the post. Fetching it too would only
+    // download the page (~400 KB for TikTok).
+    if (!isShortLink(next)) return url;
   }
   return url;
+}
+
+/** Follow a share short link to the post it points at. */
+export async function expandShortLink(raw: string, opts: FetchOptions = {}): Promise<URL> {
+  const expanded = parse(await resolveRedirects(raw, opts));
+  // A dead or expired TikTok code redirects to the home page (/?_r=1). Don't save the home page
+  // as the link: it isn't the video, and every dead link would count as a duplicate of it.
+  if (platformOf(expanded.hostname) === "tiktok" && expanded.pathname === "/") {
+    throw new BadRequest("That TikTok link has expired. Copy a fresh one from TikTok.");
+  }
+  return expanded;
 }
 
 function parse(url: string): URL {
@@ -71,17 +101,8 @@ function parse(url: string): URL {
 
 /** Normalise a link so the same video shared twice is detected as a duplicate. */
 export async function canonical(raw: string, opts: FetchOptions = {}): Promise<{ url: string; platform: string }> {
-  let parts = parse(raw);
-  const host = parts.hostname.toLowerCase();
-  const path = parts.pathname;
-  if (
-    host === "vm.tiktok.com" || host === "vt.tiktok.com" ||
-    (onDomain(host, "tiktok.com") && path.startsWith("/t/")) ||
-    (onDomain(host, "instagram.com") && path.startsWith("/share/"))
-  ) {
-    parts = parse(await resolveRedirects(raw, opts));
-  }
-  return normalize(parts);
+  const parts = parse(raw);
+  return normalize(isShortLink(parts) ? await expandShortLink(raw, opts) : parts);
 }
 
 /**
@@ -102,7 +123,13 @@ export function normalize(parts: URL): { url: string; platform: string } {
   let query = "";
   if (platform === "instagram") {
     path = path.replace(/^\/reels\//, "/reel/").replace(/^\/[^/]+\/(reel|p)\//, "/$1/"); // /username/reel/ID -> /reel/ID
-  } else if (platform !== "tiktok") {
+  } else if (platform === "tiktok") {
+    // TikTok's query string is all tracking (_t, _r, is_from_webapp, ...), so it goes. Posts get
+    // one spelling: /@/video/ID opens in the browser and the app, oEmbed accepts it (it refuses
+    // /photo/), and it is what short links expand to.
+    const id = path.match(TIKTOK_POST)?.[1];
+    if (id) path = `/@/video/${id}`;
+  } else {
     const params = new URLSearchParams(parts.search);
     for (const key of [...params.keys()]) if (TRACKING_RE.test(key)) params.delete(key);
     query = params.toString();
