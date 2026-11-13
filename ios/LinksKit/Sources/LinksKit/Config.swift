@@ -40,6 +40,9 @@ public enum LinksConfig {
 
 /// Deep links the widgets use to open the app.
 public enum DeepLink: Equatable, Sendable {
+    /// Shows that link's page in the app, on the tab whose list has it. It doesn't jump on to
+    /// TikTok: from the page that's one tap, and coming back lands on the page to react and mark
+    /// it watched. (A widget's ✓ button marks it watched without opening anything.)
     case open(linkID: Int)
     case add
     case inbox

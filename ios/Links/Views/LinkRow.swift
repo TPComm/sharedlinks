@@ -5,6 +5,8 @@ struct LinkRow: View {
     @Environment(AppModel.self) private var model
     @Environment(\.openURL) private var openURL
     let link: SharedLink
+    /// The tab whose list has this row; the link's page opens on top of it.
+    let tab: InboxTab
 
     @State private var editingNote = false
     @State private var noteDraft = ""
@@ -22,7 +24,7 @@ struct LinkRow: View {
 
     var body: some View {
         Button {
-            model.open(link, with: openURL)
+            model.showPage(link, on: tab)
         } label: {
             // The row's insets live here, not in listRowInsets, so a tap anywhere in it opens it.
             content
@@ -64,7 +66,7 @@ struct LinkRow: View {
                 Label("Delete", systemImage: "trash")
             }
             .tint(.red)
-            ShareLink(item: link.url, subject: Text(link.displayTitle), preview: sharePreview) {
+            ShareLink(item: link.url, subject: Text(link.displayTitle), preview: link.sharePreview) {
                 Label("Share", systemImage: "square.and.arrow.up")
             }
             .tint(.indigo)
@@ -72,15 +74,8 @@ struct LinkRow: View {
         // The preview is hosted in its own view graph, which doesn't inherit AppModel; without
         // it ThumbnailView's @Environment lookup crashes on every long-press.
         .contextMenu { menu } preview: { LinkPreviewCard(link: link).environment(model) }
-        .confirmationDialog("Delete this \(link.platform.noun.lowercased()) for everyone?",
-                            isPresented: $confirmingDelete, titleVisibility: .visible) {
-            Button("Delete", role: .destructive) { Task { await model.delete(link) } }
-        }
-        .alert(link.note.isEmpty ? "Add Note" : "Edit Note", isPresented: $editingNote) {
-            TextField("Note", text: $noteDraft, axis: .vertical)
-            Button("Save") { Task { await model.setNote(link, noteDraft) } }
-            Button("Cancel", role: .cancel) {}
-        }
+        .linkDeleteConfirmation(link, isPresented: $confirmingDelete) { Task { await model.delete(link) } }
+        .linkNoteEditor(link, isPresented: $editingNote, draft: $noteDraft)
     }
 
     private var content: some View {
@@ -190,10 +185,11 @@ struct LinkRow: View {
     }
 
     @ViewBuilder private var menu: some View {
+        // The fast path: straight out to TikTok, marking it watched (a row tap shows its page).
         Button {
             model.open(link, with: openURL)
         } label: {
-            Label("Open in \(link.platform == .web ? "Browser" : link.platform.label)", systemImage: "arrow.up.forward.app")
+            Label("Open in \(link.platform.opener)", systemImage: "arrow.up.forward.app")
         }
 
         Picker("React", selection: Binding(
@@ -224,26 +220,69 @@ struct LinkRow: View {
         }
 
         Section {
-            ShareLink(item: link.url, subject: Text(link.displayTitle), preview: sharePreview) {
+            ShareLink(item: link.url, subject: Text(link.displayTitle), preview: link.sharePreview) {
                 Label("Share…", systemImage: "square.and.arrow.up")
             }
-            Button {
-                UIPasteboard.general.url = link.url
-                model.toast = "Copied"
-            } label: {
-                Label("Copy Link", systemImage: "doc.on.doc")
-            }
+            CopyLinkButton(link: link)
         }
 
         Button(role: .destructive) { confirmingDelete = true } label: {
             Label("Delete", systemImage: "trash")
         }
     }
+}
 
-    private var sharePreview: SharePreview<Image, Never> {
-        let image = ThumbnailCache.cachedImage(for: link).map { Image(uiImage: $0) }
+extension SharedLink {
+    /// The title and thumbnail a share sheet shows.
+    @MainActor var sharePreview: SharePreview<Image, Never> {
+        let image = ThumbnailCache.cachedImage(for: self).map { Image(uiImage: $0) }
             ?? Image(systemName: "play.rectangle.fill")
-        return SharePreview(link.displayTitle, image: image)
+        return SharePreview(displayTitle, image: image)
+    }
+}
+
+struct CopyLinkButton: View {
+    @Environment(AppModel.self) private var model
+    let link: SharedLink
+
+    var body: some View {
+        Button {
+            UIPasteboard.general.url = link.url
+            model.toast = "Copied"
+        } label: {
+            Label("Copy Link", systemImage: "doc.on.doc")
+        }
+    }
+}
+
+extension View {
+    /// "Delete this TikTok for everyone?", shared by a row and a link's page.
+    func linkDeleteConfirmation(_ link: SharedLink, isPresented: Binding<Bool>,
+                                delete: @escaping () -> Void) -> some View {
+        confirmationDialog("Delete this \(link.platform.noun.lowercased()) for everyone?",
+                           isPresented: isPresented, titleVisibility: .visible) {
+            Button("Delete", role: .destructive, action: delete)
+        }
+    }
+
+    /// The Add Note / Edit Note alert, shared by a row and a link's page.
+    func linkNoteEditor(_ link: SharedLink, isPresented: Binding<Bool>, draft: Binding<String>) -> some View {
+        modifier(NoteEditor(link: link, isPresented: isPresented, draft: draft))
+    }
+}
+
+private struct NoteEditor: ViewModifier {
+    @Environment(AppModel.self) private var model
+    let link: SharedLink
+    @Binding var isPresented: Bool
+    @Binding var draft: String
+
+    func body(content: Content) -> some View {
+        content.alert(link.note.isEmpty ? "Add Note" : "Edit Note", isPresented: $isPresented) {
+            TextField("Note", text: $draft, axis: .vertical)
+            Button("Save") { Task { await model.setNote(link, draft) } }
+            Button("Cancel", role: .cancel) {}
+        }
     }
 }
 
@@ -327,7 +366,8 @@ private struct ReactButton: View {
 }
 
 /// A tapback-style row of reactionEmojis. Picking the current one again removes it.
-private struct ReactionBar: View {
+/// In a row's popover, and inline on a link's page.
+struct ReactionBar: View {
     let current: String?
     let pick: (String) -> Void
 

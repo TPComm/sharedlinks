@@ -1,0 +1,303 @@
+import LinksKit
+import SwiftUI
+
+/// A link's own page, pushed when its row is tapped or its widget row opens the app: the preview,
+/// who sent it and why, the button that opens it in TikTok (or wherever), reactions, and who has
+/// seen it. Opening it from here doesn't mark it watched: the page stays underneath, and when the
+/// app comes back it asks "Watched it?".
+struct LinkDetailView: View {
+    @Environment(AppModel.self) private var model
+    let linkID: Int
+
+    var body: some View {
+        if let link = model.inbox.links.first(where: { $0.id == linkID }) {
+            LinkPage(link: link)
+        } else {
+            // Someone deleted it while this page was open (or while the app was away).
+            ContentUnavailableView("Link Deleted", systemImage: "trash",
+                                   description: Text("This link isn't in Links anymore."))
+        }
+    }
+}
+
+private struct LinkPage: View {
+    @Environment(AppModel.self) private var model
+    @Environment(\.openURL) private var openURL
+    @Environment(\.dismiss) private var dismiss
+    let link: SharedLink
+
+    @State private var editingNote = false
+    @State private var noteDraft = ""
+    @State private var confirmingDelete = false
+    /// Set by Delete, which goes back first and deletes once the page has gone, so the page
+    /// doesn't turn into "Link Deleted" on its way out.
+    @State private var deleteOnDisappear = false
+    /// Counts reactions picked here, for the haptic (not every change is one made here).
+    @State private var picks = 0
+
+    private var inbox: InboxState { model.inbox }
+    private var mine: Bool { inbox.isMine(link) }
+    private var seenAt: Date? { link.seen[inbox.me] }
+    /// Opened from this page and not marked since: the page asks.
+    private var asking: Bool { model.watching == link.id && inbox.isUnwatched(link) }
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 24) {
+                preview
+                about
+                actions
+                reactions
+                receipts
+                // Comments (#6) go here, under the reactions.
+            }
+            .padding(.horizontal, 20)
+            .padding(.vertical, 16)
+            .frame(maxWidth: 600)
+            .frame(maxWidth: .infinity)
+        }
+        .accessibilityIdentifier("linkPage.\(link.id)")
+        .navigationTitle(link.platform.noun)
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar { toolbar }
+        .animation(.default, value: asking)
+        .animation(.default, value: seenAt)
+        .sensoryFeedback(.success, trigger: seenAt) { old, new in old == nil && new != nil }
+        .sensoryFeedback(.selection, trigger: picks)
+        .linkDeleteConfirmation(link, isPresented: $confirmingDelete) {
+            deleteOnDisappear = true
+            dismiss()
+        }
+        .linkNoteEditor(link, isPresented: $editingNote, draft: $noteDraft)
+        .onDisappear {
+            guard deleteOnDisappear else { return }
+            let link = link
+            Task { await model.delete(link) }
+        }
+    }
+
+    // MARK: Sections
+
+    /// The thumbnail, which opens the link too. #8's rich preview card replaces this.
+    private var preview: some View {
+        Button(action: watch) {
+            ThumbnailView(link: link, cornerRadius: 16)
+                .frame(width: 180, height: 240)
+                .shadow(color: .black.opacity(0.15), radius: 16, y: 6)
+        }
+        .buttonStyle(.plain)
+        .frame(maxWidth: .infinity)
+        .accessibilityHidden(true) // the Watch button below does the same
+    }
+
+    private var about: some View {
+        let from = mine ? "You sent this" : "From \(inbox.name(of: link.addedBy))"
+        return VStack(alignment: .leading, spacing: 14) {
+            VStack(alignment: .leading, spacing: 6) {
+                HStack(spacing: 6) {
+                    PlatformBadge(platform: link.platform)
+                    if let author = link.author {
+                        Text(author)
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                    }
+                }
+                Group {
+                    if link.isLoadingPreview {
+                        Text("Loading preview title").redacted(reason: .placeholder)
+                    } else {
+                        Text(link.displayTitle)
+                    }
+                }
+                .font(.title2.weight(.bold))
+                .accessibilityAddTraits(.isHeader)
+            }
+
+            // Who sent it, and their note as a message from them.
+            HStack(alignment: .top, spacing: 10) {
+                AvatarView(user: inbox.user(link.addedBy), size: 32)
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("\(from) · \(LinkFormat.ago(link.addedAt))")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                        .padding(.top, 6)
+                    if !link.note.isEmpty {
+                        Text(link.note)
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 8)
+                            .background(Color(uiColor: .secondarySystemBackground),
+                                        in: .rect(cornerRadius: 16, style: .continuous))
+                    }
+                }
+            }
+        }
+    }
+
+    @ViewBuilder private var actions: some View {
+        VStack(spacing: 12) {
+            if asking {
+                watchedPrompt
+                watchButton(prominent: false)
+            } else if mine {
+                watchButton(prominent: true)
+            } else if let seenAt {
+                watchButton(prominent: false)
+                watchedStatus(seenAt)
+            } else {
+                watchButton(prominent: true)
+                Button { mark(true) } label: {
+                    Label("Mark as Watched", systemImage: "checkmark.circle")
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.large)
+                .accessibilityIdentifier("linkPage.markWatched")
+            }
+        }
+    }
+
+    /// Back from watching it: the one thing left to do, front and centre.
+    private var watchedPrompt: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Watched it?").font(.headline)
+                Text("It moves to Watched, and \(inbox.name(of: link.addedBy)) sees you've seen it.")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+            }
+            Button { mark(true) } label: {
+                Label("Mark as Watched", systemImage: "checkmark")
+                    .fontWeight(.semibold)
+                    .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.borderedProminent)
+            .controlSize(.large)
+            .accessibilityIdentifier("linkPage.markWatched")
+        }
+        .padding(16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color.accentColor.opacity(0.12), in: .rect(cornerRadius: 20, style: .continuous))
+        .transition(.scale(scale: 0.95).combined(with: .opacity))
+    }
+
+    @ViewBuilder private func watchButton(prominent: Bool) -> some View {
+        let button = Button(action: watch) {
+            Label(link.platform.openTitle, systemImage: link.platform.isVideo ? "play.fill" : "arrow.up.forward.app")
+                .fontWeight(.semibold)
+                .frame(maxWidth: .infinity)
+        }
+        .controlSize(.large)
+        .accessibilityIdentifier("linkPage.watch")
+        if prominent {
+            button.buttonStyle(.borderedProminent)
+        } else {
+            button.buttonStyle(.bordered)
+        }
+    }
+
+    private func watchedStatus(_ date: Date) -> some View {
+        let status = Label {
+            Text("Watched · \(LinkFormat.ago(date))")
+        } icon: {
+            Image(systemName: "checkmark.circle.fill").foregroundStyle(Color.accentColor)
+        }
+        let undo = Button("Mark as Not Watched") { mark(false) }
+            .accessibilityIdentifier("linkPage.markNotWatched")
+        return ViewThatFits(in: .horizontal) {
+            HStack { status; Spacer(); undo }
+            VStack(alignment: .leading, spacing: 8) { status; undo }
+        }
+        .font(.subheadline)
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private var reactions: some View {
+        let others = link.reactions.filter { $0.key != inbox.me }.sorted { $0.key < $1.key }
+        return VStack(alignment: .leading, spacing: 10) {
+            Text("Reactions").font(.headline)
+            ReactionBar(current: link.reactions[inbox.me]) { emoji in
+                picks += 1
+                Task { await model.react(link, emoji) }
+            }
+            .background(Color(uiColor: .secondarySystemBackground), in: .capsule)
+            if !others.isEmpty {
+                Text(others.map { "\($0.value) \(inbox.name(of: $0.key))" }.joined(separator: "    "))
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    @ViewBuilder private var receipts: some View {
+        let receipts = self.seenBy
+        if mine || !receipts.isEmpty {
+            VStack(alignment: .leading, spacing: 10) {
+                Text(mine ? "Seen By" : "Also Seen By").font(.headline)
+                if receipts.isEmpty {
+                    Text("No one else has signed in yet.").foregroundStyle(.secondary)
+                }
+                ForEach(receipts) { receipt in
+                    HStack(spacing: 10) {
+                        AvatarView(user: inbox.user(receipt.id), size: 28)
+                        Text(inbox.name(of: receipt.id))
+                        Spacer()
+                        if let date = receipt.date {
+                            Label(LinkFormat.ago(date), systemImage: "checkmark")
+                                .foregroundStyle(.blue)
+                        } else {
+                            Text("Not yet").foregroundStyle(.secondary)
+                        }
+                    }
+                    .font(.subheadline)
+                    .accessibilityElement(children: .combine)
+                }
+            }
+        }
+    }
+
+    private struct Receipt: Identifiable {
+        let id: String
+        let date: Date?
+    }
+
+    /// Who has seen it, earliest first, apart from me and the sender. On my own links everyone
+    /// else is listed, with the people who haven't seen it yet at the end.
+    private var seenBy: [Receipt] {
+        let seen = link.seen
+            .filter { $0.key != inbox.me && $0.key != link.addedBy }
+            .sorted { $0.value < $1.value }
+            .map { Receipt(id: $0.key, date: $0.value) }
+        guard mine else { return seen }
+        return seen + inbox.otherPeople.filter { link.seen[$0.id] == nil }.map { Receipt(id: $0.id, date: nil) }
+    }
+
+    @ToolbarContentBuilder private var toolbar: some ToolbarContent {
+        ToolbarItem(placement: .topBarTrailing) {
+            ShareLink(item: link.url, subject: Text(link.displayTitle), preview: link.sharePreview)
+        }
+        ToolbarItem(placement: .topBarTrailing) {
+            Menu {
+                Button(link.note.isEmpty ? "Add Note" : "Edit Note", systemImage: "note.text") {
+                    noteDraft = link.note
+                    editingNote = true
+                }
+                CopyLinkButton(link: link)
+                Button("Delete", systemImage: "trash", role: .destructive) { confirmingDelete = true }
+            } label: {
+                Label("More", systemImage: "ellipsis")
+            }
+            .accessibilityIdentifier("linkPage.more")
+        }
+    }
+
+    // MARK: Actions
+
+    private func watch() {
+        model.watch(link, with: openURL)
+    }
+
+    private func mark(_ watched: Bool) {
+        Task { await model.setSeen(link, watched) }
+    }
+}

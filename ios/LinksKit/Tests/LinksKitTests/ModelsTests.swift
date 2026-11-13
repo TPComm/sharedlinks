@@ -45,6 +45,14 @@ struct PlatformTests {
         }
         #expect(Set(Platform.allCases.map(\.label)).count == Platform.allCases.count)
     }
+
+    @Test(arguments: [
+        (Platform.tiktok, "Watch in TikTok"), (.instagram, "Watch in Instagram"), (.youtube, "Watch in YouTube"),
+        (.x, "Open in X"), (.reddit, "Open in Reddit"), (.facebook, "Open in Facebook"), (.web, "Open in Browser"),
+    ])
+    func openTitle(_ platform: Platform, _ title: String) {
+        #expect(platform.openTitle == title)
+    }
 }
 
 @Suite("LinkUser")

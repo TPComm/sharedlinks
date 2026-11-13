@@ -22,8 +22,11 @@ Sign-in is [WorkOS AuthKit](https://workos.com/docs/authkit).
 
 Plus: a **Home Screen / Lock Screen widget** (To Watch or Sent receipts, small/medium/large and
 lock screen sizes) whose ✓ buttons mark things watched without opening the app, an **app icon
-badge** with the To Watch count, reactions, notes, search, swipe actions, and tapping a row opens
-the video straight in TikTok/Instagram/YouTube.
+badge** with the To Watch count, reactions, notes, search and swipe actions. Tapping a row (or a
+widget row) opens the link's page: **Watch in TikTok** (or Instagram, YouTube…), react, see who
+has seen it, and mark it watched when you're back. Coming back from TikTok lands on that page,
+even if iOS closed the app meanwhile. Long-press **Open in TikTok** still goes straight there and
+marks it watched in one go.
 
 ## Set up WorkOS (once)
 
