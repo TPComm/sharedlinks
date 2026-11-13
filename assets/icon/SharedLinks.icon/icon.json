@@ -1,0 +1,57 @@
+{
+  "features": [
+    "refractivity"
+  ],
+  "fill": {
+    "solid": "extended-srgb:0.92941,0.94118,0.94118,1.00000"
+  },
+  "groups": [
+    {
+      "layers": [
+        {
+          "image-name": "green-bookmark.svg",
+          "name": "green-bookmark"
+        }
+      ],
+      "shadow": {
+        "kind": "neutral",
+        "opacity": 0.42
+      },
+      "translucency": {
+        "enabled": true,
+        "value": 0.18
+      },
+      "refractivity": {
+        "enabled": true,
+        "depth": 0.16,
+        "strength": 0.25
+      }
+    },
+    {
+      "layers": [
+        {
+          "image-name": "graphite-bookmark.svg",
+          "name": "graphite-bookmark"
+        }
+      ],
+      "shadow": {
+        "kind": "neutral",
+        "opacity": 0.42
+      },
+      "translucency": {
+        "enabled": true,
+        "value": 0.18
+      },
+      "refractivity": {
+        "enabled": true,
+        "depth": 0.16,
+        "strength": 0.25
+      }
+    }
+  ],
+  "supported-platforms": {
+    "squares": [
+      "iOS"
+    ]
+  }
+}
