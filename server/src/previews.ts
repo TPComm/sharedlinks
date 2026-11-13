@@ -11,7 +11,8 @@ export interface Preview {
 }
 
 // Named entities that show up in real titles and descriptions (case-sensitive, as in HTML).
-const ENTITIES: Record<string, string> = {
+// A Map, so "&constructor;" on a hostile page doesn't find Object.prototype.constructor.
+const ENTITIES = new Map(Object.entries({
   amp: "&", lt: "<", gt: ">", quot: '"', apos: "'", nbsp: " ",
   mdash: "—", ndash: "–", hellip: "…", bull: "•", middot: "·", laquo: "«", raquo: "»",
   lsquo: "‘", rsquo: "’", sbquo: "‚", ldquo: "“", rdquo: "”", bdquo: "„", prime: "′",
@@ -25,7 +26,7 @@ const ENTITIES: Record<string, string> = {
   Egrave: "È", Eacute: "É", Ecirc: "Ê", Euml: "Ë", Igrave: "Ì", Iacute: "Í", Icirc: "Î", Iuml: "Ï",
   Ntilde: "Ñ", Ograve: "Ò", Oacute: "Ó", Ocirc: "Ô", Otilde: "Õ", Ouml: "Ö", Oslash: "Ø",
   Ugrave: "Ù", Uacute: "Ú", Ucirc: "Û", Uuml: "Ü", Yacute: "Ý",
-};
+}));
 
 export function decodeEntities(s: string): string {
   return s.replace(/&(#[xX][0-9a-fA-F]{1,6}|#\d{1,7}|[A-Za-z][A-Za-z0-9]{1,31});/g, (whole, name: string) => {
@@ -33,7 +34,7 @@ export function decodeEntities(s: string): string {
       const code = name[1] === "x" || name[1] === "X" ? parseInt(name.slice(2), 16) : parseInt(name.slice(1), 10);
       return code > 0 && code <= 0x10ffff ? String.fromCodePoint(code) : whole;
     }
-    return ENTITIES[name] ?? ENTITIES[name.toLowerCase()] ?? whole;
+    return ENTITIES.get(name) ?? ENTITIES.get(name.toLowerCase()) ?? whole;
   });
 }
 

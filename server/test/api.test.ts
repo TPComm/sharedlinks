@@ -184,7 +184,7 @@ describe("links", () => {
     const db = new Database(join(dataDir, "links.db"), { readonly: true });
     const { sql } = db.query("SELECT sql FROM sqlite_master WHERE name = 'links'").get() as { sql: string };
     expect(sql).toContain("AUTOINCREMENT");
-    expect((db.query("PRAGMA user_version").get() as any).user_version).toBe(3);
+    expect((db.query("PRAGMA user_version").get() as any).user_version).toBe(4);
     db.close();
     const { data } = await call("/api/state", { token });
     expect(data.links.map((l: any) => l.url)).toContain("https://de.wikipedia.org/wiki/M%C3%BCnchen");
@@ -206,9 +206,10 @@ describe("links", () => {
   });
 
   test("links iOS couldn't parse are refused", async () => {
-    const braces = await call("/api/links", { token, body: { url: "see {https://news.example.com}" } });
+    // A local host, so the preview fetch this starts stays offline.
+    const braces = await call("/api/links", { token, body: { url: `see {${origin}}` } });
     expect(braces.status).toBe(201); // the brace is message punctuation, not part of the link
-    expect(braces.data.link.url).toBe("https://news.example.com/");
+    expect(braces.data.link.url).toBe(`${origin}/`);
     expect((await call("/api/links", { token, body: { url: "https://exa{mple.com/x" } })).status).toBe(400);
     await idle();
   });

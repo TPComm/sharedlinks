@@ -4,7 +4,12 @@ export class BadRequest extends Error {}
 
 const URL_RE = /https?:\/\/[^\s<>"']+/i;
 const BARE_RE = /\b(?:[\w-]+\.)+[a-z]{2,}\/[^\s<>"']*/i;
-const TRACKING_RE = /^(utm_\w+|igsh|igshid|fbclid|gclid|si|feature|ref|ref_src|s)$/;
+const TRACKING_RE = /^(utm_\w+|igsh|igshid|fbclid|gclid|si|feature|ref|ref_src)$/;
+/**
+ * Tracking that only one platform adds. Elsewhere the same names mean something: WordPress's
+ * ?s= is a search and YouTube's ?t= a start time. X's share sheet adds ?s=20&t=<per-share token>.
+ */
+const PLATFORM_TRACKING: Record<string, RegExp> = { x: /^(s|t)$/ };
 
 export const PLATFORMS: Record<string, string[]> = {
   tiktok: ["tiktok.com"],
@@ -71,7 +76,7 @@ export async function resolveRedirects(url: string, opts: FetchOptions = {}): Pr
     }
     // Only follow to web pages, and stop at a login wall: the short link is the best we have.
     if (next.protocol !== "https:" && next.protocol !== "http:") return url;
-    if (next.pathname.includes("login")) return url;
+    if (/\/login\b/.test(next.pathname)) return url; // /login, /accounts/login/; not a handle like @loginqueen
     url = next.toString();
     // Out of the short-link service means we've reached the post. Fetching it too would only
     // download the page (~400 KB for TikTok).
@@ -122,7 +127,9 @@ export function normalize(parts: URL): { url: string; platform: string } {
   const platform = platformOf(host);
   let query = "";
   if (platform === "instagram") {
-    path = path.replace(/^\/reels\//, "/reel/").replace(/^\/[^/]+\/(reel|p)\//, "/$1/"); // /username/reel/ID -> /reel/ID
+    // /username/reel/ID -> /reel/ID. Not /share/reel/CODE (left by a failed expansion): the share
+    // code isn't the post's ID, so /reel/CODE would be a dead page.
+    path = path.replace(/^\/reels\//, "/reel/").replace(/^\/(?!share\/)[^/]+\/(reel|p)\//, "/$1/");
   } else if (platform === "tiktok") {
     // TikTok's query string is all tracking (_t, _r, is_from_webapp, ...), so it goes. Posts get
     // one spelling: /@/video/ID opens in the browser and the app, oEmbed accepts it (it refuses
@@ -131,7 +138,8 @@ export function normalize(parts: URL): { url: string; platform: string } {
     if (id) path = `/@/video/${id}`;
   } else {
     const params = new URLSearchParams(parts.search);
-    for (const key of [...params.keys()]) if (TRACKING_RE.test(key)) params.delete(key);
+    const extra = PLATFORM_TRACKING[platform];
+    for (const key of [...params.keys()]) if (TRACKING_RE.test(key) || extra?.test(key)) params.delete(key);
     query = params.toString();
   }
   // One spelling per site (TikTok's oEmbed only accepts www.tiktok.com).
