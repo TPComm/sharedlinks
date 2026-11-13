@@ -17,11 +17,12 @@ HERE=$(cd "$(dirname "$0")" && pwd)
 [[ $DOMAIN =~ ^[A-Za-z0-9]([A-Za-z0-9.-]*[A-Za-z0-9])?$ ]] || { echo "Not a hostname: $DOMAIN" >&2; exit 1; }
 
 # Run the script on stdin on the VPS as root (directly, or through sudo for a non-root login).
-# ssh joins its arguments into one remote shell command, so quote them into it ourselves.
+# ssh joins its arguments into one remote shell command, so quote them into it ourselves. The
+# script also gets, last, the VPS port this SSH session came in on (sudo drops SSH_CONNECTION).
 remote() {
   local args
   args=$(printf ' %q' "$@")
-  ssh "$HOST" "if [ \"\$(id -u)\" = 0 ]; then bash -s --$args; else sudo bash -s --$args; fi"
+  ssh "$HOST" "p=\${SSH_CONNECTION##* }; if [ \"\$(id -u)\" = 0 ]; then bash -s --$args \"\$p\"; else sudo bash -s --$args \"\$p\"; fi"
 }
 upload() { ssh "$HOST" "cat > '$2'" < "$1"; }
 
@@ -44,6 +45,7 @@ echo "==> Configuring the VPS"
 remote "$DOMAIN" <<'REMOTE'
 set -euo pipefail
 DOMAIN=$1
+CONN_PORT=${2:-} # the port this SSH session uses (see remote())
 # The uploads include the env file with secrets: never leave them behind, even on failure.
 trap 'rm -rf /tmp/links-setup' EXIT
 export DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=l
@@ -130,8 +132,16 @@ install -m 644 /tmp/links-setup/links.service /tmp/links-setup/links-backup.serv
 install -m 644 /tmp/links-setup/Caddyfile /etc/caddy/Caddyfile
 
 # Firewall: SSH and web only. (Skipped quietly on hosts whose kernel lacks the needed modules.)
-# Allow every port sshd actually listens on (not just 22) before turning the firewall on.
-SSH_PORTS=$(sshd -T 2>/dev/null | awk '$1 == "port" {print $2}' | sort -u || true)
+# Allow every port SSH listens on (not just 22) before turning the firewall on: sshd_config's,
+# ssh.socket's (socket activation, Ubuntu 22.10+: a drop-in there can add ports sshd -T doesn't
+# show), and the one this very session came in on, however it was configured.
+SSH_PORTS=$( {
+  sshd -T 2>/dev/null | awk '$1 == "port" {print $2}'
+  if systemctl is-active --quiet ssh.socket 2>/dev/null; then
+    systemctl show -p Listen --value ssh.socket 2>/dev/null | sed -nE 's/.*:([0-9]+) \(Stream\).*/\1/p'
+  fi
+  if [[ $CONN_PORT =~ ^[0-9]+$ ]]; then echo "$CONN_PORT"; fi
+} | sort -u || true)
 [ -n "$SSH_PORTS" ] || SSH_PORTS=22
 ok=1
 for port in $SSH_PORTS; do ufw allow "$port/tcp" >/dev/null || ok=0; done
