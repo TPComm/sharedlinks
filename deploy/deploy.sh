@@ -5,7 +5,8 @@
 #
 # Re-run after `bun upgrade` to ship Bun's own security fixes (the runtime is inside the binary).
 # A build that fails its health check is rolled back automatically. To go back one release by hand:
-#   ssh root@203.0.113.7 'cd /opt/links && cp links-server.prev links-server && systemctl restart links'
+#   ssh root@203.0.113.7 'cd /opt/links && cp links-server.prev links-server.new && mv links-server.new links-server && systemctl restart links'
+# (cp straight onto the running binary fails with "Text file busy"; the rename doesn't.)
 set -euo pipefail
 
 HOST=${1:?usage: deploy/deploy.sh user@host}
@@ -15,10 +16,11 @@ cd "$ROOT/server"
 
 remote() { ssh "$HOST" 'if [ "$(id -u)" = 0 ]; then bash -s; else sudo bash -s; fi'; }
 
-case "$(ssh "$HOST" uname -m)" in
+ARCH=$(ssh "$HOST" uname -m)  # also the connection check: stops here with ssh's own error
+case "$ARCH" in
   x86_64) TARGET=bun-linux-x64-baseline ;;  # baseline: also runs on older/virtual CPUs without AVX2
   aarch64 | arm64) TARGET=bun-linux-arm64 ;;
-  *) echo "Unsupported CPU: $(ssh "$HOST" uname -m)" >&2; exit 1 ;;
+  *) echo "Unsupported CPU: $ARCH" >&2; exit 1 ;;
 esac
 
 echo "==> Testing"
