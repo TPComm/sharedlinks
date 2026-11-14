@@ -133,10 +133,19 @@ async function ascToken(): Promise<string> {
 
 type Resource = { id: string; attributes: Record<string, any>; relationships?: Record<string, any> };
 
+class AscError extends Error {
+  constructor(
+    readonly status: number,
+    message: string,
+  ) {
+    super(message);
+  }
+}
+
 async function asc(token: string, pathOrUrl: string): Promise<any> {
   const url = pathOrUrl.startsWith("http") ? pathOrUrl : `${ASC_API}${pathOrUrl}`;
   const res = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
-  if (!res.ok) throw new Error(`App Store Connect ${res.status} for ${new URL(url).pathname}: ${await res.text()}`);
+  if (!res.ok) throw new AscError(res.status, `App Store Connect ${res.status} for ${new URL(url).pathname}: ${await res.text()}`);
   return res.json();
 }
 
@@ -196,8 +205,9 @@ async function crashLog(token: string, id: string): Promise<string | null> {
     const res = await asc(token, `/v1/betaFeedbackCrashSubmissions/${id}/crashLog`);
     return res.data?.attributes?.logText ?? null;
   } catch (e) {
-    console.warn(`No crash log for ${id}: ${e}`);
-    return null;
+    // Only a missing log is final; anything else fails this submission so the next run retries it.
+    if (e instanceof AscError && e.status === 404) return null;
+    throw e;
   }
 }
 
