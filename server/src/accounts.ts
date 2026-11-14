@@ -107,7 +107,7 @@ export class Accounts {
       const row = this.db.query("SELECT * FROM invites WHERE token_hash = ? AND used_at IS NULL AND expires_at > ?")
         .get(sha256(token), t) as InviteRow | null;
       // Hide My Email: the link was sent to them, but Apple signs them in with a relay address.
-      if (row && (!row.email || (verified && row.email.toLowerCase() === email.toLowerCase()) || appleRelay(email))) return row;
+      if (row && (!row.email || (verified && (row.email.toLowerCase() === email.toLowerCase() || appleRelay(email))))) return row;
     }
     if (!email || !verified) return null;
     return this.db.query("SELECT * FROM invites WHERE email = ? COLLATE NOCASE AND used_at IS NULL AND expires_at > ? ORDER BY created_at LIMIT 1")
@@ -294,7 +294,7 @@ export class Accounts {
       }
       const invite = this.findInvite(inviteToken, email, !!user.email_verified);
       if (!invite) {
-        if (!user.email_verified && email && this.findInvite("", email, true)) {
+        if (!user.email_verified && email && this.findInvite(inviteToken, email, true)) {
           throw new AuthError("Verify your email address, then sign in again.", 403);
         }
         if (inviteToken && this.pendingInvite(inviteToken)?.email) {

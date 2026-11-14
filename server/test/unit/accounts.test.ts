@@ -434,6 +434,7 @@ describe("signIn (WorkOS stub)", () => {
     unverified: { id: "user_05", email: "friend2@team.test", email_verified: false },
     noemail: { id: "user_06" },
     relay: { id: "user_07", email: "x7k2@privaterelay.appleid.com", email_verified: true },
+    relayUnverified: { id: "user_08", email: "q9p1@privaterelay.appleid.com", email_verified: false },
   };
   const workos = stubServer({
     "/user_management/authenticate": async (req) => {
@@ -540,6 +541,7 @@ describe("signIn (WorkOS stub)", () => {
     const a = signer();
     const { token } = a.createInvite(null, "friend2@team.test");
     expect((await authError(a.signIn("relay", VERIFIER, ""))).message).toContain("you signed in with Hide My Email");
+    expect((await authError(a.signIn("relayUnverified", VERIFIER, "", token))).message).toContain("Verify your email");
     expect((await a.signIn("relay", VERIFIER, "", token)).user.id).toBe("user_07");
     expect(a.pendingInvite(token)).toBeNull();
   });
