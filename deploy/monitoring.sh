@@ -83,8 +83,8 @@ fi
 LABEL=$(sed -n 's|^PUBLIC_URL=https\{0,1\}://\([^/:]*\).*|\1|p' /etc/links/links.env 2>/dev/null || true)
 LABEL=${LABEL:-$(hostname -f 2>/dev/null || hostname)}
 install -m 644 /tmp/links-monitoring/fluent-bit.conf /etc/fluent-bit/links.conf
-{ cat /tmp/links-monitoring/links.env; echo "LINKS_HOST=$LABEL"; } > /etc/fluent-bit/links.env.tmp
-chmod 600 /etc/fluent-bit/links.env.tmp && mv /etc/fluent-bit/links.env.tmp /etc/fluent-bit/links.env
+(umask 077 && { cat /tmp/links-monitoring/links.env; echo "LINKS_HOST=$LABEL"; } > /etc/fluent-bit/links.env.tmp)
+mv /etc/fluent-bit/links.env.tmp /etc/fluent-bit/links.env
 install -d -m 755 /etc/systemd/system/fluent-bit.service.d
 install -m 644 /tmp/links-monitoring/fluent-bit-links.conf /etc/systemd/system/fluent-bit.service.d/links.conf
 systemctl daemon-reload
