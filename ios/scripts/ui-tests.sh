@@ -13,8 +13,6 @@
 #                               test-without-building)
 #   LINKS_UI_TEST_LOGS          keep the server and xcodebuild logs here (default: a temp folder,
 #                               deleted at exit)
-#   LINKS_UI_TEST_RETRIES       times to rerun a failed test before failing the run (default: 1;
-#                               0 for -run-tests-until-failure, which xcodebuild won't combine)
 set -euo pipefail
 
 ios="$(cd "$(dirname "$0")/.." && pwd)"
@@ -92,14 +90,6 @@ if [[ -z "$destination" ]]; then
   xcrun simctl terminate "$udid" com.apple.mobilesafari 2>/dev/null || true
 fi
 
-# A failed test gets a fresh try before it fails the run: one Simulator hiccup otherwise costs a
-# whole rerun of the job. A real break fails every try.
-retries="${LINKS_UI_TEST_RETRIES:-1}"
-retry_args=()
-if [[ "$retries" -gt 0 ]]; then
-  retry_args=(-retry-tests-on-failure -test-iterations "$((retries + 1))")
-fi
-
 # xcodebuild hands TEST_RUNNER_<NAME> to the test runner as <NAME>. The tests pass the URL and
 # token on to the app (DEBUG builds read LINKS_SERVER_URL and LINKS_DEV_TOKEN).
 # Signed (ad hoc, for the Simulator): the app needs its App Group entitlement for the keychain.
@@ -118,7 +108,6 @@ status=0
     -destination "$destination" \
     -derivedDataPath "${LINKS_UI_TEST_DERIVED_DATA:-build}" \
     -parallel-testing-enabled NO \
-    ${retry_args[@]+"${retry_args[@]}"} \
     "$@"
 ) 2>&1 | tee "$logs/xcodebuild.log" || status=$?
 
@@ -126,12 +115,6 @@ status=0
 if [[ $status -eq 0 ]] && grep -q "^Test Case '.*' skipped" "$logs/xcodebuild.log"; then
   echo "error: UI tests were skipped, so the server URL or tokens didn't reach them" >&2
   status=1
-fi
-# Name the tests that only passed on a retry, so a flaky test shows up instead of hiding.
-if [[ $status -eq 0 ]]; then
-  sed -n "s/^Test Case '-\[\(.*\)\]' failed .*/\1/p" "$logs/xcodebuild.log" | sort -u | while read -r name; do
-    echo "::warning title=Flaky UI test::$name failed, then passed on a retry"
-  done
 fi
 if [[ $status -ne 0 ]]; then
   echo "--- server log (last 40 lines) ---" >&2
