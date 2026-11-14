@@ -52,6 +52,33 @@ public enum Platform: String, Codable, Sendable, CaseIterable {
     /// The main button on a link's page: "Watch in TikTok", "Open in Browser".
     public var openTitle: String { "\(isVideo ? "Watch" : "Open") in \(opener)" }
 
+    /// Who owns the platform's name, for the trademark notice; nil for the open web.
+    public var trademarkOwner: String? {
+        switch self {
+        case .tiktok: "ByteDance Ltd."
+        case .instagram: "Instagram, LLC"
+        case .youtube: "Google LLC"
+        case .x: "X Corp."
+        case .reddit: "Reddit, Inc."
+        case .facebook: "Meta Platforms, Inc."
+        case .web: nil
+        }
+    }
+
+    /// The app names other companies' platforms, so it says whose trademarks they are and that
+    /// Links isn't theirs. The sign-in screen and tour name only the two their copy mentions.
+    public static func trademarkNotice(for platforms: [Platform] = allCases) -> String {
+        let named = platforms.compactMap { platform in
+            platform.trademarkOwner.map { owner in
+                "\(platform.label) is a trademark of \(owner)\(owner.hasSuffix(".") ? "" : ".")"
+            }
+        }
+        let them = named.count == 2 ? "either" : "any of them"
+        return (named + ["Links isn't affiliated with or endorsed by \(them)."]).joined(separator: " ")
+    }
+
+    public static let shortTrademarkNotice = trademarkNotice(for: [.tiktok, .instagram])
+
     /// Text glyph for placeholder thumbnails.
     public var glyph: String {
         switch self {

@@ -197,6 +197,10 @@ at startup and sends nothing.
   the listing's Privacy Policy URL. The app opens it from the account menu and the sign-in screen.
   It gives `SUPPORT_EMAIL` for privacy requests. Keep it in step with
   `ios/Links/PrivacyInfo.xcprivacy` and the listing's privacy answers.
+- Trademarks (App Store guideline 5.2): the sign-in screen and the tour say TikTok and Instagram
+  are their owners' trademarks and that Links isn't affiliated with them, and **About Links** in
+  the account menu lists every platform the app names (`Platform.trademarkOwner` in
+  `ios/LinksKit`). Add an owner there when you add a platform.
 
 **Universal links** (needs a paid Apple Developer membership; free teams can't sign the
 Associated Domains entitlement). With them, `https://YOUR-HOST/l/…`, `/invite/…` and `/g/…` links

@@ -99,6 +99,10 @@ struct SignInView: View {
                 .font(.footnote)
                 .padding(.bottom, 8)
                 .accessibilityIdentifier("signIn.privacy")
+            TrademarkNotice(alignment: .center)
+                .frame(maxWidth: 420)
+                .padding(.horizontal, 24)
+                .padding(.bottom, 8)
         }
         .padding()
     }
