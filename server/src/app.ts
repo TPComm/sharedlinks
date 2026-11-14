@@ -46,6 +46,59 @@ function supportPage(email: string): string {
 `;
 }
 
+/**
+ * The privacy policy (guideline 5.1.1(i)): the App Store listing's Privacy Policy URL, and the app's
+ * account menu and sign-in screen. Keep it in step with ios/Links/PrivacyInfo.xcprivacy.
+ */
+function privacyPage(email: string, sessionDays: number): string {
+  const contact = email
+    ? `<a href="mailto:${escapeHtml(email)}">${escapeHtml(email)}</a>`
+    : "the person who runs this Links server";
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Links Privacy Policy</title><style>body{font:17px/1.5 -apple-system,system-ui,sans-serif;max-width:36em;margin:3em auto;padding:0 1em}h2{font-size:1.1em;margin-top:1.6em}</style></head>
+<body><h1>Links Privacy Policy</h1>
+<p>Last updated 14 November 2026.</p>
+<p>Links is a private inbox for the links a few friends send each other. This policy covers the Links app and this server, which keeps what the app shows. Questions or requests: ${contact}.</p>
+
+<h2>What Links keeps, and why</h2>
+<ul>
+<li><b>Your account:</b> your email address, display name and profile photo address. They come from WorkOS, our sign-in provider, when you first sign in, and you can change your name in the app. They sign you in, check you're on this server's guest list, and show your friends who sent what.</li>
+<li><b>What you do in Links:</b> the links you send and their notes, which links you've watched, your reactions, the reports you make and the people you block. For each link the server also fetches its title, author and thumbnail from the link's page.</li>
+<li><b>Signed-in devices:</b> a scrambled (hashed) copy of each device's sign-in token, with when it was created and last used.</li>
+<li><b>Server logs:</b> one line per request, with what was asked for (for example, "mark link 12 watched") and whether it worked. They're used to fix problems.</li>
+<li><b>Backups:</b> a copy of the server's database, made every day.</li>
+</ul>
+<p>Links uses this only to run the app. There are no ads, no analytics and no tracking, and nothing is sold or shared for marketing.</p>
+
+<h2>Who else sees it</h2>
+<ul>
+<li><b>The other people on this server</b> see your name and photo, the links you send and their notes, and your watched marks and reactions. Reports and blocks are private: only the person who runs the server reads reports.</li>
+<li><b>WorkOS</b> runs sign-in. It keeps your email, your sign-in details and the sign-ins you make, and gets the app's name and version and your iOS version when you sign in, plus, like any website, your IP address and browser details while you sign in. See the <a href="https://workos.com/legal/privacy">WorkOS privacy policy</a>.</li>
+<li><b>The company that hosts this server</b> stores it on its computers.</li>
+</ul>
+<p>Links only uses services like these that protect your data the way this policy describes. When the server fetches a link's preview, the site sees the server, not you. When you open a link, it opens in its own app (such as TikTok or Instagram) or in Safari, and their privacy policies apply there.</p>
+
+<h2>How long it's kept</h2>
+<ul>
+<li>Your account and what you do in Links: until you delete them, or your account.</li>
+<li>A device's sign-in: until you sign out on it, or ${sessionDays} days after it was last used.</li>
+<li>Server logs: until the server's system log replaces them with newer ones, usually within a few weeks.</li>
+<li>Backups: the newest 14 days are kept, so anything deleted is gone from the backups within two weeks.</li>
+</ul>
+
+<h2>Your choices</h2>
+<ul>
+<li>Change your display name in the app's account menu. Delete a link you sent, or change its note, from the link's long-press menu.</li>
+<li>To delete your account, open the account menu in the app and choose <b>Delete Account</b>. That deletes your account, your sign-ins on every device, the links you sent with their notes and thumbnails (for your friends too), your watched marks and reactions, and your WorkOS account.</li>
+<li>You can also email ${contact} to ask what Links keeps about you, to correct it, or to delete it.</li>
+</ul>
+
+<h2>Changes</h2>
+<p>If this policy changes, this page shows the new version and its date.</p>
+</body></html>
+`;
+}
+
 function bearer(req: Request): string | null {
   const auth = req.headers.get("authorization") ?? "";
   return auth.slice(0, 7).toLowerCase() === "bearer " ? auth.slice(7).trim() || null : null;
@@ -168,7 +221,7 @@ export function createApp(config: Config) {
   /**
    * A write on `me`'s behalf, if their account still exists. A request can outlive it: DELETE /api/me
    * (or `links-server delete-user`) can land while it awaits its body or a short link, and rows
-   * written after that would stay under the deleted id instead of "deleted".
+   * written after that would stay under the deleted id instead of going with the account.
    */
   function asUser<T>(me: string, write: () => T): T {
     return db.transaction(() => {
@@ -312,7 +365,7 @@ export function createApp(config: Config) {
           return accounts.mePayload(me);
         }));
       }),
-      // Delete the account. The links it sent stay, from "Deleted user" (see Accounts.deleteUser).
+      // Delete the account and the links it sent, with their notes (see Accounts.deleteUser).
       DELETE: route(async (_req, me) => {
         await accounts.deleteUser(me);
         return json({ ok: true });
@@ -329,6 +382,7 @@ export function createApp(config: Config) {
     },
 
     "/support": new Response(supportPage(config.supportEmail), { headers: { "Content-Type": "text/html; charset=utf-8" } }),
+    "/privacy": new Response(privacyPage(config.supportEmail, config.sessionDays), { headers: { "Content-Type": "text/html; charset=utf-8" } }),
 
     "/api/state": { GET: route((_req, me) => json(getState(me))) },
 

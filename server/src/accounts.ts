@@ -1,6 +1,8 @@
 import type { Database } from "bun:sqlite";
+import { rmSync } from "node:fs";
+import { join } from "node:path";
 import type { Config } from "./config.ts";
-import { DELETED_USER, LEGACY, now, type UserRow } from "./db.ts";
+import { LEGACY, now, type UserRow } from "./db.ts";
 import { BadRequest, clip } from "./links.ts";
 import { screener } from "./moderation.ts";
 
@@ -133,19 +135,20 @@ export class Accounts {
 
   /**
    * Delete an account (App Store guideline 5.1.1(v)), in one transaction: the user, their sessions,
-   * and their seen marks and reactions. The links they sent stay for everyone else, from
-   * DELETED_USER, so signing up again (same WorkOS id, same email) starts with nothing. Then the
-   * WorkOS user goes too, if the server has an API key to do that with.
+   * their seen marks and reactions, and the links they sent with their notes (for everyone, so
+   * others' marks and reactions on them go too), then those links' thumbnails. Then the WorkOS user
+   * goes too, if the server has an API key to do that with.
    */
   async deleteUser(userId: string): Promise<{ links: number; workos: "deleted" | "skipped" | "failed" }> {
-    const links = this.db.transaction(() => {
-      const { changes } = this.db.run("UPDATE links SET added_by = ? WHERE added_by = ?", [DELETED_USER, userId]);
+    const sent = this.db.transaction(() => {
+      const ids = this.db.query("DELETE FROM links WHERE added_by = ? RETURNING id").all(userId) as { id: number }[];
       this.db.run("DELETE FROM seen WHERE person = ?", [userId]);
       this.db.run("DELETE FROM reactions WHERE person = ?", [userId]);
       this.db.run("DELETE FROM users WHERE id = ?", [userId]); // sessions cascade
-      return changes;
+      return ids;
     })();
-    return { links, workos: await this.deleteWorkOSUser(userId) };
+    for (const { id } of sent) rmSync(join(this.config.dataDir, "thumbs", String(id)), { force: true });
+    return { links: sent.length, workos: await this.deleteWorkOSUser(userId) };
   }
 
   /** Best effort: the Links account is already gone, so a failure here is only logged. */

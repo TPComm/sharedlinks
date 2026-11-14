@@ -1,8 +1,10 @@
 import type { Database } from "bun:sqlite";
+import { existsSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, setSystemTime, spyOn, test } from "bun:test";
 import { Accounts, AuthError, cleanName, publicUser } from "../../src/accounts.ts";
 import { configFromEnv, type Config } from "../../src/config.ts";
-import { DELETED_USER, openDatabase } from "../../src/db.ts";
+import { openDatabase } from "../../src/db.ts";
 import { BadRequest } from "../../src/links.ts";
 import { closedPort, stubServer, tempDir } from "./helpers.ts";
 
@@ -301,6 +303,8 @@ describe("deleteUser", () => {
     deletes.stop(true);
   });
 
+  const thumb = (id: number) => join(tmp.dir, "thumbs", String(id));
+
   function setup(over: Partial<Config> = {}) {
     addUser("user_A", "a@x.com", "Riley");
     addUser("user_B", "b@x.com", "Bo");
@@ -311,25 +315,21 @@ describe("deleteUser", () => {
       INSERT INTO seen VALUES (1, 'user_B', 5), (3, 'user_A', 6), (3, 'user_B', 7);
       INSERT INTO reactions VALUES (1, 'user_B', '🔥'), (3, 'user_A', '😂'), (3, 'user_B', '❤️');
     `);
-    const a = accounts({ workosApi: `http://127.0.0.1:${deletes.port}`, ...over });
+    for (const id of [1, 3]) writeFileSync(thumb(id), "png");
+    const a = accounts({ workosApi: `http://127.0.0.1:${deletes.port}`, dataDir: tmp.dir, ...over });
     for (const user of ["user_A", "user_A", "user_B"]) a.newSession(user);
     return a;
   }
 
-  test("deletes the account, its sessions, marks and reactions; its links stay, from no one", async () => {
+  test("deletes the account, its sessions, marks, reactions, and the links it sent with their thumbnails", async () => {
     expect(await setup().deleteUser("user_A")).toEqual({ links: 2, workos: "skipped" });
     expect(rows("SELECT id FROM users")).toEqual([{ id: "user_B" }]);
     expect(rows("SELECT user_id FROM sessions")).toEqual([{ user_id: "user_B" }]);
-    expect(rows("SELECT id, added_by FROM links ORDER BY id")).toEqual([
-      { id: 1, added_by: DELETED_USER }, { id: 2, added_by: DELETED_USER }, { id: 3, added_by: "user_B" },
-    ]);
-    // Everyone else's marks and reactions stay, on her links too.
-    expect(rows("SELECT link_id, person FROM seen ORDER BY link_id")).toEqual([
-      { link_id: 1, person: "user_B" }, { link_id: 3, person: "user_B" },
-    ]);
-    expect(rows("SELECT link_id, person FROM reactions ORDER BY link_id")).toEqual([
-      { link_id: 1, person: "user_B" }, { link_id: 3, person: "user_B" },
-    ]);
+    expect(rows("SELECT id, added_by FROM links ORDER BY id")).toEqual([{ id: 3, added_by: "user_B" }]);
+    expect([existsSync(thumb(1)), existsSync(thumb(3))]).toEqual([false, true]);
+    // Everyone else's marks and reactions on her links went with them; on other links they stay.
+    expect(rows("SELECT link_id, person FROM seen ORDER BY link_id")).toEqual([{ link_id: 3, person: "user_B" }]);
+    expect(rows("SELECT link_id, person FROM reactions ORDER BY link_id")).toEqual([{ link_id: 3, person: "user_B" }]);
     expect(workosCalls).toEqual([]); // no API key
   });
 
@@ -341,12 +341,12 @@ describe("deleteUser", () => {
     expect(a.mePayload("user_A").claimable).toEqual([]);
   });
 
-  test("two deleted people's links share one sender", async () => {
+  test("deleting everyone leaves nothing behind", async () => {
     const a = setup();
     await a.deleteUser("user_A");
     await a.deleteUser("user_B");
-    expect(rows("SELECT DISTINCT added_by FROM links")).toEqual([{ added_by: DELETED_USER }]);
-    expect([count("users"), count("sessions"), count("seen"), count("reactions")]).toEqual([0, 0, 0, 0]);
+    expect([count("users"), count("sessions"), count("links"), count("seen"), count("reactions")]).toEqual([0, 0, 0, 0, 0]);
+    expect(existsSync(thumb(3))).toBe(false);
   });
 
   test("an id with nothing tied to it is a no-op", async () => {
