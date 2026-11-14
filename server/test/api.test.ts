@@ -19,6 +19,7 @@ let api: string;
 let origin: string;
 let stop: () => void;
 let idle: () => Promise<void>;
+let mint: (email: string, name: string) => string;
 let baseConfig: ReturnType<typeof configFromEnv>;
 let flakyUp = false;
 const workosRequests: Record<string, any>[] = [];
@@ -115,6 +116,7 @@ beforeAll(() => {
   api = server.url.origin;
   origin = fakeOrigin.url.origin;
   idle = app.idle;
+  mint = (email, name) => app.accounts.mintSession(email, name);
   stop = () => server.stop(true);
 });
 
@@ -323,7 +325,7 @@ describe("links", () => {
     const db = new Database(join(dataDir, "links.db"), { readonly: true });
     const { sql } = db.query("SELECT sql FROM sqlite_master WHERE name = 'links'").get() as { sql: string };
     expect(sql).toContain("AUTOINCREMENT");
-    expect((db.query("PRAGMA user_version").get() as any).user_version).toBe(7);
+    expect((db.query("PRAGMA user_version").get() as any).user_version).toBe(8);
     db.close();
     const { data } = await call("/api/state", { token });
     expect(data.links.map((l: any) => l.url)).toContain("https://de.wikipedia.org/wiki/M%C3%BCnchen");
@@ -649,6 +651,123 @@ describe("reports, blocks and the word list", () => {
   });
 });
 
+describe("group chats", () => {
+  let ann: string, bo: string, cy: string;
+  let annId: string, boId: string, cyId: string;
+  const state = async (token: string, query = "") => (await call(`/api/state${query}`, { token })).data;
+  beforeAll(async () => {
+    [ann, bo, cy] = [mint("ann@groups.test", "Ann"), mint("bo@groups.test", "Bo"), mint("cy@groups.test", "Cy")];
+    [annId, boId, cyId] = await Promise.all([ann, bo, cy].map(async (t) => (await state(t)).me));
+  });
+
+  test("everyone, and every link from before groups, is in the default chat", async () => {
+    const data = await state(cy);
+    expect(data.groups).toHaveLength(1);
+    const [everyone] = data.groups;
+    expect(everyone).toMatchObject({ default: true, name: "", created_by: null });
+    expect(everyone.members).toEqual(expect.arrayContaining([annId, boId, cyId, "user_01FRIEND"]));
+    expect(data.links.length).toBeGreaterThan(0);
+    expect(data.links.every((l: any) => l.group_id === everyone.id)).toBe(true);
+  });
+
+  test("a chat's links are only for its members; the same link can be in two chats", async () => {
+    const made = await call("/api/groups", { token: ann, body: { name: "  Ann  &  Bo ", members: [boId, annId, boId] } });
+    expect(made.status).toBe(201);
+    const chat = made.data.group;
+    expect(chat).toMatchObject({ name: "Ann & Bo", created_by: annId, default: false });
+    expect(chat.members.sort()).toEqual([annId, boId].sort());
+
+    const url = `${origin}/plain?n=group-only`;
+    const sent = await call("/api/links", { token: ann, body: { url, group_id: chat.id } });
+    expect(sent.status).toBe(201);
+    expect(sent.data.link.group_id).toBe(chat.id);
+    expect((await state(bo)).links.map((l: any) => l.id)).toContain(sent.data.link.id);
+    const cyView = await state(cy);
+    expect(cyView.groups.map((g: any) => g.id)).not.toContain(chat.id);
+    expect(cyView.links.map((l: any) => l.id)).not.toContain(sent.data.link.id);
+
+    // Again in that chat is a duplicate; in the default chat (where an app from before groups sends) it's new.
+    const again = await call("/api/links", { token: bo, body: { url, group_id: chat.id } });
+    expect(again.data).toMatchObject({ duplicate: true, link: { id: sent.data.link.id } });
+    const elsewhere = await call("/api/links", { token: cy, body: { url } });
+    expect(elsewhere.status).toBe(201);
+    expect(elsewhere.data.link.group_id).toBe(cyView.groups[0].id);
+    expect(elsewhere.data.link.id).not.toBe(sent.data.link.id);
+
+    // ?group_id= narrows the state to one chat.
+    const one = await state(bo, `?group_id=${chat.id}`);
+    expect(one.links.map((l: any) => l.id)).toEqual([sent.data.link.id]);
+    expect((await call(`/api/state?group_id=${chat.id}`, { token: cy })).status).toBe(404);
+    await idle();
+  });
+
+  test("nobody outside a chat can read, mark, react to, edit, refresh, report or delete its links", async () => {
+    const chat = (await call("/api/groups", { token: ann, body: { members: [boId] } })).data.group;
+    const link = (await call("/api/links", { token: ann, body: { url: `${origin}/video?id=group`, group_id: chat.id } })).data.link;
+    await idle();
+    const thumb = (await state(ann)).links.find((l: any) => l.id === link.id).thumb;
+    expect((await fetch(api + thumb, { headers: { Authorization: `Bearer ${bo}` } })).status).toBe(200);
+    const attempts = [
+      call(`/api/links/${link.id}/seen`, { token: cy, body: { seen: true } }),
+      call(`/api/links/${link.id}/react`, { token: cy, body: { emoji: "😂" } }),
+      call(`/api/links/${link.id}`, { method: "PATCH", token: cy, body: { note: "mine" } }),
+      call(`/api/links/${link.id}/refresh`, { token: cy, body: {} }),
+      call("/api/reports", { token: cy, body: { link_id: link.id, reason: "spam" } }),
+      call(`/api/links/${link.id}`, { method: "DELETE", token: cy }),
+      call(thumb, { token: cy }),
+      call(`/thumbs/${link.id}`, { token: cy }),
+      call("/api/links", { token: cy, body: { url: `${origin}/plain?n=sneak`, group_id: chat.id } }),
+      call(`/api/groups/${chat.id}`, { method: "PATCH", token: cy, body: { name: "mine" } }),
+      call(`/api/groups/${chat.id}/members`, { token: cy, body: { members: [cyId] } }),
+      call(`/api/groups/${chat.id}`, { method: "DELETE", token: cy }),
+    ];
+    expect((await Promise.all(attempts)).map((r) => r.status)).toEqual(attempts.map(() => 404));
+    const after = (await state(ann)).links.find((l: any) => l.id === link.id);
+    expect(after).toMatchObject({ note: "", seen: {}, reactions: {} });
+    expect(after.thumb).toBe(thumb);
+    expect((await state(ann)).groups.find((g: any) => g.id === chat.id).members).not.toContain(cyId);
+  });
+
+  test("members rename it and add people; leaving keeps your links there; the last one out deletes it", async () => {
+    const chat = (await call("/api/groups", { token: ann, body: { name: "Trip", members: [boId] } })).data.group;
+    const link = (await call("/api/links", { token: bo, body: { url: `${origin}/plain?n=trip`, group_id: chat.id } })).data.link;
+    expect((await call(`/api/groups/${chat.id}`, { method: "PATCH", token: bo, body: { name: "Trip 2027" } })).data.group.name).toBe("Trip 2027");
+    expect((await call(`/api/groups/${chat.id}/members`, { token: bo, body: { members: ["legacy:Sam"] } })).status).toBe(400);
+    expect((await call(`/api/groups/${chat.id}/members`, { token: bo, body: { members: ["user_nobody"] } })).status).toBe(400);
+    expect((await call(`/api/groups/${chat.id}/members`, { token: bo, body: { members: "x" } })).status).toBe(400);
+    const added = await call(`/api/groups/${chat.id}/members`, { token: bo, body: { members: [cyId, annId] } });
+    expect(added.data.group.members.sort()).toEqual([annId, boId, cyId].sort());
+    expect((await state(cy)).links.map((l: any) => l.id)).toContain(link.id);
+
+    expect((await call(`/api/groups/${chat.id}`, { method: "DELETE", token: bo })).status).toBe(200);
+    expect((await state(bo)).links.map((l: any) => l.id)).not.toContain(link.id);
+    expect((await call(`/api/links/${link.id}/seen`, { token: bo, body: {} })).status).toBe(404);
+    expect((await state(cy)).links.find((l: any) => l.id === link.id)).toMatchObject({ added_by: boId });
+
+    await call(`/api/groups/${chat.id}`, { method: "DELETE", token: ann });
+    await call(`/api/groups/${chat.id}`, { method: "DELETE", token: cy });
+    const db = new Database(join(dataDir, "links.db"), { readonly: true });
+    expect(db.query("SELECT COUNT(*) AS n FROM groups WHERE id = ?").get(chat.id)).toEqual({ n: 0 });
+    expect(db.query("SELECT COUNT(*) AS n FROM links WHERE id = ?").get(link.id)).toEqual({ n: 0 });
+    db.close();
+  });
+
+  test("an app from before groups sends to the default chat, or the only chat left", async () => {
+    const dee = mint("dee@groups.test", "Dee");
+    const everyone = (await state(dee)).groups[0];
+    const chat = (await call("/api/groups", { token: dee, body: { name: "Just me" } })).data.group;
+    expect(chat.members).toEqual([(await state(dee)).me]);
+    await call(`/api/groups/${everyone.id}`, { method: "DELETE", token: dee });
+    const only = await call("/api/links", { token: dee, body: { url: `${origin}/plain?n=only` } });
+    expect(only.data.link.group_id).toBe(chat.id);
+    await call("/api/groups", { token: dee, body: { name: "Second" } });
+    const none = await call("/api/links", { token: dee, body: { url: `${origin}/plain?n=which` } });
+    expect(none).toMatchObject({ status: 400, data: { error: "Pick a chat to send it to." } });
+    expect((await call("/api/groups", { token: dee, body: { members: Array.from({ length: 50 }, (_, i) => `u${i}`) } })).status).toBe(400);
+    await idle();
+  });
+});
+
 describe("universal links", () => {
   const AASA = "/.well-known/apple-app-site-association";
 
@@ -931,7 +1050,7 @@ test("previews older than PREVIEW_VERSION are backfilled one at a time", async (
   const dir = mkdtempSync(join(tmpdir(), "links-backfill-"));
   try {
     const db = openDatabase(dir);
-    const add = db.query("INSERT INTO links (url, platform, title, meta, added_by, added_at) VALUES (?, 'web', ?, ?, 'u', ?)");
+    const add = db.query("INSERT INTO links (group_id, url, platform, title, meta, added_by, added_at) VALUES (1, ?, 'web', ?, ?, 'u', ?)");
     add.run(`${origin}/video?id=1`, "Old title", "done", 1);
     add.run(`${origin}/plain`, null, "failed", 2);
     db.close();

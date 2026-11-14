@@ -20,8 +20,14 @@ const NOUNS: Record<string, string> = {
 const article = (noun: string) => (/^[aeiou]/i.test(noun) ? "an" : "a");
 const nounOf = (platform: string) => NOUNS[platform] ?? NOUNS.web!;
 
-/** `ShareSuggestions.conversationID`, so the app's notifications group with its share suggestions. */
-const THREAD_ID = "links-inbox";
+/**
+ * `ShareSuggestions.conversationID(for:)`, so each chat's notifications group with its share
+ * suggestion. The default chat keeps the id from before groups.
+ */
+const threadId = (groupId: number, isDefault: number) => (isDefault ? "links-inbox" : `links-group-${groupId}`);
+/** `r` (a user id expression) is in link `l`'s chat. */
+const IN_CHAT = (r: string, l: string) =>
+  `EXISTS (SELECT 1 FROM group_members WHERE group_id = ${l}.group_id AND user_id = ${r})`;
 const MAX_PAYLOAD = 4096;
 /** Provider tokens must be refreshed every 20–60 minutes. */
 const JWT_TTL_S = 50 * 60;
@@ -78,30 +84,37 @@ export class Pusher {
   /** A new link: alert everyone who can see it except its sender. Skipped if it's gone by now. */
   async newLink(linkId: number) {
     const link = this.db.query(
-      "SELECT l.title, l.note, l.platform, l.added_by, u.name FROM links l JOIN users u ON u.id = l.added_by WHERE l.id = ?",
-    ).get(linkId) as { title: string | null; note: string; platform: string; added_by: string; name: string } | null;
+      `SELECT l.title, l.note, l.platform, l.added_by, l.group_id, u.name, g.name AS chat, g.is_default
+         FROM links l JOIN users u ON u.id = l.added_by JOIN groups g ON g.id = l.group_id WHERE l.id = ?`,
+    ).get(linkId) as { title: string | null; note: string; platform: string; added_by: string; group_id: number;
+                       name: string; chat: string; is_default: number } | null;
     if (!link) return;
     const recipients = this.db.query(
       `SELECT DISTINCT d.user_id FROM device_tokens d WHERE d.user_id != ?1
+         AND EXISTS (SELECT 1 FROM group_members WHERE group_id = ?3 AND user_id = d.user_id)
          AND NOT EXISTS (SELECT 1 FROM blocks WHERE blocker = d.user_id AND blocked = ?1)
          AND NOT EXISTS (SELECT 1 FROM reports WHERE reporter = d.user_id AND link_id = ?2)`,
-    ).all(link.added_by, linkId) as { user_id: string }[];
+    ).all(link.added_by, linkId, link.group_id) as { user_id: string }[];
     const noun = nounOf(link.platform);
     const lead = `sent ${article(noun)} ${noun}`;
+    // A named chat other than the default one says where it was sent, as Messages does.
+    const title = !link.is_default && link.chat ? `${link.name} in ${link.chat}` : link.name;
     await Promise.all(recipients.map(({ user_id }) => this.toPerson(user_id, "alert", (badge) => this.fit({
       aps: {
-        alert: { title: link.name, body: [lead, link.title, link.note] as const },
-        badge, sound: "default", "thread-id": THREAD_ID, category: "NEW_LINK", "mutable-content": 1,
+        alert: { title, body: [lead, link.title, link.note] as const },
+        badge, sound: "default", "thread-id": threadId(link.group_id, link.is_default), category: "NEW_LINK", "mutable-content": 1,
       },
-      link_id: linkId, sender_id: link.added_by,
+      link_id: linkId, sender_id: link.added_by, group_id: link.group_id,
     }))));
   }
 
   /** Someone reacted: a passive alert (no sound, screen stays off) for the link's sender. */
   async reaction(linkId: number, reactor: string, emoji: string) {
-    const link = this.db.query("SELECT title, platform, added_by FROM links WHERE id = ?")
-      .get(linkId) as { title: string | null; platform: string; added_by: string } | null;
-    if (!link || link.added_by === reactor) return;
+    const link = this.db.query(
+      `SELECT l.title, l.platform, l.added_by, l.group_id, g.is_default FROM links l JOIN groups g ON g.id = l.group_id
+         WHERE l.id = ?1 AND ${IN_CHAT("l.added_by", "l")}`,
+    ).get(linkId) as { title: string | null; platform: string; added_by: string; group_id: number; is_default: number } | null;
+    if (!link || link.added_by === reactor) return; // also once the sender has left the chat
     if (this.db.query("SELECT 1 FROM blocks WHERE blocker = ? AND blocked = ?").get(link.added_by, reactor)) return;
     const name = (this.db.query("SELECT name FROM users WHERE id = ?").get(reactor) as { name: string } | null)?.name;
     if (!name) return;
@@ -109,16 +122,16 @@ export class Pusher {
     await this.toPerson(link.added_by, "alert", (badge) => this.fit({
       aps: {
         alert: { title: name, body: [`reacted ${emoji} to your ${noun}`, link.title, ""] as const },
-        badge, "thread-id": THREAD_ID, "interruption-level": "passive",
+        badge, "thread-id": threadId(link.group_id, link.is_default), "interruption-level": "passive",
       },
-      link_id: linkId, sender_id: reactor,
+      link_id: linkId, sender_id: reactor, group_id: link.group_id,
     }));
   }
 
   /** People who'd have this link in To Watch: call before deleting it, then `badges()` them. */
   unwatchedBy(linkId: number): string[] {
     return (this.db.query(
-      `SELECT u.id FROM users u JOIN links l ON l.id = ?1 WHERE u.id != l.added_by
+      `SELECT u.id FROM users u JOIN links l ON l.id = ?1 WHERE u.id != l.added_by AND ${IN_CHAT("u.id", "l")}
          AND NOT EXISTS (SELECT 1 FROM seen WHERE link_id = l.id AND person = u.id)
          AND NOT EXISTS (SELECT 1 FROM reports WHERE reporter = u.id AND link_id = l.id)
          AND NOT EXISTS (SELECT 1 FROM blocks WHERE blocker = u.id AND blocked = l.added_by)`,
@@ -128,7 +141,7 @@ export class Pusher {
   /** People with a link `sender` sent in their To Watch (deleting the account deletes its links). */
   unwatchedFrom(sender: string): string[] {
     return (this.db.query(
-      `SELECT DISTINCT u.id FROM users u JOIN links l ON l.added_by = ?1 WHERE u.id != ?1
+      `SELECT DISTINCT u.id FROM users u JOIN links l ON l.added_by = ?1 WHERE u.id != ?1 AND ${IN_CHAT("u.id", "l")}
          AND NOT EXISTS (SELECT 1 FROM seen WHERE link_id = l.id AND person = u.id)
          AND NOT EXISTS (SELECT 1 FROM reports WHERE reporter = u.id AND link_id = l.id)
          AND NOT EXISTS (SELECT 1 FROM blocks WHERE blocker = u.id AND blocked = ?1)`,
@@ -157,7 +170,7 @@ export class Pusher {
   /** Same as the app's To Watch: visible links from other people that they haven't watched. */
   toWatch(person: string): number {
     return (this.db.query(
-      `SELECT COUNT(*) AS n FROM links WHERE added_by != ?1
+      `SELECT COUNT(*) AS n FROM links WHERE added_by != ?1 AND ${IN_CHAT("?1", "links")}
          AND NOT EXISTS (SELECT 1 FROM seen WHERE link_id = links.id AND person = ?1)
          AND NOT EXISTS (SELECT 1 FROM reports WHERE reporter = ?1 AND link_id = links.id)
          AND NOT EXISTS (SELECT 1 FROM blocks WHERE blocker = ?1 AND blocked = links.added_by)`,

@@ -30,6 +30,7 @@ export interface LinkRow {
   note: string;
   added_by: string;
   added_at: number;
+  group_id: number;
 }
 
 export interface UserRow {
@@ -40,6 +41,16 @@ export interface UserRow {
   created_at: number;
   /** 1 once they're in: an invite let them in, or they'd signed up before invites (see migrateToV7). */
   member: number;
+}
+
+export interface GroupRow {
+  id: number;
+  /** Empty: the app names it after its members. */
+  name: string;
+  created_by: string | null;
+  created_at: number;
+  /** 1 for the chat everyone was in before groups (see migrateToV8); new members join it. */
+  is_default: number;
 }
 
 export interface InviteRow {
@@ -153,6 +164,7 @@ export function openDatabase(dataDir: string, legacyAllowedEmails: string[] = []
   migrateToV5(db);
   migrateToV6(db, dataDir);
   migrateToV7(db, legacyAllowedEmails);
+  migrateToV8(db);
   return db;
 }
 
@@ -292,6 +304,99 @@ function migrateToV7(db: Database, allowed: string[]) {
     db.run("CREATE INDEX IF NOT EXISTS invites_email ON invites (email) WHERE email IS NOT NULL AND used_at IS NULL");
     db.run("PRAGMA user_version = 7");
   })();
+}
+
+/**
+ * v8: group chats (#12). Each link belongs to one group and only its members see it, so the same
+ * URL can be in two chats, each with its own note, receipts and reactions. Everyone already here,
+ * and every link, goes into one default chat, so nothing looks different until someone makes another.
+ */
+function migrateToV8(db: Database) {
+  const { user_version } = db.query("PRAGMA user_version").get() as { user_version: number };
+  if (user_version >= 8) return;
+  db.exec("PRAGMA foreign_keys = OFF");
+  try {
+    db.transaction(() => {
+      db.exec(`CREATE TABLE IF NOT EXISTS groups (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          name TEXT NOT NULL DEFAULT '',
+          created_by TEXT REFERENCES users(id) ON DELETE SET NULL,
+          created_at REAL NOT NULL,
+          is_default INTEGER NOT NULL DEFAULT 0
+        );
+        CREATE UNIQUE INDEX IF NOT EXISTS groups_default ON groups (is_default) WHERE is_default = 1;
+        CREATE TABLE IF NOT EXISTS group_members (
+          group_id INTEGER NOT NULL REFERENCES groups(id) ON DELETE CASCADE,
+          user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+          joined_at REAL NOT NULL,
+          PRIMARY KEY (group_id, user_id)
+        );
+        CREATE INDEX IF NOT EXISTS group_members_user ON group_members (user_id);`);
+      const found = db.query("SELECT id FROM groups WHERE is_default = 1").get() as { id: number } | null;
+      const everyone = found?.id ??
+        Number(db.run("INSERT INTO groups (name, created_by, created_at, is_default) VALUES ('', NULL, ?, 1)", [now()]).lastInsertRowid);
+      // Legacy people too, so whoever claims one keeps it (claimLegacy moves memberships).
+      db.run("INSERT OR IGNORE INTO group_members (group_id, user_id, joined_at) SELECT ?, id, created_at FROM users", [everyone]);
+      const have = (db.query("PRAGMA table_info(links)").all() as { name: string }[]).map((c) => c.name);
+      if (have.includes("group_id")) {
+        db.run("PRAGMA user_version = 8");
+        return;
+      }
+      const seq = db.query("SELECT seq FROM sqlite_sequence WHERE name = 'links'").get() as { seq: number } | null;
+      const cols = "id, url, platform, title, author, thumb_type, meta, note, added_by, added_at, " +
+                   "description, site_name, thumb_w, thumb_h, preview_v, thumb_v";
+      db.exec(`CREATE TABLE links_v8 (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          group_id INTEGER NOT NULL REFERENCES groups(id) ON DELETE CASCADE,
+          url TEXT NOT NULL,
+          platform TEXT NOT NULL,
+          title TEXT,
+          author TEXT,
+          thumb_type TEXT,
+          meta TEXT NOT NULL DEFAULT 'pending',
+          note TEXT NOT NULL DEFAULT '',
+          added_by TEXT NOT NULL,      -- users.id
+          added_at REAL NOT NULL,
+          description TEXT,
+          site_name TEXT,
+          thumb_w INTEGER,
+          thumb_h INTEGER,
+          preview_v INTEGER NOT NULL DEFAULT 0,
+          thumb_v INTEGER NOT NULL DEFAULT 0,
+          UNIQUE (group_id, url)
+        )`);
+      db.run(`INSERT INTO links_v8 (group_id, ${cols}) SELECT ?, ${cols} FROM links`, [everyone]);
+      db.exec("DROP TABLE links");
+      db.exec("ALTER TABLE links_v8 RENAME TO links");
+      db.exec("CREATE INDEX links_group ON links (group_id, added_at)");
+      // Ids are never reused (see linksTable), including ones deleted before the rebuild.
+      if (seq) {
+        const moved = db.run("UPDATE sqlite_sequence SET seq = max(seq, ?) WHERE name = 'links'", [seq.seq]);
+        if (!moved.changes) db.run("INSERT INTO sqlite_sequence (name, seq) VALUES ('links', ?)", [seq.seq]);
+      }
+      const broken = db.query("PRAGMA foreign_key_check").all();
+      if (broken.length) throw new Error(`foreign key check failed: ${JSON.stringify(broken)}`);
+      db.run("PRAGMA user_version = 8");
+    })();
+  } finally {
+    db.exec("PRAGMA foreign_keys = ON");
+  }
+}
+
+/** The chat everyone was in before groups; new members join it (see Accounts.admit). */
+export function defaultGroup(db: Database): number {
+  return (db.query("SELECT id FROM groups WHERE is_default = 1").get() as { id: number }).id;
+}
+
+/**
+ * Delete chats nobody is in anymore (but never the default one), with their links. Returns those
+ * links' ids, whose thumbnails the caller removes once the transaction commits.
+ */
+export function deleteEmptyGroups(db: Database): number[] {
+  const empty = "SELECT id FROM groups WHERE is_default = 0 AND NOT EXISTS (SELECT 1 FROM group_members WHERE group_id = groups.id)";
+  const ids = (db.query(`SELECT id FROM links WHERE group_id IN (${empty})`).all() as { id: number }[]).map((r) => r.id);
+  db.run(`DELETE FROM groups WHERE id IN (${empty})`); // links, then their seen marks and reactions, cascade
+  return ids;
 }
 
 /**
