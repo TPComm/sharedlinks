@@ -43,6 +43,7 @@ struct RootView: View {
                         model.showTourIfNeeded()
                         model.requestNotificationPermission()
                         await model.loadAccount()
+                        if let token = delegate.deviceToken { await model.registerDevice(token) }
                         await model.pollWhileActive()
                     }
                     .fullScreenCover(isPresented: $model.showTour) {

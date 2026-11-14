@@ -35,6 +35,7 @@ final class AppModel {
     private var fastPollUntil = Date.distantPast
     /// The server sends push notifications for this phone, so polling can be slower.
     private var pushRegistered = false
+    private var registeredToken: String?
     /// Changes on every sign-in/out, so work that started under an old session can tell.
     private var sessionID = UUID()
     /// Bumped by every local change, so a poll that started before it doesn't undo it.
@@ -130,6 +131,7 @@ final class AppModel {
         sessionID = UUID()
         showTour = false
         pushRegistered = false
+        registeredToken = nil
         SessionStore.clear()
         InboxSnapshot.clear()
         ThumbnailCache.clear()
@@ -259,8 +261,9 @@ final class AppModel {
     }
 
     /// Sends the server this phone's APNs token. A failure just leaves polling as it was.
+    /// Again each time the app comes to the front until it works, so a failed attempt isn't final.
     func registerDevice(_ deviceToken: String) async {
-        guard isSignedIn else { return }
+        guard isSignedIn, registeredToken != deviceToken else { return }
         let session = sessionID
         #if DEBUG
         let env = "sandbox"
@@ -269,7 +272,10 @@ final class AppModel {
         #endif
         do {
             let push = try await client.registerDevice(token: deviceToken, env: env)
-            if session == sessionID { pushRegistered = push }
+            if session == sessionID {
+                pushRegistered = push
+                registeredToken = deviceToken
+            }
         } catch {
             print("Couldn't register this device for push notifications: \(error.localizedDescription)")
         }
