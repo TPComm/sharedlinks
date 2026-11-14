@@ -72,16 +72,31 @@ struct InboxSnapshotTests {
             InboxSnapshot.clear()
             #expect(InboxSnapshot.load() == nil)
             #expect(!FileManager.default.fileExists(atPath: dir.appending(path: "thumbs").path()))
-            #expect(ThumbnailStore.cached(5) == nil)
+            #expect(ThumbnailStore.cached(ThumbnailStoreTests.link(5)) == nil)
         }
     }
 }
 
 @Suite("Thumbnail cache")
 struct ThumbnailStoreTests {
-    static func link(_ id: Int, hasThumbnail: Bool = true) -> SharedLink {
+    static func link(_ id: Int, hasThumbnail: Bool = true, version: Int? = nil) -> SharedLink {
         SharedLink(id: id, url: URL(string: "https://www.youtube.com/watch?v=\(id)")!, platform: .youtube,
-                   thumb: hasThumbnail ? "/thumbs/\(id)" : nil, addedBy: "u")
+                   thumb: hasThumbnail ? "/thumbs/\(id)" + (version.map { "/\($0)" } ?? "") : nil, addedBy: "u")
+    }
+
+    @Test func aReplacedThumbnailIsFetchedAgain() async throws {
+        try await withTempCache { dir in
+            let server = StubServer(always: .http(status: 200, body: TestImage.png(width: 64, height: 64), contentType: "image/png"))
+            let store = ThumbnailStore()
+            _ = await store.data(for: Self.link(5, version: 1), client: server.client())
+            _ = await store.data(for: Self.link(5, version: 1), client: server.client())
+            _ = await store.data(for: Self.link(5, version: 2), client: server.client())
+            #expect(server.requests.map { $0.url.path() } == ["/thumbs/5/1", "/thumbs/5/2"])
+            #expect(FileManager.default.fileExists(atPath: dir.appending(path: "thumbs/5-2.jpg").path()))
+            ThumbnailStore.prune(keeping: [Self.link(5, version: 2)])
+            let left = try FileManager.default.contentsOfDirectory(atPath: ThumbnailStore.directory.path())
+            #expect(left == ["5-2.jpg"])
+        }
     }
 
     @Test func downloadsDownsamplesAndCaches() async throws {
@@ -95,7 +110,7 @@ struct ThumbnailStoreTests {
             let size = try #require(TestImage.pixelSize(data))
             #expect(size.width == ThumbnailStore.maxPixelSize && size.height == ThumbnailStore.maxPixelSize / 2)
             // Saved where the widget looks, so it can draw without a network call.
-            #expect(ThumbnailStore.cached(5) == data)
+            #expect(ThumbnailStore.cached(Self.link(5)) == data)
             #expect(FileManager.default.fileExists(atPath: dir.appending(path: "thumbs/5.jpg").path()))
         }
     }
@@ -140,7 +155,7 @@ struct ThumbnailStoreTests {
             let server = StubServer(always: reply)
             let store = ThumbnailStore()
             #expect(await store.data(for: Self.link(5), client: server.client()) == nil)
-            #expect(ThumbnailStore.cached(5) == nil)
+            #expect(ThumbnailStore.cached(ThumbnailStoreTests.link(5)) == nil)
             // A later attempt tries again rather than remembering the failure.
             _ = await store.data(for: Self.link(5), client: server.client())
             #expect(server.requests.count == 2)
@@ -152,7 +167,7 @@ struct ThumbnailStoreTests {
             for name in ["1.jpg", "2.jpg", "3.jpg", "junk.tmp"] {
                 try Data([0]).write(to: ThumbnailStore.directory.appending(path: name))
             }
-            ThumbnailStore.prune(keeping: [2, 3, 99])
+            ThumbnailStore.prune(keeping: [2, 3, 99].map { Self.link($0) })
             let left = try FileManager.default.contentsOfDirectory(atPath: ThumbnailStore.directory.path())
             #expect(Set(left) == ["2.jpg", "3.jpg"])
         }
@@ -163,7 +178,7 @@ struct ThumbnailStoreTests {
             try Data([0]).write(to: ThumbnailStore.fileURL(1))
             ThumbnailStore.clearDisk()
             #expect(!FileManager.default.fileExists(atPath: dir.appending(path: "thumbs").path()))
-            #expect(ThumbnailStore.cached(1) == nil)
+            #expect(ThumbnailStore.cached(Self.link(1)) == nil)
         }
     }
 

@@ -17,6 +17,7 @@ describe("configFromEnv", () => {
       allowedEmails: [],
       allowPrivateNetwork: false,
       logRequests: true,
+      previewBackfillMs: 5000,
     });
   });
 

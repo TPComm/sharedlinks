@@ -5,7 +5,7 @@ import { Accounts, AuthError, publicUser } from "./accounts.ts";
 import type { Config } from "./config.ts";
 import { now, openDatabase, type LinkRow, type UserRow } from "./db.ts";
 import { BadRequest, canonical, clipText, extractUrl } from "./links.ts";
-import { fetchMetadata } from "./previews.ts";
+import { fetchMetadata, PREVIEW_VERSION } from "./previews.ts";
 
 export const EMOJIS = new Set(["❤️", "😂", "🔥", "😮", "😭", "👎"]);
 
@@ -40,8 +40,18 @@ export function createApp(config: Config) {
   const fetchOpts = { allowPrivateNetwork: config.allowPrivateNetwork };
   const pending = new Set<Promise<void>>();
 
+  // One fetch per link at a time (a retry during the backfill, an edit mid-fetch): the next waits its turn.
+  const latest = new Map<number, Promise<void>>();
+  function queueFetch(id: number, url: string, platform: string): Promise<void> {
+    const run = (latest.get(id) ?? Promise.resolve()).then(() => fetchMetadata(db, config.dataDir, id, url, platform, fetchOpts));
+    const settled = run.catch(() => {});
+    latest.set(id, settled);
+    void settled.then(() => { if (latest.get(id) === settled) latest.delete(id); });
+    return run;
+  }
+
   function startMetadataFetch(id: number, url: string, platform: string) {
-    const task = fetchMetadata(db, config.dataDir, id, url, platform, fetchOpts)
+    const task = queueFetch(id, url, platform)
       .catch((e) => console.error(`metadata ${id}: ${e}`))
       .finally(() => pending.delete(task));
     pending.add(task);
@@ -51,6 +61,29 @@ export function createApp(config: Config) {
   for (const row of db.query("SELECT id, url, platform FROM links WHERE meta = 'pending'").all() as LinkRow[]) {
     startMetadataFetch(row.id, row.url, row.platform);
   }
+
+  // Links whose preview predates PREVIEW_VERSION (or failed before) are re-fetched one at a time, gently.
+  function backfillNext() {
+    let row: LinkRow | null;
+    try {
+      row = db.query("SELECT id, url, platform FROM links WHERE preview_v < ? AND meta != 'pending' ORDER BY added_at DESC LIMIT 1")
+        .get(PREVIEW_VERSION) as LinkRow | null;
+    } catch (e) {
+      return console.error(`backfill stopped: ${e}`); // the database closed under us (shutdown)
+    }
+    if (!row) return;
+    const task = queueFetch(row.id, row.url, row.platform)
+      .catch((e) => {
+        console.error(`backfill ${row.id}: ${e}`);
+        db.run("UPDATE links SET preview_v = ? WHERE id = ?", [PREVIEW_VERSION, row.id]);
+      })
+      .finally(() => {
+        pending.delete(task);
+        setTimeout(backfillNext, config.previewBackfillMs).unref();
+      });
+    pending.add(task);
+  }
+  if (config.previewBackfillMs > 0) setTimeout(backfillNext, config.previewBackfillMs).unref();
 
   function getState(me: string | null) {
     const links = new Map<number, ReturnType<typeof toLink>>();
@@ -70,7 +103,8 @@ export function createApp(config: Config) {
   function toLink(r: LinkRow) {
     return {
       id: r.id, url: r.url, platform: r.platform, title: r.title, author: r.author, note: r.note,
-      thumb: r.thumb_type ? `/thumbs/${r.id}` : null, meta: r.meta, added_by: r.added_by, added_at: r.added_at,
+      description: r.description, site_name: r.site_name,
+      thumb: r.thumb_type ? `/thumbs/${r.id}${r.thumb_v ? `/${r.thumb_v}` : ""}` : null, thumb_w: r.thumb_w, thumb_h: r.thumb_h, meta: r.meta, added_by: r.added_by, added_at: r.added_at,
       seen: {} as Record<string, number>, reactions: {} as Record<string, string>,
     };
   }
@@ -233,6 +267,17 @@ export function createApp(config: Config) {
         return json({ ok: true });
       }),
     },
+    "/api/links/:id/refresh": {
+      POST: route<WithId>((req) => {
+        const id = linkId(req);
+        const row = db.query("SELECT * FROM links WHERE id = ?").get(id) as LinkRow;
+        if (row.meta !== "pending") {
+          db.run("UPDATE links SET meta = 'pending' WHERE id = ?", [id]);
+          startMetadataFetch(id, row.url, row.platform);
+        }
+        return json({ link: getLink(id) });
+      }),
+    },
     "/api/links/:id/seen": {
       POST: route<WithId>(async (req, me) => {
         const id = linkId(req);
@@ -262,19 +307,21 @@ export function createApp(config: Config) {
       }),
     },
 
-    "/thumbs/:id": {
-      GET: route<WithId>((req) => {
-        const id = linkId(req);
-        const row = db.query("SELECT thumb_type FROM links WHERE id = ?").get(id) as { thumb_type: string | null };
-        const file = Bun.file(join(config.dataDir, "thumbs", String(id)));
-        if (!row.thumb_type) throw new NotFound("Not found");
-        return file.exists().then((exists) => {
-          if (!exists) throw new NotFound("Not found");
-          return new Response(file, { headers: { "Content-Type": row.thumb_type!, "Cache-Control": "private, max-age=2592000" } });
-        });
-      }),
-    },
+    "/thumbs/:id": { GET: route<WithId>(serveThumb) },
+    // The version only changes the URL, so phones re-download a replaced thumbnail.
+    "/thumbs/:id/:v": { GET: route<WithId>(serveThumb) },
   };
+
+  function serveThumb(req: WithId) {
+    const id = linkId(req);
+    const row = db.query("SELECT thumb_type FROM links WHERE id = ?").get(id) as { thumb_type: string | null };
+    const file = Bun.file(join(config.dataDir, "thumbs", String(id)));
+    if (!row.thumb_type) throw new NotFound("Not found");
+    return file.exists().then((exists) => {
+      if (!exists) throw new NotFound("Not found");
+      return new Response(file, { headers: { "Content-Type": row.thumb_type!, "Cache-Control": "private, max-age=2592000" } });
+    });
+  }
 
   return {
     db,

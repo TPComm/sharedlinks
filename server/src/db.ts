@@ -17,6 +17,14 @@ export interface LinkRow {
   title: string | null;
   author: string | null;
   thumb_type: string | null;
+  description: string | null;
+  site_name: string | null;
+  thumb_w: number | null;
+  thumb_h: number | null;
+  /** The PREVIEW_VERSION (see previews.ts) its preview was last fetched with. */
+  preview_v: number;
+  /** Bumped each time the thumbnail file is replaced, so clients' caches (keyed by its URL) refetch it. */
+  thumb_v: number;
   meta: "pending" | "done" | "failed";
   note: string;
   added_by: string;
@@ -88,6 +96,7 @@ export function openDatabase(dataDir: string): Database {
   migrateToV2(db);
   migrateToV3(db);
   migrateToV4(db);
+  migrateToV5(db);
   return db;
 }
 
@@ -162,6 +171,21 @@ function migrateToV4(db: Database) {
   db.transaction(() => {
     respellLinks(db);
     db.run("PRAGMA user_version = 4");
+  })();
+}
+
+/** v5: rich previews keep the description, site name and thumbnail size (#8). */
+function migrateToV5(db: Database) {
+  const { user_version } = db.query("PRAGMA user_version").get() as { user_version: number };
+  if (user_version >= 5) return;
+  db.transaction(() => {
+    const have = new Set((db.query("PRAGMA table_info(links)").all() as { name: string }[]).map((c) => c.name));
+    for (const [name, type] of [["description", "TEXT"], ["site_name", "TEXT"], ["thumb_w", "INTEGER"],
+                                ["thumb_h", "INTEGER"], ["preview_v", "INTEGER NOT NULL DEFAULT 0"],
+                                ["thumb_v", "INTEGER NOT NULL DEFAULT 0"]]) {
+      if (!have.has(name!)) db.run(`ALTER TABLE links ADD COLUMN ${name} ${type}`);
+    }
+    db.run("PRAGMA user_version = 5");
   })();
 }
 

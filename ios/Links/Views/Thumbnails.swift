@@ -4,12 +4,14 @@ import SwiftUI
 /// Decoded thumbnails, in memory, on top of LinksKit's on-disk cache (shared with the widget).
 @MainActor
 enum ThumbnailCache {
-    private static let images = NSCache<NSNumber, UIImage>()
+    private static let images = NSCache<NSString, UIImage>()
+
+    private static func key(_ link: SharedLink) -> NSString { "\(link.id)-\(link.thumbVersion ?? "")" as NSString }
 
     static func cachedImage(for link: SharedLink) -> UIImage? {
-        if let image = images.object(forKey: link.id as NSNumber) { return image }
-        guard let data = ThumbnailStore.cached(link.id), let image = UIImage(data: data) else { return nil }
-        images.setObject(image, forKey: link.id as NSNumber)
+        if let image = images.object(forKey: key(link)) { return image }
+        guard let data = ThumbnailStore.cached(link), let image = UIImage(data: data) else { return nil }
+        images.setObject(image, forKey: key(link))
         return image
     }
 
@@ -20,7 +22,7 @@ enum ThumbnailCache {
         if let image = cachedImage(for: link) { return image }
         guard let data = await ThumbnailStore.shared.data(for: link, client: client),
               let image = UIImage(data: data) else { return nil }
-        images.setObject(image, forKey: link.id as NSNumber)
+        images.setObject(image, forKey: key(link))
         return image
     }
 }

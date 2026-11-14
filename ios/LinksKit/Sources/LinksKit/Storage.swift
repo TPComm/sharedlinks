@@ -41,9 +41,10 @@ public enum InboxSnapshot {
 /// JPEGs in the App Group so the widget can use them without a network round trip.
 public actor ThumbnailStore {
     public static let shared = ThumbnailStore()
-    public static let maxPixelSize = 420
+    /// Sharp enough for a full-width rich preview card on a 3x screen.
+    public static let maxPixelSize = 800
 
-    private var inFlight: [Int: Task<Data?, Never>] = [:]
+    private var inFlight: [URL: Task<Data?, Never>] = [:]
 
     static var directory: URL {
         let dir = CacheLocation.root.appending(path: "thumbs", directoryHint: .isDirectory)
@@ -51,31 +52,38 @@ public actor ThumbnailStore {
         return dir
     }
 
-    static func fileURL(_ id: Int) -> URL { directory.appending(path: "\(id).jpg") }
+    /// One file per version of a link's thumbnail (`SharedLink.thumbVersion`), so a replaced image is fetched again.
+    static func fileURL(_ id: Int, version: String? = nil) -> URL {
+        directory.appending(path: version.map { "\(id)-\($0).jpg" } ?? "\(id).jpg")
+    }
 
-    public nonisolated static func cached(_ id: Int) -> Data? { try? Data(contentsOf: fileURL(id)) }
+    static func fileURL(_ link: SharedLink) -> URL { fileURL(link.id, version: link.thumbVersion) }
+
+    public nonisolated static func cached(_ link: SharedLink) -> Data? { try? Data(contentsOf: fileURL(link)) }
 
     /// Cached data if we have it, otherwise download, downsample and cache.
     public func data(for link: SharedLink, client: APIClient) async -> Data? {
         guard link.thumb != nil else { return nil }
-        if let data = Self.cached(link.id) { return data }
-        if let task = inFlight[link.id] { return await task.value }
+        let file = Self.fileURL(link)
+        if let data = try? Data(contentsOf: file) { return data }
+        if let task = inFlight[file] { return await task.value }
         let task = Task<Data?, Never> {
             guard let raw = try? await client.thumbnail(link),
                   let small = Self.downsample(raw, maxPixelSize: Self.maxPixelSize) else { return nil }
-            try? small.write(to: Self.fileURL(link.id), options: .atomic)
+            try? small.write(to: file, options: .atomic)
             return small
         }
-        inFlight[link.id] = task
+        inFlight[file] = task
         let result = await task.value
-        inFlight[link.id] = nil
+        inFlight[file] = nil
         return result
     }
 
-    /// Delete cached files for links that no longer exist.
-    public nonisolated static func prune(keeping ids: Set<Int>) {
+    /// Delete cached files for links that no longer exist, and replaced versions of the rest.
+    public nonisolated static func prune(keeping links: [SharedLink]) {
+        let keep = Set(links.map { fileURL($0).lastPathComponent })
         let files = (try? FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil)) ?? []
-        for file in files where !ids.contains(Int(file.deletingPathExtension().lastPathComponent) ?? -1) {
+        for file in files where !keep.contains(file.lastPathComponent) {
             try? FileManager.default.removeItem(at: file)
         }
     }
