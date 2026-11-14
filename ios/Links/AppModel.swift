@@ -188,7 +188,7 @@ final class AppModel {
         }
     }
 
-    /// Deletes the account on the server (the links it sent stay, from "Deleted user"), then
+    /// Deletes the account on the server (and the links it sent, for everyone), then
     /// forgets everything on this device: what signing out does, plus this app's settings.
     func deleteAccount() async {
         isDeletingAccount = true

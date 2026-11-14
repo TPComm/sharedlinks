@@ -382,7 +382,7 @@ describe("a day with Links", () => {
     expect((await call("/api/me", { token: mallory.stdout.trim() })).status).toBe(401);
   });
 
-  e2e("delete-user deletes an account the running server knows; its links stay, from no one", async () => {
+  e2e("delete-user deletes an account the running server knows, and the links it sent", async () => {
     const carol = (await cli(dataDir, "mint-session", "carol@team.test")).stdout.trim();
     const id = (await call("/api/me", { token: carol })).data.user.id;
     const sent = await call("/api/links", { token: carol, body: { url: `${origin}/from-carol` } });
@@ -391,10 +391,10 @@ describe("a day with Links", () => {
     const run = await cli(dataDir, "delete-user", "Carol@Team.test");
     expect(run.code, run.logs()).toBe(0);
     // No WORKOS_API_KEY here, and a local_ id isn't a WorkOS user anyway.
-    expect(run.stdout).toBe(`deleted Carol Jones (${id}); 1 sent link kept as "Deleted user"; WorkOS user: skipped\n`);
+    expect(run.stdout).toBe(`deleted Carol Jones (${id}); 1 sent link deleted; WorkOS user: skipped\n`);
     expect((await call("/api/me", { token: carol })).status).toBe(401);
     const state = (await call("/api/state", { token: alice.token })).data;
-    expect(linkIn(state, sent.data.link.id).added_by).toBe("deleted");
+    expect(linkIn(state, sent.data.link.id)).toBeUndefined();
     expect(state.users.map((u: any) => u.id)).not.toContain(id);
 
     const again = await cli(dataDir, "delete-user", "carol@team.test");
