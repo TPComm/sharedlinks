@@ -72,8 +72,10 @@ jobs:
 
       # Starts the server from source with an empty database, creates a "Links UI Tests"
       # Simulator, and drives the app in it.
+      # 22 tests take ~12 minutes on the hosted runner, after up to ~8 minutes creating and booting
+      # the Simulator, so 20 minutes cut off runs that were passing.
       - name: UI tests
-        timeout-minutes: 20
+        timeout-minutes: 30
         env:
           LINKS_UI_TEST_ACTION: test-without-building
         run: ios/scripts/ui-tests.sh
