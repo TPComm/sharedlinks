@@ -54,10 +54,11 @@ itself off, and TipKit tips then point out the gestures once each.
 
 **Sign in with Apple and email invites.** Someone who picks *Hide My Email* signs in with a relay
 address (`…@privaterelay.appleid.com`, and `…@private.icloud.com` for new ones from late 2026), not
-the email you invited, so that invite doesn't match them without its link. Have them tap the
-invite link before signing in, send them an invite without an email address (**People → Invite a
-Friend**), which lets in whatever verified address they sign in with, or ask them to choose *Share
-My Email*.
+the email you invited, so that invite doesn't match them without its link: have them tap the invite
+link before signing in (an invite's link lets in a relay address even if it was sent to an email),
+or ask them to choose *Share My Email*. Someone already in who later signs in with Hide My Email is
+a different account to WorkOS, so the server turns them away and asks them to sign in the way they
+did before.
 
 Deleting an account (`DELETE /api/me` with `WORKOS_API_KEY` set) deletes the WorkOS user too.
 WorkOS's docs don't say whether that also revokes the person's Sign in with Apple tokens, and

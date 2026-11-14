@@ -433,6 +433,7 @@ describe("signIn (WorkOS stub)", () => {
     stranger: { id: "user_04", email: "stranger@evil.test", email_verified: true },
     unverified: { id: "user_05", email: "friend2@team.test", email_verified: false },
     noemail: { id: "user_06" },
+    relay: { id: "user_07", email: "x7k2@privaterelay.appleid.com", email_verified: true },
   };
   const workos = stubServer({
     "/user_management/authenticate": async (req) => {
@@ -530,8 +531,17 @@ describe("signIn (WorkOS stub)", () => {
     expect((await authError(a.signIn("unverified", VERIFIER, ""))).message).toBe("Verify your email address, then sign in again.");
     expect((await authError(a.signIn("unverified", VERIFIER, "", token))).message).toBe("Verify your email address, then sign in again.");
     // Nor does an invite bound to one email let in someone else, even with its link.
-    expect((await authError(a.signIn("stranger", VERIFIER, "", token))).status).toBe(403);
+    expect((await authError(a.signIn("stranger", VERIFIER, "", token))).message)
+      .toBe("This invite is for a different email address. Sign in with the one it was sent to.");
     expect(count("users")).toBe(0);
+  });
+
+  test("Hide My Email: the link still works; without it, a hint for members who signed in another way", async () => {
+    const a = signer();
+    const { token } = a.createInvite(null, "friend2@team.test");
+    expect((await authError(a.signIn("relay", VERIFIER, ""))).message).toContain("you signed in with Hide My Email");
+    expect((await a.signIn("relay", VERIFIER, "", token)).user.id).toBe("user_07");
+    expect(a.pendingInvite(token)).toBeNull();
   });
 
   test("an admin's invite (links-server invite) has no inviter and lets in whoever uses it", async () => {

@@ -106,7 +106,8 @@ export class Accounts {
     if (token && INVITE_TOKEN_RE.test(token)) {
       const row = this.db.query("SELECT * FROM invites WHERE token_hash = ? AND used_at IS NULL AND expires_at > ?")
         .get(sha256(token), t) as InviteRow | null;
-      if (row && (!row.email || (verified && row.email.toLowerCase() === email.toLowerCase()))) return row;
+      // Hide My Email: the link was sent to them, but Apple signs them in with a relay address.
+      if (row && (!row.email || (verified && row.email.toLowerCase() === email.toLowerCase()) || appleRelay(email))) return row;
     }
     if (!email || !verified) return null;
     return this.db.query("SELECT * FROM invites WHERE email = ? COLLATE NOCASE AND used_at IS NULL AND expires_at > ? ORDER BY created_at LIMIT 1")
@@ -296,6 +297,12 @@ export class Accounts {
         if (!user.email_verified && email && this.findInvite("", email, true)) {
           throw new AuthError("Verify your email address, then sign in again.", 403);
         }
+        if (inviteToken && this.pendingInvite(inviteToken)?.email) {
+          throw new AuthError("This invite is for a different email address. Sign in with the one it was sent to.", 403);
+        }
+        if (appleRelay(email)) {
+          throw new AuthError("Links is invite-only, and you signed in with Hide My Email. If you're already in, sign in the way you did before; if not, tap a friend's invite link first.", 403);
+        }
         throw new AuthError("Links is invite-only. Ask a friend who uses it to invite you, then tap their invite link.", 403);
       }
       this.upsertUser(user.id, email, name, avatar);
@@ -321,4 +328,9 @@ export class Accounts {
     this.db.run("UPDATE users SET member = 1 WHERE id = ?", [id]); // the admin minting it vouches for them
     return this.newSession(id);
   }
+}
+
+/** Sign in with Apple's Hide My Email addresses, which never match an email anyone was invited with. */
+function appleRelay(email: string): boolean {
+  return /@(privaterelay\.appleid\.com|private\.icloud\.com)$/i.test(email);
 }
