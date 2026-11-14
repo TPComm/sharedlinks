@@ -152,7 +152,7 @@ a change. Test on a real device. It can't be `localhost:8000`: the file must com
 valid certificate and no redirect, and the domain can't have a port. A link tapped on a page of the
 same host stays in Safari (Apple's rule); links from Messages, Mail or Notes open the app.
 
-
+### Moving over from the old Python web app
 
 SQLite keeps recent writes in a `-wal` file next to the database, so copy a consolidated snapshot
 rather than the raw file, and stop the new service while you swap it in:
