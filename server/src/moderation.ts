@@ -30,11 +30,12 @@ export function loadBlockedWords(dataDir: string): Set<string> {
   return words;
 }
 
-/** The first listed word in `text`, matched as a whole word (or its plural), else null. */
+/** The first listed word in `text`, matched as a whole word (or its -s / -es plural), else null. */
 export function findBlockedWord(text: string, words: Set<string>): string | null {
   for (const token of fold(text).split(/[^\p{L}\p{N}]+/u)) {
     if (!token) continue;
-    for (const form of [token, token.replace(/e?s$/, "")]) if (words.has(form)) return form;
+    // "dykes" -> "dyke", "fags" -> "fag", "bitches" -> "bitch".
+    for (const form of [token, token.replace(/s$/, ""), token.replace(/es$/, "")]) if (words.has(form)) return form;
   }
   return null;
 }

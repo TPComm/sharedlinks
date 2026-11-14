@@ -21,10 +21,10 @@ afterEach(() => {
 });
 
 describe("word list", () => {
-  const words = new Set(["zonk", "bad"]);
+  const words = new Set(["zonk", "bad", "dyke", "bitch"]);
 
   test("whole words, in any case, with accents or a plural", () => {
-    for (const text of ["ZONK", "a zonk!", "zonks", "Zönk", "so...bad", "line\nbad", "badés"]) {
+    for (const text of ["ZONK", "a zonk!", "zonks", "Zönk", "so...bad", "line\nbad", "badés", "dykes", "bitches"]) {
       expect(findBlockedWord(text, words), text).not.toBeNull();
     }
     for (const text of ["", "zonked", "badge", "abad", "Scunthorpe", "z o n k"]) {
