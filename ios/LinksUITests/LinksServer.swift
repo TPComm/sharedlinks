@@ -122,6 +122,16 @@ struct LinksServer: Sendable {
     }
 
     private func load(_ request: URLRequest) throws -> (data: Data, status: Int) {
+        // Bun drops a keep-alive connection after 10s idle; a request sent on it just then fails with
+        // "The network connection was lost" before the server sees it, so it goes once more.
+        do {
+            return try loadOnce(request)
+        } catch let error as URLError where error.code == .networkConnectionLost {
+            return try loadOnce(request)
+        }
+    }
+
+    private func loadOnce(_ request: URLRequest) throws -> (data: Data, status: Int) {
         let response = Response()
         let done = DispatchSemaphore(value: 0)
         URLSession.shared.dataTask(with: request) { data, urlResponse, error in
