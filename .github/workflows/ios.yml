@@ -33,12 +33,13 @@ jobs:
           fetch-depth: 2
       # A PR checks out GitHub's test merge, whose first parent is main: the diff is what merging
       # changes. (The list is saved first because grep -q in a pipe would cut git off and fail it.)
+      # --no-renames lists both sides of a move, so moving a file out of the area counts too.
       # The app icon lives outside ios/ (assets/icon/SharedLinks.icon), so changes there count too.
       # A PR that only touches server/ skips the macOS job (~10x Linux minutes): server.yml and
       # deploy-e2e.yml check it on Linux, and the push to main still runs the UI tests on it.
       - id: diff
         run: |
-          files=$(git diff --name-only HEAD^1 HEAD)
+          files=$(git diff --name-only --no-renames HEAD^1 HEAD)
           if grep -qE '^(ios/|assets/icon/|\.github/workflows/ios\.yml$)' <<<"$files"; then
             echo relevant=true >>"$GITHUB_OUTPUT"
           else

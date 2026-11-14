@@ -31,9 +31,10 @@ jobs:
           fetch-depth: 2
       # A PR checks out GitHub's test merge, whose first parent is main: the diff is what merging
       # changes. (The list is saved first because grep -q in a pipe would cut git off and fail it.)
+      # --no-renames lists both sides of a move, so moving a file out of the area counts too.
       - id: diff
         run: |
-          files=$(git diff --name-only HEAD^1 HEAD)
+          files=$(git diff --name-only --no-renames HEAD^1 HEAD)
           if grep -qE '^(deploy/|\.github/workflows/deploy-scripts\.yml$)' <<<"$files"; then
             echo relevant=true >>"$GITHUB_OUTPUT"
           else
