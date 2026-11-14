@@ -104,7 +104,10 @@ private struct LinkPage: View {
     }
 
     private var about: some View {
-        let from = mine ? "You sent this" : "From \(inbox.name(of: link.addedBy))"
+        let sender = mine ? "You sent this" : "From \(inbox.name(of: link.addedBy))"
+        // Which chat, once there's more than one.
+        let chat = inbox.hasChats ? inbox.group(link.groupID).map { " in \(inbox.title(of: $0))" } : nil
+        let from = sender + (chat ?? "")
         return VStack(alignment: .leading, spacing: 14) {
             // Who sent it, and their note as a message from them.
             HStack(alignment: .top, spacing: 10) {
@@ -235,7 +238,7 @@ private struct LinkPage: View {
             .map { Receipt(id: $0.key, date: $0.value) }
         guard mine else { return seen }
         // Not the people I blocked: their marks never reach me, so they'd read "Not yet" for good.
-        return seen + inbox.otherPeople.filter { link.seen[$0.id] == nil && !inbox.isBlocked($0.id) }
+        return seen + inbox.recipients(of: link).filter { link.seen[$0.id] == nil && !inbox.isBlocked($0.id) }
             .map { Receipt(id: $0.id, date: nil) }
     }
 

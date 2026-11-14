@@ -23,8 +23,15 @@ struct LinksWidgetConfiguration: WidgetConfigurationIntent {
     @Parameter(title: "Show", default: .toWatch)
     var feed: WidgetFeed
 
+    /// Empty is every chat.
+    @Parameter(title: "Chat", description: "Only links in this chat. Leave it empty for all chats.")
+    var chat: ChatEntity?
+
     init() {}
-    init(feed: WidgetFeed) { self.feed = feed }
+    init(feed: WidgetFeed, chat: ChatEntity? = nil) {
+        self.feed = feed
+        self.chat = chat
+    }
 }
 
 struct WidgetItem: Identifiable {
@@ -47,6 +54,8 @@ struct LinksEntry: TimelineEntry {
 
     let date: Date
     let feed: WidgetFeed
+    /// The chat's name, for a widget set to one chat.
+    var chat: String? = nil
     let content: Content
 }
 
@@ -57,11 +66,11 @@ struct LinksProvider: AppIntentTimelineProvider {
 
     func snapshot(for configuration: LinksWidgetConfiguration, in context: Context) async -> LinksEntry {
         if context.isPreview && InboxSnapshot.load() == nil { return .sample(feed: configuration.feed) }
-        return await entry(for: configuration.feed, family: context.family, fetch: false)
+        return await entry(for: configuration.feed, chat: configuration.chat?.id, family: context.family, fetch: false)
     }
 
     func timeline(for configuration: LinksWidgetConfiguration, in context: Context) async -> Timeline<LinksEntry> {
-        let entry = await entry(for: configuration.feed, family: context.family, fetch: true)
+        let entry = await entry(for: configuration.feed, chat: configuration.chat?.id, family: context.family, fetch: true)
         if case .links(let count, let items) = entry.content {
             log.debug("timeline \(context.family.debugDescription, privacy: .public): \(count) links, showing \(items.map(\.id), privacy: .public)")
         }
@@ -69,7 +78,7 @@ struct LinksProvider: AppIntentTimelineProvider {
         return Timeline(entries: [entry], policy: .after(.now.addingTimeInterval(30 * 60)))
     }
 
-    private func entry(for feed: WidgetFeed, family: WidgetFamily, fetch: Bool) async -> LinksEntry {
+    private func entry(for feed: WidgetFeed, chat chatID: Int?, family: WidgetFamily, fetch: Bool) async -> LinksEntry {
         guard let token = SessionStore.token else { return LinksEntry(date: .now, feed: feed, content: .signedOut) }
         let client = APIClient(token: token)
         var state = InboxSnapshot.load()
@@ -86,7 +95,9 @@ struct LinksProvider: AppIntentTimelineProvider {
         }
         guard let state else { return LinksEntry(date: .now, feed: feed, content: .links(count: 0, items: [])) }
 
-        let links = state.links(for: feed == .sent ? .sent : .toWatch)
+        // A chat I've since left: show every chat rather than an empty widget.
+        let chat = state.group(chatID)
+        let links = state.links(for: feed == .sent ? .sent : .toWatch, in: chat?.id)
         let limit = switch family {
         case .systemLarge, .systemExtraLarge: 5
         case .systemMedium: 2
@@ -106,7 +117,8 @@ struct LinksProvider: AppIntentTimelineProvider {
                 seenByOthers: !others.isEmpty,
                 image: data.flatMap(UIImage.init(data:))))
         }
-        return LinksEntry(date: .now, feed: feed, content: .links(count: links.count, items: items))
+        return LinksEntry(date: .now, feed: feed, chat: chat.map(state.title(of:)),
+                          content: .links(count: links.count, items: items))
     }
 }
 

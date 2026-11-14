@@ -91,8 +91,35 @@ public struct APIClient: Sendable {
     public func state() async throws -> InboxState { try await send("GET", "api/state") }
 
     /// `text` can be a whole message; the server pulls the link out and cleans it up.
-    public func add(_ text: String, note: String = "") async throws -> AddResult {
-        try await send("POST", "api/links", json: ["url": text, "note": note])
+    /// `groupID` is the chat it goes to; without one, the server picks the default chat.
+    public func add(_ text: String, note: String = "", groupID: Int? = nil) async throws -> AddResult {
+        var body: [String: Any] = ["url": text, "note": note]
+        if let groupID { body["group_id"] = groupID }
+        return try await send("POST", "api/links", json: body)
+    }
+
+    // MARK: Chats
+
+    /// Starts a chat with me and `members` (user ids) in it. An empty name lets the app name it.
+    public func createGroup(name: String = "", members: [String]) async throws -> LinkGroup {
+        let r: GroupEnvelope = try await send("POST", "api/groups", json: ["name": name, "members": members])
+        return r.group
+    }
+
+    public func renameGroup(_ id: Int, to name: String) async throws -> LinkGroup {
+        let r: GroupEnvelope = try await send("PATCH", "api/groups/\(id)", json: ["name": name])
+        return r.group
+    }
+
+    /// Adds people already in Links. Nobody can remove anyone else; they can only leave.
+    public func addMembers(_ members: [String], to id: Int) async throws -> LinkGroup {
+        let r: GroupEnvelope = try await send("POST", "api/groups/\(id)/members", json: ["members": members])
+        return r.group
+    }
+
+    /// Leaves a chat. The links I sent stay in it for everyone else.
+    public func leaveGroup(_ id: Int) async throws {
+        let _: [String: Bool] = try await send("DELETE", "api/groups/\(id)")
     }
 
     public func setSeen(_ linkID: Int, _ seen: Bool) async throws -> SharedLink {

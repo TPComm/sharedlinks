@@ -466,7 +466,149 @@ final class LinksUITests: XCTestCase {
         XCTAssertFalse(row(sent, in: "toWatch").exists, "the friend still has it")
     }
 
+    // MARK: Chats
+
+    func testStartingAChatAndSendingALinkToIt() throws {
+        let friendID = try server.state(as: server.friend).me
+        launch()
+        let name = "Film club \(shortID())"
+        openChatPicker()
+        app.buttons["New Chat…"].tap()
+        let field = app.textFields["chat.name"]
+        XCTAssert(field.waitForExistence(timeout: 5), "no New Chat sheet")
+        type(name, into: field)
+        app.buttons["chat.person.Friend"].tap()
+        app.buttons["chat.save"].tap()
+        XCTAssert(field.waitForNonExistence(timeout: 10), "the New Chat sheet stayed open")
+
+        let chat = try server.eventually("the new chat") {
+            try server.state(as: server.me).groups.first { $0.name == name }
+        }
+        leaveAfterwards(chat.id)
+        XCTAssertFalse(chat.isDefault)
+        XCTAssertEqual(Set(chat.members), Set([try server.state(as: server.me).me, friendID]))
+        // The lists now show the new chat.
+        XCTAssert(app.buttons["chatPicker"].label.contains(name), app.buttons["chatPicker"].label)
+
+        // A new link goes to the chat the lists show.
+        let url = uniqueURL()
+        app.buttons["newLink"].tap()
+        let text = app.textFields["addLink.text"]
+        XCTAssert(text.waitForExistence(timeout: 5))
+        XCTAssert(app.buttons["addLink.chat"].label.contains(name), app.buttons["addLink.chat"].label)
+        type(url, into: text)
+        app.buttons["addLink.send"].tap()
+        XCTAssert(text.waitForNonExistence(timeout: 10), "the New Link sheet stayed open")
+        let link = try server.eventually("the new link") {
+            try server.state(as: server.friend).links.first { $0.url == url }
+        }
+        deleteAfterwards(link.id)
+        XCTAssertEqual(link.groupID, chat.id)
+    }
+
+    func testTheChatPickerFiltersEveryList() throws {
+        let meID = try server.state(as: server.me).me
+        let name = "Picker \(shortID())"
+        let chat = try server.startChat(name: name, members: [meID], as: server.friend)
+        leaveAfterwards(chat.id)
+        let inChat = try server.add(uniqueURL(), to: chat.id, as: server.friend)
+        let everyone = try seed(by: server.friend)
+        deleteAfterwards(inChat.id)
+
+        launch()
+        XCTAssert(app.buttons["chatPicker"].label.contains("All Chats"), app.buttons["chatPicker"].label)
+        waitForRow(inChat, in: "toWatch")
+        XCTAssert(row(everyone, in: "toWatch").exists)
+
+        pickChat(name)
+        XCTAssert(row(everyone, in: "toWatch").waitForNonExistence(timeout: 5), "a link from another chat still shows")
+        XCTAssert(row(inChat, in: "toWatch").exists)
+
+        // Every tab shows the same chat.
+        app.tabBars.buttons["Search"].tap()
+        XCTAssert(row(inChat, in: "all").waitForExistence(timeout: 5))
+        XCTAssertFalse(row(everyone, in: "all").exists)
+
+        pickChat("All Chats")
+        XCTAssert(row(everyone, in: "all").waitForExistence(timeout: 5))
+    }
+
+    func testRenamingAddingPeopleToAndLeavingAChat() throws {
+        let friendID = try server.state(as: server.friend).me
+        let chat = try server.startChat(as: server.me)
+        leaveAfterwards(chat.id)
+        let mine = try server.add(uniqueURL(), to: chat.id, as: server.me)
+        deleteAfterwards(mine.id)
+
+        launch()
+        pickChat("Just You")
+        let name = "Renamed \(shortID())"
+        openChatPicker()
+        app.buttons["Rename…"].tap()
+        let field = app.textFields["chat.name"]
+        XCTAssert(field.waitForExistence(timeout: 5), "no Rename sheet")
+        type(name, into: field)
+        app.buttons["chat.save"].tap()
+        XCTAssert(field.waitForNonExistence(timeout: 10), "the Rename sheet stayed open")
+        try server.eventually("the new name") { try server.state(as: server.me).group(chat.id)?.name == name ? true : nil }
+
+        openChatPicker()
+        app.buttons["Add People…"].tap()
+        let friend = app.buttons["chat.person.Friend"]
+        XCTAssert(friend.waitForExistence(timeout: 5), "no Add People sheet")
+        friend.tap()
+        app.buttons["chat.save"].tap()
+        XCTAssert(friend.waitForNonExistence(timeout: 10), "the Add People sheet stayed open")
+        // Friend now sees the chat, and the link sent before they joined.
+        let theirs = try server.eventually("Friend in the chat") {
+            try server.state(as: server.friend).group(chat.id)
+        }
+        XCTAssert(theirs.members.contains(friendID))
+        XCTAssertNotNil(try server.state(as: server.friend).link(mine.id))
+
+        openChatPicker()
+        app.buttons["Leave Chat"].tap()
+        let confirm = app.sheets.buttons["Leave Chat"].exists ? app.sheets.buttons["Leave Chat"] : app.buttons["Leave Chat"].firstMatch
+        XCTAssert(confirm.waitForExistence(timeout: 5), "no confirmation")
+        confirm.tap()
+        try server.eventually("left the chat") { try server.state(as: server.me).group(chat.id) == nil ? true : nil }
+        XCTAssert(app.buttons["chatPicker"].label.contains("All Chats"), app.buttons["chatPicker"].label)
+        // The link I sent stays in the chat for Friend.
+        XCTAssertNotNil(try server.state(as: server.friend).link(mine.id))
+    }
+
     // MARK: Helpers
+
+    private func openChatPicker() {
+        let picker = app.buttons["chatPicker"]
+        XCTAssert(picker.waitForExistence(timeout: 10), "no chat picker")
+        picker.tap()
+    }
+
+    /// Picks a chat in the picker on the tab showing, waiting for one the server just made.
+    private func pickChat(_ title: String) {
+        for attempt in 1...3 {
+            openChatPicker()
+            let item = app.buttons[title].firstMatch
+            if item.waitForExistence(timeout: 5) {
+                item.tap()
+                break
+            }
+            // Not in the inbox yet: close the menu and pull to refresh, as a person would.
+            app.tap()
+            if attempt < 3 { app.collectionViews.firstMatch.swipeDown() }
+        }
+        XCTAssert(app.buttons["chatPicker"].label.contains(title), "picked \(title), shows \(app.buttons["chatPicker"].label)")
+    }
+
+    /// Me and Friend both leave, which deletes the chat and its links.
+    private func leaveAfterwards(_ id: Int) {
+        let server = server!
+        addTeardownBlock {
+            try? server.leaveChat(id, as: server.me)
+            try? server.leaveChat(id, as: server.friend)
+        }
+    }
 
     /// Launches signed in (DEBUG builds take a session token from LINKS_DEV_TOKEN), on the inbox.
     private func launch(as token: String? = nil) {

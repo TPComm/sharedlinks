@@ -7,12 +7,13 @@ enum Endpoint: String, CaseIterable, Sendable {
     case exchange, signOut, me, rename, claim, deleteAccount, state, add, seen, unseen, react, unreact, note, delete, thumbnail
     case reportLink, reportPerson, block, unblock
     case exchangeWithInvite, invites, createInvite, createEmailInvite, revokeInvite
+    case addToGroup, createGroup, renameGroup, addMembers, leaveGroup
 
     var method: String {
         switch self {
         case .me, .state, .thumbnail, .invites: "GET"
-        case .rename, .note: "PATCH"
-        case .delete, .deleteAccount, .unblock, .revokeInvite: "DELETE"
+        case .rename, .note, .renameGroup: "PATCH"
+        case .delete, .deleteAccount, .unblock, .revokeInvite, .leaveGroup: "DELETE"
         default: "POST"
         }
     }
@@ -24,7 +25,10 @@ enum Endpoint: String, CaseIterable, Sendable {
         case .me, .rename, .deleteAccount: "/api/me"
         case .claim: "/api/me/claim"
         case .state: "/api/state"
-        case .add: "/api/links"
+        case .add, .addToGroup: "/api/links"
+        case .createGroup: "/api/groups"
+        case .renameGroup, .leaveGroup: "/api/groups/5"
+        case .addMembers: "/api/groups/5/members"
         case .seen, .unseen: "/api/links/7/seen"
         case .react, .unreact: "/api/links/7/react"
         case .note, .delete: "/api/links/7"
@@ -47,6 +51,10 @@ enum Endpoint: String, CaseIterable, Sendable {
         case .rename: #"{"name":"Sam L"}"#
         case .claim: #"{"id":"legacy:Jo"}"#
         case .add: #"{"note":"for you","url":"lol https://vm.tiktok.com/ZMabc/"}"#
+        case .addToGroup: #"{"group_id":5,"note":"","url":"https://vm.tiktok.com/ZMabc/"}"#
+        case .createGroup: #"{"members":["user_01JO"],"name":"Film club"}"#
+        case .renameGroup: #"{"name":"Cinema"}"#
+        case .addMembers: #"{"members":["user_01AL","user_01BO"]}"#
         case .seen: #"{"seen":true}"#
         case .unseen: #"{"seen":false}"#
         case .react: #"{"emoji":"🔥"}"#
@@ -55,7 +63,7 @@ enum Endpoint: String, CaseIterable, Sendable {
         case .reportLink: #"{"link_id":7,"reason":"offensive"}"#
         case .reportPerson: #"{"reason":"harassment","user_id":"user_01SAM"}"#
         case .block: #"{"user_id":"user_01SAM"}"#
-        case .signOut, .me, .deleteAccount, .state, .delete, .thumbnail, .unblock, .invites, .revokeInvite: nil
+        case .signOut, .me, .deleteAccount, .state, .delete, .thumbnail, .unblock, .invites, .revokeInvite, .leaveGroup: nil
         }
     }
 
@@ -65,10 +73,12 @@ enum Endpoint: String, CaseIterable, Sendable {
         case .invites, .revokeInvite: .json(#"{"invites": [{"id": 3, "email": null, "created_at": 1700000000, "expires_at": 1700604800}]}"#)
         case .createInvite, .createEmailInvite:
             .json(#"{"invite": {"id": 4, "email": "pal@x.com", "created_at": 1700000000, "expires_at": 1700604800, "url": "https://links.test/invite/abc"}}"#, status: 201)
-        case .signOut, .delete, .deleteAccount: .json(#"{"ok": true}"#)
+        case .signOut, .delete, .deleteAccount, .leaveGroup: .json(#"{"ok": true}"#)
+        case .createGroup: .json(#"{"group": \#(Fixture.group())}"#, status: 201)
+        case .renameGroup, .addMembers: .json(#"{"group": \#(Fixture.group())}"#)
         case .me, .rename, .claim: .json(Fixture.me)
         case .state: .json(#"{"me": "user_01SAM", "users": [\#(Fixture.sam)], "links": [\#(Fixture.link())]}"#)
-        case .add: .json(#"{"link": \#(Fixture.link()), "duplicate": false}"#, status: 201)
+        case .add, .addToGroup: .json(#"{"link": \#(Fixture.link()), "duplicate": false}"#, status: 201)
         case .seen, .unseen, .react, .unreact, .note: .json(#"{"link": \#(Fixture.link())}"#)
         case .thumbnail: .http(status: 200, body: Data([0xFF, 0xD8, 0xFF]), contentType: "image/jpeg")
         case .reportLink, .reportPerson: .json(#"{"ok": true}"#, status: 201)
@@ -108,6 +118,14 @@ enum Endpoint: String, CaseIterable, Sendable {
         case .createInvite: #expect(try await client.createInvite().url == URL(string: "https://links.test/invite/abc"))
         case .createEmailInvite: #expect(try await client.createInvite(email: "pal@x.com").email == "pal@x.com")
         case .revokeInvite: #expect(try await client.revokeInvite(3).map(\.id) == [3])
+        case .addToGroup:
+            #expect(try await client.add("https://vm.tiktok.com/ZMabc/", groupID: 5).link.groupID == 1)
+        case .createGroup:
+            let group = try await client.createGroup(name: "Film club", members: ["user_01JO"])
+            #expect(group.id == 5 && group.members == ["user_01SAM", "user_01JO"] && !group.isDefault)
+        case .renameGroup: #expect(try await client.renameGroup(5, to: "Cinema").name == "Film club")
+        case .addMembers: _ = try await client.addMembers(["user_01AL", "user_01BO"], to: 5)
+        case .leaveGroup: try await client.leaveGroup(5)
         }
     }
 }
