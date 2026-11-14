@@ -175,6 +175,9 @@ describe("imageSize", () => {
   const u16le = (n: number) => [n & 255, n >> 8];
   const u24le = (n: number) => [n & 255, (n >> 8) & 255, n >> 16];
   const u32le = (n: number) => [n & 255, (n >> 8) & 255, (n >> 16) & 255, n >>> 24];
+  /** A 1920×1080 frame after an APP1 Exif segment holding `tiff`. */
+  const jpegWithExif = (tiff: Uint8Array) => bytes([0xff, 0xd8, 0xff, 0xe1], u16be(8 + tiff.length), "Exif", [0, 0], [...tiff],
+    [0xff, 0xc0], u16be(17), [8], u16be(1080), u16be(1920), new Array(12).fill(0));
 
   test.each([
     ["PNG", PNG, { width: 1, height: 1 }],
@@ -183,6 +186,13 @@ describe("imageSize", () => {
       [0xff, 0xc0], u16be(17), [8], u16be(1920), u16be(1080), new Array(12).fill(0)), { width: 1080, height: 1920 }],
     ["progressive JPEG", bytes([0xff, 0xd8, 0xff, 0xc4], u16be(2), [0xff, 0xc2], u16be(17), [8], u16be(100), u16be(50),
       new Array(12).fill(0)), { width: 50, height: 100 }],
+    ["JPEG turned by EXIF (big-endian)", jpegWithExif(bytes("MM", [0, 42], [0, 0, 0, 8], u16be(1), u16be(0x0112), u16be(3), [0, 0, 0, 1],
+      u16be(6), [0, 0], [0, 0, 0, 0])), { width: 1080, height: 1920 }],
+    ["JPEG turned by EXIF (little-endian)", jpegWithExif(bytes("II", [42, 0], [8, 0, 0, 0], u16le(1), u16le(0x0112), u16le(3), [1, 0, 0, 0],
+      u16le(8), [0, 0], [0, 0, 0, 0])), { width: 1080, height: 1920 }],
+    ["JPEG upright by EXIF", jpegWithExif(bytes("II", [42, 0], [8, 0, 0, 0], u16le(1), u16le(0x0112), u16le(3), [1, 0, 0, 0],
+      u16le(1), [0, 0], [0, 0, 0, 0])), { width: 1920, height: 1080 }],
+    ["JPEG with truncated EXIF", jpegWithExif(bytes("MM", [0, 42], [0, 0, 0xff, 0xff])), { width: 1920, height: 1080 }],
     ["WebP VP8X", bytes("RIFF", [0, 0, 0, 0], "WEBPVP8X", [0, 0, 0, 0, 0, 0, 0, 0], u24le(639), u24le(1135)), { width: 640, height: 1136 }],
     ["WebP VP8", bytes("RIFF", [0, 0, 0, 0], "WEBPVP8 ", new Array(10).fill(0), u16le(400), u16le(300)), { width: 400, height: 300 }],
     ["WebP VP8L", bytes("RIFF", [0, 0, 0, 0], "WEBPVP8L", [0, 0, 0, 0, 0x2f], u32le(99 | (199 << 14)), new Array(6).fill(0)), { width: 100, height: 200 }],

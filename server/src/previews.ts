@@ -244,6 +244,7 @@ export function imageSize(b: Uint8Array): { width: number; height: number } | nu
   }
   if (b.length >= 4 && b[0] === 0xff && b[1] === 0xd8) {
     let i = 2;
+    let rotated = false;
     while (i + 9 < b.length) {
       if (b[i] !== 0xff) return null;
       const marker = b[i + 1]!;
@@ -252,13 +253,30 @@ export function imageSize(b: Uint8Array): { width: number; height: number } | nu
       const len = v.getUint16(i + 2);
       // Start-of-frame markers (not DHT, JPG or DAC) carry the size.
       if (marker >= 0xc0 && marker <= 0xcf && marker !== 0xc4 && marker !== 0xc8 && marker !== 0xcc) {
-        return ok(v.getUint16(i + 7), v.getUint16(i + 5));
+        const [w, h] = [v.getUint16(i + 7), v.getUint16(i + 5)];
+        return rotated ? ok(h, w) : ok(w, h);
       }
       if (len < 2) return null;
+      if (marker === 0xe1 && ascii(i + 4, "Exif\0\0")) rotated = exifOrientation(v, i + 10) >= 5;
       i += 2 + len;
     }
   }
   return null;
+}
+
+/** The EXIF Orientation tag of the TIFF block at `t` (1 when absent); 5-8 mean the image displays turned 90°. */
+function exifOrientation(v: DataView, t: number): number {
+  try {
+    const le = v.getUint16(t) === 0x4949;
+    const ifd = t + v.getUint32(t + 4, le);
+    const count = v.getUint16(ifd, le);
+    for (let e = ifd + 2; e < ifd + 2 + count * 12; e += 12) {
+      if (v.getUint16(e, le) === 0x0112) return v.getUint16(e + 8, le);
+    }
+  } catch {
+    // Truncated EXIF: treat as unrotated.
+  }
+  return 1;
 }
 
 /**
