@@ -13,6 +13,8 @@
 #                               test-without-building)
 #   LINKS_UI_TEST_LOGS          keep the server and xcodebuild logs here (default: a temp folder,
 #                               deleted at exit)
+#   LINKS_UI_TEST_SHARD         K/N: run only every Nth test starting with the Kth, as CI does to
+#                               split the tests across N runners (default: all of them)
 set -euo pipefail
 
 ios="$(cd "$(dirname "$0")/.." && pwd)"
@@ -83,6 +85,36 @@ if [[ -z "$destination" ]]; then
   destination="platform=iOS Simulator,id=$udid"
 fi
 
+# -- shard: deal the tests out in the order the test files list them, read from the source so a
+# new test always lands in some slice.
+shard_args=()
+if [[ -n "${LINKS_UI_TEST_SHARD:-}" ]]; then
+  if [[ ! "$LINKS_UI_TEST_SHARD" =~ ^([0-9]+)/([0-9]+)$ ]] \
+    || (( BASH_REMATCH[1] < 1 || BASH_REMATCH[1] > BASH_REMATCH[2] )); then
+    echo "error: LINKS_UI_TEST_SHARD must be K/N with 1 <= K <= N, not \"$LINKS_UI_TEST_SHARD\"" >&2
+    exit 1
+  fi
+  shard="${BASH_REMATCH[1]}" shards="${BASH_REMATCH[2]}" i=0
+  while IFS= read -r test; do
+    if (( i % shards == shard - 1 )); then shard_args+=("-only-testing:$test"); fi
+    i=$((i + 1))
+  done < <(awk '
+    FNR == 1 { class = "" }
+    /^[[:space:]]*(final[[:space:]]+)?class[[:space:]]+[A-Za-z0-9_]+[[:space:]]*:[[:space:]]*XCTestCase/ {
+      sub(/^[[:space:]]*(final[[:space:]]+)?class[[:space:]]+/, ""); sub(/[[:space:]]*:.*/, ""); class = $0; next
+    }
+    class != "" && /^[[:space:]]*func[[:space:]]+test[A-Za-z0-9_]*[[:space:]]*\(/ {
+      sub(/^[[:space:]]*func[[:space:]]+/, ""); sub(/[[:space:]]*\(.*/, ""); print "LinksUITests/" class "/" $0
+    }
+  ' "$ios"/LinksUITests/*.swift)
+  if [[ ${#shard_args[@]} -eq 0 ]]; then
+    echo "error: UI test slice $LINKS_UI_TEST_SHARD has no tests ($i in all)" >&2
+    exit 1
+  fi
+  echo "UI test slice $LINKS_UI_TEST_SHARD: ${#shard_args[@]} of $i tests"
+  printf '  %s\n' "${shard_args[@]#-only-testing:}"
+fi
+
 # xcodebuild hands TEST_RUNNER_<NAME> to the test runner as <NAME>. The tests pass the URL and
 # token on to the app (DEBUG builds read LINKS_SERVER_URL and LINKS_DEV_TOKEN).
 # Signed (ad hoc, for the Simulator): the app needs its App Group entitlement for the keychain.
@@ -101,6 +133,7 @@ status=0
     -destination "$destination" \
     -derivedDataPath "${LINKS_UI_TEST_DERIVED_DATA:-build}" \
     -parallel-testing-enabled NO \
+    ${shard_args[@]+"${shard_args[@]}"} \
     "$@"
 ) 2>&1 | tee "$logs/xcodebuild.log" || status=$?
 

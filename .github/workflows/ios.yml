@@ -13,7 +13,7 @@ on:
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   # A newer push supersedes an older run, on main too: the newest commit includes the older ones,
-  # and a macOS run costs ~10x Linux. (The Linux workflows still let runs on main finish.)
+  # and it frees the macOS runners for the next run. (The Linux workflows let runs on main finish.)
   cancel-in-progress: true
 
 permissions:
@@ -35,8 +35,8 @@ jobs:
       # changes. (The list is saved first because grep -q in a pipe would cut git off and fail it.)
       # --no-renames lists both sides of a move, so moving a file out of the area counts too.
       # The app icon lives outside ios/ (assets/icon/SharedLinks.icon), so changes there count too.
-      # A PR that only touches server/ skips the macOS job (~10x Linux minutes): server.yml and
-      # deploy-e2e.yml check it on Linux, and the push to main still runs the UI tests on it.
+      # A PR that only touches server/ skips the macOS jobs: server.yml and deploy-e2e.yml check it
+      # on Linux, and the push to main still runs the UI tests on it.
       - id: diff
         run: |
           files=$(git diff --name-only --no-renames HEAD^1 HEAD)
@@ -46,17 +46,40 @@ jobs:
             echo relevant=false >>"$GITHUB_OUTPUT"
           fi
 
-  build:
-    name: LinksKit tests, app build and UI tests
+  # The check main requires is the last job, which passes when these do. LinksKit and each slice
+  # of the UI tests run on their own runner at the same time: the UI tests take ~12 minutes one
+  # after another, and this repo is public, so the extra macOS runners cost nothing.
+  linkskit:
+    name: LinksKit tests
     needs: changes
     # Pushes to main skip `changes`; if it failed, run rather than let a skipped check pass.
     if: ${{ !cancelled() && needs.changes.outputs.relevant != 'false' }}
-    # The only hosted image with Xcode 27. One job for everything: macOS minutes cost ~10x Linux
-    # and each job pays its own start-up and rounding.
+    # The only hosted image with Xcode 27.
     runs-on: xcode-27
-    timeout-minutes: 40
+    timeout-minutes: 15
     env:
       # The image defaults to Xcode 27.1; use 27.2, the same build as local development.
+      DEVELOPER_DIR: /Applications/Xcode_27.2.app/Contents/Developer
+    steps:
+      - uses: actions/checkout@v7
+      - name: LinksKit tests
+        working-directory: ios/LinksKit
+        run: swift test
+
+  ui-tests:
+    name: App build and UI tests (${{ matrix.shard }} of ${{ strategy.job-total }})
+    needs: changes
+    if: ${{ !cancelled() && needs.changes.outputs.relevant != 'false' }}
+    runs-on: xcode-27
+    timeout-minutes: 30
+    strategy:
+      # Let the other slices finish, so one failing test doesn't hide another.
+      fail-fast: false
+      matrix:
+        # Each slice builds the app itself (~1.5 minutes) and boots its own Simulator, which is
+        # the fixed cost a further slice adds. The org runs at most 5 macOS jobs at once.
+        shard: [1, 2, 3]
+    env:
       DEVELOPER_DIR: /Applications/Xcode_27.2.app/Contents/Developer
     steps:
       - uses: actions/checkout@v7
@@ -65,10 +88,6 @@ jobs:
         run: |
           xcodebuild -version
           xcrun simctl list runtimes
-
-      - name: LinksKit tests
-        working-directory: ios/LinksKit
-        run: swift test
 
       # Compile the app, Share Extension, widgets and UI tests for the Simulator, once: the UI
       # test step runs these products. Signed ad hoc (the Simulator default), since the app needs
@@ -99,11 +118,29 @@ jobs:
           bun-version: 1.4.4
 
       # Starts the server from source with an empty database, creates a "Links UI Tests"
-      # Simulator, and drives the app in it.
-      # 22 tests take ~12 minutes on the hosted runner, after up to ~8 minutes creating and booting
-      # the Simulator, so 20 minutes cut off runs that were passing.
+      # Simulator, and drives the app in it through this slice of the tests.
+      # Creating and booting the Simulator takes up to ~8 minutes on the hosted runner, before a
+      # slice's ~4-5 minutes of tests.
       - name: UI tests
-        timeout-minutes: 30
+        timeout-minutes: 25
         env:
           LINKS_UI_TEST_ACTION: test-without-building
+          LINKS_UI_TEST_SHARD: ${{ matrix.shard }}/${{ strategy.job-total }}
         run: ios/scripts/ui-tests.sh
+
+  check:
+    # The name main's ruleset requires: rename it there too if it changes.
+    name: LinksKit tests, app build and UI tests
+    needs: [changes, linkskit, ui-tests]
+    # Skipped (which counts as passing) exactly when the jobs above are; otherwise it runs even
+    # when one of them failed, so it can fail too.
+    if: ${{ !cancelled() && needs.changes.outputs.relevant != 'false' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - env:
+          LINKSKIT: ${{ needs.linkskit.result }}
+          UI_TESTS: ${{ needs.ui-tests.result }}
+        run: |
+          echo "LinksKit tests: $LINKSKIT; app build and UI tests: $UI_TESTS"
+          [[ $LINKSKIT == success && $UI_TESTS == success ]]

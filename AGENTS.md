@@ -20,15 +20,17 @@ have the details for each half.
 All of these run offline: WorkOS and preview pages are stubbed, and the UI tests sign in with
 minted session tokens.
 
-## GitHub Actions minutes are limited
+## CI is tuned for speed
 
-The iOS workflow runs on macOS, which costs about 10x a Linux job, on every push to a PR that
-touches `ios/`, `assets/icon/` or `.github/workflows/ios.yml`.
+The repo is public, so GitHub-hosted runners cost nothing, macOS included. On a PR that touches
+`ios/`, `assets/icon/` or `.github/workflows/ios.yml`, the iOS workflow runs the LinksKit tests
+and three slices of the UI tests on four macOS runners at once (`LINKS_UI_TEST_SHARD` in
+`ios/scripts/ui-tests.sh`); it takes ~10 minutes, and the other workflows finish well before it.
 
-- Never use CI as the compiler. Build and test iOS changes on a Mac before pushing.
-- Batch fixes into as few pushes as you can; each push to such a PR starts a new macOS run.
+- Still build and test iOS changes on a Mac before pushing: a red CI run costs you that wait.
+- The org runs at most 5 macOS jobs at once, so a second iOS run queues behind the first.
 - Keep server-only and iOS changes in separate PRs where that's natural, so server PRs skip the
-  macOS job.
+  macOS jobs.
 
 ## main is protected
 
@@ -124,7 +126,7 @@ Rules:
 - Every shipped bundle (app, Share Extension, widgets) has its own `PrivacyInfo.xcprivacy`; declare
   any new required-reason API in each bundle that uses it, or App Store Connect rejects the build.
 - The UI tests set `LINKS_UI_TESTS=1`, which skips the welcome tour, tips and the badge prompt.
-- Build and test on a Mac before pushing: CI's macOS minutes are limited (see above).
+- Build and test on a Mac before pushing: an iOS CI run takes ~10 minutes (see above).
 
 ## Sign-in (WorkOS AuthKit)
 
