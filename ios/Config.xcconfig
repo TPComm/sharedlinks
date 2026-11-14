@@ -14,4 +14,4 @@ LINKS_SERVER_URL = http:/$()/localhost:8000
 // Where people reach whoever runs the server (App Store guideline 1.2), shown in the account menu
 // and on the sign-in screen: a mailto: address, or an https: page (written https:/$()/...).
 // Use the same address as the server's SUPPORT_EMAIL, which its /support page shows.
-LINKS_SUPPORT_URL = mailto:support@example.com
+LINKS_SUPPORT_URL = mailto:support@tpcomm.co
