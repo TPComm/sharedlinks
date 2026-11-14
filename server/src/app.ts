@@ -40,8 +40,18 @@ export function createApp(config: Config) {
   const fetchOpts = { allowPrivateNetwork: config.allowPrivateNetwork };
   const pending = new Set<Promise<void>>();
 
+  // One fetch per link at a time (a retry during the backfill, an edit mid-fetch): the next waits its turn.
+  const latest = new Map<number, Promise<void>>();
+  function queueFetch(id: number, url: string, platform: string): Promise<void> {
+    const run = (latest.get(id) ?? Promise.resolve()).then(() => fetchMetadata(db, config.dataDir, id, url, platform, fetchOpts));
+    const settled = run.catch(() => {});
+    latest.set(id, settled);
+    void settled.then(() => { if (latest.get(id) === settled) latest.delete(id); });
+    return run;
+  }
+
   function startMetadataFetch(id: number, url: string, platform: string) {
-    const task = fetchMetadata(db, config.dataDir, id, url, platform, fetchOpts)
+    const task = queueFetch(id, url, platform)
       .catch((e) => console.error(`metadata ${id}: ${e}`))
       .finally(() => pending.delete(task));
     pending.add(task);
@@ -54,10 +64,15 @@ export function createApp(config: Config) {
 
   // Links whose preview predates PREVIEW_VERSION (or failed before) are re-fetched one at a time, gently.
   function backfillNext() {
-    const row = db.query("SELECT id, url, platform FROM links WHERE preview_v < ? AND meta != 'pending' ORDER BY added_at DESC LIMIT 1")
-      .get(PREVIEW_VERSION) as LinkRow | null;
+    let row: LinkRow | null;
+    try {
+      row = db.query("SELECT id, url, platform FROM links WHERE preview_v < ? AND meta != 'pending' ORDER BY added_at DESC LIMIT 1")
+        .get(PREVIEW_VERSION) as LinkRow | null;
+    } catch (e) {
+      return console.error(`backfill stopped: ${e}`); // the database closed under us (shutdown)
+    }
     if (!row) return;
-    const task = fetchMetadata(db, config.dataDir, row.id, row.url, row.platform, fetchOpts)
+    const task = queueFetch(row.id, row.url, row.platform)
       .catch((e) => {
         console.error(`backfill ${row.id}: ${e}`);
         db.run("UPDATE links SET preview_v = ? WHERE id = ?", [PREVIEW_VERSION, row.id]);
