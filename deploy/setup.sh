@@ -5,8 +5,9 @@
 #   WORKOS_CLIENT_ID=client_... ALLOWED_EMAILS=you@x.com,friend@y.com \
 #     deploy/setup.sh root@203.0.113.7 links.example.com
 #
-# Push notifications (see the README): add APNS_TEAM_ID, APNS_TOPIC, APNS_KEY_ID and APNS_KEY_FILE
-# (a local path to the .p8 key). The key goes over SSH stdin to /etc/links/apns.p8.
+# Push notifications (see the README): add APNS_TEAM_ID, APNS_TOPIC, APNS_KEY_ID and the .p8 key, as
+# APNS_KEY_FILE (a local path) or APNS_KEY_P8 (its contents, e.g. from a secret). The key goes over
+# SSH stdin to /etc/links/apns.p8.
 #
 # The hostname's DNS A (and AAAA, if any) record must already point at the VPS, because Caddy
 # fetches a Let's Encrypt certificate for it. Safe to re-run: it only changes what's missing, and
@@ -35,7 +36,9 @@ for f in links.service links-backup.service links-backup.timer; do upload "$HERE
 sed "s/links.example.com/$DOMAIN/" "$HERE/Caddyfile" | ssh "$HOST" 'cat > /tmp/links-setup/Caddyfile'
 
 # The APNs key: the service can't read /home or /root (ProtectHome), so it's installed in /etc/links.
-if [[ -n "${APNS_KEY_FILE:-}" ]]; then
+if [[ -n "${APNS_KEY_P8:-}" ]]; then
+  printf '%s\n' "$APNS_KEY_P8" | ssh "$HOST" "umask 077; cat > /tmp/links-setup/apns.p8"
+elif [[ -n "${APNS_KEY_FILE:-}" ]]; then
   [[ -r "$APNS_KEY_FILE" ]] || { echo "APNS_KEY_FILE: can't read $APNS_KEY_FILE" >&2; exit 1; }
   ssh "$HOST" "umask 077; cat > /tmp/links-setup/apns.p8" < "$APNS_KEY_FILE"
 fi
@@ -49,7 +52,7 @@ fi
     # An if, not &&: a trailing failed test would fail the pipeline and stop the script.
     if [[ -n "${!key:-}" ]]; then echo "$key=${!key}"; fi
   done
-  if [[ -n "${APNS_KEY_FILE:-}" ]]; then echo "APNS_KEY_FILE=/etc/links/apns.p8"; fi
+  if [[ -n "${APNS_KEY_P8:-}${APNS_KEY_FILE:-}" ]]; then echo "APNS_KEY_FILE=/etc/links/apns.p8"; fi
 } | ssh "$HOST" 'umask 077; cat > /tmp/links-setup/links.env.new'
 
 echo "==> Configuring the VPS"

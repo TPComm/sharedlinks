@@ -408,7 +408,9 @@ export function createApp(config: Config, opts: AppOptions = {}) {
       }),
       // Delete the account and the links it sent, with their notes (see Accounts.deleteUser).
       DELETE: route(async (_req, me) => {
+        const badgesChange = push.enabled ? push.unwatchedFrom(me) : [];
         await accounts.deleteUser(me);
+        push.badges(badgesChange);
         return json({ ok: true });
       }),
     },

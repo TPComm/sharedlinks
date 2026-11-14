@@ -14,6 +14,7 @@ const users: Record<string, object> = {
   sam: { id: "user_01SAM", email: "sam@team.test", email_verified: true, first_name: "Sam" },
   alex: { id: "user_01ALEX", email: "alex@team.test", email_verified: true, first_name: "Alex" },
   kim: { id: "user_01KIM", email: "kim@team.test", email_verified: true, first_name: "Kim" },
+  carol: { id: "user_01CAROL", email: "carol@team.test", email_verified: true, first_name: "Carol" },
   gone: { id: "user_01GONE", email: "gone@other.test", email_verified: true, first_name: "Gone" },
 };
 const fakeWorkOS = Bun.serve({
@@ -38,7 +39,7 @@ const fakeOrigin = Bun.serve({
 
 interface Sent { env: string; token: string; headers: http2.IncomingHttpHeaders; body: any; jwt: string }
 /** Answers per token, in order, then 200. */
-const replies = new Map<string, { status: number; body?: object; before?: () => void }[]>();
+const replies = new Map<string, { status: number; body?: object; before?: () => void; goaway?: boolean }[]>();
 let sent: Sent[] = [];
 function fakeApns(env: string) {
   const server = http2.createServer();
@@ -52,6 +53,7 @@ function fakeApns(env: string) {
       const queue = [replies.get(`${env}:${token}`), replies.get(token)].find((q) => q?.length);
       const reply = queue?.shift() ?? { status: 200 };
       reply.before?.();
+      if (reply.goaway) stream.session?.goaway(0, stream.id);
       stream.respond({ ":status": reply.status, "apns-id": crypto.randomUUID() });
       stream.end(reply.body ? JSON.stringify(reply.body) : undefined);
     });
@@ -246,6 +248,17 @@ describe("pushes", () => {
     expect(sent.map((s) => [s.token, Object.keys(s.body.aps)])).toEqual([[ALEX, ["badge"]]]);
   });
 
+  test("deleting an account updates the badges of people who hadn't watched its links", async () => {
+    const carol = await signIn("carol");
+    const { data } = await call("/api/links", { token: carol, body: { url: `${fakeOrigin.url.origin}/video?n=acct` } });
+    await call(`/api/links/${data.link.id}/seen`, { token: kim, body: { seen: true } });
+    await settle();
+    sent = [];
+    expect((await call("/api/me", { method: "DELETE", token: carol })).status).toBe(200);
+    await settle();
+    expect(sent.map((s) => [s.token, Object.keys(s.body.aps)]).sort()).toEqual([[ALEX, ["badge"]], [SAM, ["badge"]]].sort());
+  });
+
   test("claiming a pre-sign-in person updates your badge", async () => {
     app.db.run("INSERT INTO users (id, name, created_at) VALUES ('legacy:Kim', 'Kim', 1)");
     app.db.run("INSERT INTO links (url, platform, added_by, added_at) VALUES ('https://a.test/kim', 'web', 'legacy:Kim', 1)");
@@ -266,6 +279,15 @@ describe("APNs answers", () => {
     await badge("user_01ALEX");
     expect(tokens().some((t) => t.token === ALEX)).toBe(false);
     await register(alex, ALEX);
+  });
+
+  test("a GOAWAY lets the push in flight finish, and the next one opens a new connection", async () => {
+    replies.set(ALEX, [{ status: 410, body: { reason: "Unregistered", timestamp: Date.now() + 1000 }, goaway: true }]);
+    await badge("user_01ALEX");
+    expect(tokens().some((t) => t.token === ALEX)).toBe(false);
+    await register(alex, ALEX);
+    await badge("user_01ALEX");
+    expect(sent.length).toBe(2);
   });
 
   test("BadDeviceToken tries the other environment once, and keeps the one that works", async () => {

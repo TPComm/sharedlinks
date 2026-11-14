@@ -50,10 +50,17 @@ if (command === "mint-session") {
   const db = openDatabase(config.dataDir);
   const accounts = new Accounts(db, config);
   const users = accounts.usersWithEmail(email);
+  // Their links leave others' To Watch; the running server doesn't see this, so badge from here.
+  const tasks: Promise<void>[] = [];
+  const push = new Pusher(db, config, accounts, (t) => { tasks.push(t); }, { badgeDelayMs: 0 });
   for (const user of users) {
+    const unwatched = push.enabled ? push.unwatchedFrom(user.id) : [];
     const { links, workos } = await accounts.deleteUser(user.id);
+    push.badges(unwatched);
     console.log(`deleted ${user.name} (${user.id}); ${links} sent link${links === 1 ? "" : "s"} deleted; WorkOS user: ${workos}`);
   }
+  await Promise.all(tasks);
+  push.close();
   db.close();
   if (!users.length) {
     console.error(`no account with the email ${email}`);

@@ -125,6 +125,16 @@ export class Pusher {
     ).all(linkId) as { id: string }[]).map((r) => r.id);
   }
 
+  /** People with a link `sender` sent in their To Watch (deleting the account deletes its links). */
+  unwatchedFrom(sender: string): string[] {
+    return (this.db.query(
+      `SELECT DISTINCT u.id FROM users u JOIN links l ON l.added_by = ?1 WHERE u.id != ?1
+         AND NOT EXISTS (SELECT 1 FROM seen WHERE link_id = l.id AND person = u.id)
+         AND NOT EXISTS (SELECT 1 FROM reports WHERE reporter = u.id AND link_id = l.id)
+         AND NOT EXISTS (SELECT 1 FROM blocks WHERE blocker = u.id AND blocked = ?1)`,
+    ).all(sender) as { id: string }[]).map((r) => r.id);
+  }
+
   /**
    * Badge-only pushes, coalesced per person: changes within `badgeDelayMs` send one push with the
    * count at the end. Goes to all their devices, the one that made the change too.
@@ -278,15 +288,22 @@ export class Pusher {
       return existing.session;
     }
     const session = http2.connect(host);
-    const drop = () => {
+    const retire = () => {
       const c = this.conns.get(host);
       if (c?.session !== session) return;
       clearInterval(c.timer);
       this.conns.delete(host);
+    };
+    const drop = () => {
+      retire();
       if (!session.destroyed) session.destroy();
     };
     session.on("error", (e) => { console.error(`push: ${host}: ${e}`); drop(); });
-    session.on("goaway", drop);
+    // New sends open another connection; pushes already accepted on this one still finish.
+    session.on("goaway", () => {
+      retire();
+      if (!session.closed) session.close();
+    });
     session.on("close", drop);
     const timer = setInterval(() => {
       const c = this.conns.get(host);
