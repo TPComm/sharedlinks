@@ -46,40 +46,25 @@ jobs:
             echo relevant=false >>"$GITHUB_OUTPUT"
           fi
 
-  # The check main requires is the last job, which passes when these do. LinksKit and each slice
-  # of the UI tests run on their own runner at the same time: the UI tests take ~12 minutes one
-  # after another, and this repo is public, so the extra macOS runners cost nothing.
-  linkskit:
-    name: LinksKit tests
+  # The check main requires is the last job, which passes when these do. The UI tests take ~9
+  # minutes one after another, so two runners split them, each booting its Simulator while it
+  # builds. Two, not more: each slice adds ~4 minutes of build and boot, and the org runs at most
+  # 5 macOS jobs at once, so a run asking for more runners waits longer behind other PRs' runs.
+  ui-tests:
+    name: ${{ matrix.shard == 1 && 'LinksKit tests, ' || '' }}App build and UI tests (${{ matrix.shard }} of ${{ strategy.job-total }})
     needs: changes
     # Pushes to main skip `changes`; if it failed, run rather than let a skipped check pass.
     if: ${{ !cancelled() && needs.changes.outputs.relevant != 'false' }}
     # The only hosted image with Xcode 27.
     runs-on: xcode-27
-    timeout-minutes: 15
-    env:
-      # The image defaults to Xcode 27.1; use 27.2, the same build as local development.
-      DEVELOPER_DIR: /Applications/Xcode_27.2.app/Contents/Developer
-    steps:
-      - uses: actions/checkout@v7
-      - name: LinksKit tests
-        working-directory: ios/LinksKit
-        run: swift test
-
-  ui-tests:
-    name: App build and UI tests (${{ matrix.shard }} of ${{ strategy.job-total }})
-    needs: changes
-    if: ${{ !cancelled() && needs.changes.outputs.relevant != 'false' }}
-    runs-on: xcode-27
     timeout-minutes: 30
     strategy:
-      # Let the other slices finish, so one failing test doesn't hide another.
+      # Let the other slice finish, so one failing test doesn't hide another.
       fail-fast: false
       matrix:
-        # Each slice builds the app itself (~1.5 minutes) and boots its own Simulator, which is
-        # the fixed cost a further slice adds. The org runs at most 5 macOS jobs at once.
-        shard: [1, 2, 3]
+        shard: [1, 2]
     env:
+      # The image defaults to Xcode 27.1; use 27.2, the same build as local development.
       DEVELOPER_DIR: /Applications/Xcode_27.2.app/Contents/Developer
     steps:
       - uses: actions/checkout@v7
@@ -88,6 +73,19 @@ jobs:
         run: |
           xcodebuild -version
           xcrun simctl list runtimes
+
+      # Booting takes minutes, so it runs in the background while the steps below build. The UI
+      # test step waits for it, and ui-tests.sh finds the Simulator by name.
+      - name: Start booting the Simulator
+        run: |
+          udid="$(xcrun simctl create "Links UI Tests" "iPhone 17")"
+          echo "SIMULATOR_UDID=$udid" >>"$GITHUB_ENV"
+          nohup xcrun simctl bootstatus "$udid" -b >"$RUNNER_TEMP/simulator-boot.log" 2>&1 &
+
+      - name: LinksKit tests
+        if: matrix.shard == 1
+        working-directory: ios/LinksKit
+        run: swift test
 
       # Compile the app, Share Extension, widgets and UI tests for the Simulator, once: the UI
       # test step runs these products. Signed ad hoc (the Simulator default), since the app needs
@@ -117,21 +115,22 @@ jobs:
           # Same Bun as server.yml and local development.
           bun-version: 1.4.4
 
-      # Starts the server from source with an empty database, creates a "Links UI Tests"
-      # Simulator, and drives the app in it through this slice of the tests.
-      # Creating and booting the Simulator takes up to ~8 minutes on the hosted runner, before a
-      # slice's ~4-5 minutes of tests.
+      # Starts the server from source with an empty database and drives the app in the "Links UI
+      # Tests" Simulator through this slice of the tests.
       - name: UI tests
         timeout-minutes: 25
         env:
           LINKS_UI_TEST_ACTION: test-without-building
           LINKS_UI_TEST_SHARD: ${{ matrix.shard }}/${{ strategy.job-total }}
-        run: ios/scripts/ui-tests.sh
+        run: |
+          xcrun simctl bootstatus "$SIMULATOR_UDID"
+          cat "$RUNNER_TEMP/simulator-boot.log"
+          ios/scripts/ui-tests.sh
 
   check:
     # The name main's ruleset requires: rename it there too if it changes.
     name: LinksKit tests, app build and UI tests
-    needs: [changes, linkskit, ui-tests]
+    needs: [changes, ui-tests]
     # Skipped (which counts as passing) exactly when the jobs above are; otherwise it runs even
     # when one of them failed, so it can fail too.
     if: ${{ !cancelled() && needs.changes.outputs.relevant != 'false' }}
@@ -139,8 +138,7 @@ jobs:
     timeout-minutes: 5
     steps:
       - env:
-          LINKSKIT: ${{ needs.linkskit.result }}
-          UI_TESTS: ${{ needs.ui-tests.result }}
+          RESULT: ${{ needs.ui-tests.result }}
         run: |
-          echo "LinksKit tests: $LINKSKIT; app build and UI tests: $UI_TESTS"
-          [[ $LINKSKIT == success && $UI_TESTS == success ]]
+          echo "LinksKit tests, app build and UI tests: $RESULT"
+          [[ $RESULT == success ]]

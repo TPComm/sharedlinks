@@ -23,9 +23,9 @@ minted session tokens.
 ## CI is tuned for speed
 
 The repo is public, so GitHub-hosted runners cost nothing, macOS included. On a PR that touches
-`ios/`, `assets/icon/` or `.github/workflows/ios.yml`, the iOS workflow runs the LinksKit tests
-and three slices of the UI tests on four macOS runners at once (`LINKS_UI_TEST_SHARD` in
-`ios/scripts/ui-tests.sh`); it takes ~10 minutes, and the other workflows finish well before it.
+`ios/`, `assets/icon/` or `.github/workflows/ios.yml`, the iOS workflow splits the UI tests across
+two macOS runners (`LINKS_UI_TEST_SHARD` in `ios/scripts/ui-tests.sh`), the first also running the
+LinksKit tests; it takes ~10 minutes, and the other workflows finish well before it.
 
 - Still build and test iOS changes on a Mac before pushing: a red CI run costs you that wait.
 - The org runs at most 5 macOS jobs at once, so a second iOS run queues behind the first.
