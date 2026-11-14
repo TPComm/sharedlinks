@@ -159,7 +159,7 @@ private struct WelcomePage: View {
         ) {
             MiniInbox()
         } details: {
-            EmptyView()
+            TrademarkNotice(alignment: .center)
         }
     }
 }
@@ -191,6 +191,8 @@ private struct ShareSheetPage: View {
                 Text("You can also paste a link with \(Image(systemName: "plus")) in Links, or use **Send Link** in Shortcuts or on the Action button.")
                     .font(.footnote)
                     .foregroundStyle(.secondary)
+                TrademarkNotice()
+                    .padding(.top, 4)
             }
         }
     }

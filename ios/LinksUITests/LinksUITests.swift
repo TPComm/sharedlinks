@@ -398,10 +398,23 @@ final class LinksUITests: XCTestCase {
         app.buttons["account"].tap()
         XCTAssert(app.descendants(matching: .any)["Privacy Policy"].waitForExistence(timeout: 5),
                   "no Privacy Policy in the account menu")
-        app.buttons["Sign Out"].tap()
+        app.buttons["About Links"].tap()
+        let about = app.alerts.firstMatch
+        XCTAssert(about.waitForExistence(timeout: 5), "About Links didn't open")
+        XCTAssert(about.label.hasPrefix("Links "), "the About title has no version: \(about.label)")
+        let fullNotice = about.staticTexts.containing(NSPredicate(format: "label CONTAINS %@",
+                                                                  "Facebook is a trademark of Meta Platforms, Inc."))
+        XCTAssert(fullNotice.firstMatch.exists, "About Links doesn't list every platform's owner")
+        about.buttons["OK"].tap()
+        XCTAssert(about.waitForNonExistence(timeout: 5))
+        app.buttons["account"].tap()
+        let signOut = app.buttons["Sign Out"]
+        XCTAssert(signOut.waitForExistence(timeout: 5))
+        signOut.tap()
         let signIn = app.buttons["signIn"]
         XCTAssert(signIn.waitForExistence(timeout: 10))
         XCTAssert(app.descendants(matching: .any)["signIn.privacy"].exists, "no Privacy Policy on the sign-in screen")
+        XCTAssert(app.descendants(matching: .any)["trademarkNotice"].exists, "no trademark notice on the sign-in screen")
         XCTAssertFalse(app.tabBars.firstMatch.exists)
         XCTAssertEqual(app.buttons["Create Account"].frame.width, signIn.frame.width, accuracy: 1,
                        "the sign-in buttons differ in width")
