@@ -183,9 +183,11 @@ All endpoints except sign-in need `Authorization: Bearer <session token>`.
 | DELETE | `/api/blocks/:user_id` | unblock (URL-encode the id) → `{blocked}` |
 | GET | `/support` | public page with the support address (`SUPPORT_EMAIL`, default `support@tpcomm.co`), for the App Store Support URL |
 | GET | `/thumbs/:id` | the cached thumbnail |
+| GET | `/version` | public: `{commit}`, the git commit the server was built from (`dev` unless built by `deploy/deploy.sh`) |
 
 Admin: `links-server mint-session <email> [name]`, `links-server delete-user <email>` (what the app's Delete Account does),
-`links-server reports`, `links-server reports resolve <id> [--remove]` and `links-server backup [dir]`.
+`links-server reports`, `links-server reports resolve <id> [--remove]`, `links-server backup [dir]` and
+`links-server version` (the commit it was built from).
 
 The app icon is `assets/icon/SharedLinks.icon`, a layered Icon Composer document the Xcode project uses
 directly; open it in Icon Composer to edit. `assets/icon/README.md` has previews and the alternate design.

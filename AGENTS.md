@@ -57,7 +57,8 @@ bun run build:x64 && LINKS_BINARY=dist/links-server-linux-x64 bun run test:e2e
 
 Paths below are under `server/`:
 
-- `src/main.ts`: entry point and the admin CLI (`mint-session`, `delete-user`, `reports`, `backup`)
+- `src/main.ts`: entry point and the admin CLI (`mint-session`, `delete-user`, `reports`, `backup`,
+  `version`)
 - `src/app.ts`: routes; auth is checked per route, and anything unmatched is the public 404
 - `src/config.ts`: every environment variable, with its default
 - `src/db.ts`: schema and migrations
@@ -122,6 +123,6 @@ browsers can't pass; leave that test to a person.
 
 ## Production
 
-links.tpcomm.co runs the server. To tell which build it runs without signing in, request a route:
-one the build has answers 401 without a token, one it lacks falls through to 404 (for example
-`curl -X DELETE https://links.tpcomm.co/api/me`). Only `deploy/deploy.sh` ships to it.
+links.tpcomm.co runs the server. `curl https://links.tpcomm.co/version` says which commit it was
+built from, no sign-in needed (`deploy/deploy.sh` compiles it in; a local build says `dev`). Only
+`deploy/deploy.sh` ships to it, and only from a clean `main` that matches `origin/main`.
