@@ -6,19 +6,20 @@ import Testing
 enum Endpoint: String, CaseIterable, Sendable {
     case exchange, signOut, me, rename, claim, deleteAccount, state, add, seen, unseen, react, unreact, note, delete, thumbnail
     case reportLink, reportPerson, block, unblock
+    case exchangeWithInvite, invites, createInvite, createEmailInvite, revokeInvite
 
     var method: String {
         switch self {
-        case .me, .state, .thumbnail: "GET"
+        case .me, .state, .thumbnail, .invites: "GET"
         case .rename, .note: "PATCH"
-        case .delete, .deleteAccount, .unblock: "DELETE"
+        case .delete, .deleteAccount, .unblock, .revokeInvite: "DELETE"
         default: "POST"
         }
     }
 
     var path: String {
         switch self {
-        case .exchange: "/api/auth/token"
+        case .exchange, .exchangeWithInvite: "/api/auth/token"
         case .signOut: "/api/auth/logout"
         case .me, .rename, .deleteAccount: "/api/me"
         case .claim: "/api/me/claim"
@@ -31,6 +32,8 @@ enum Endpoint: String, CaseIterable, Sendable {
         case .reportLink, .reportPerson: "/api/reports"
         case .block: "/api/blocks"
         case .unblock: "/api/blocks/user_01SAM"
+        case .invites, .createInvite, .createEmailInvite: "/api/invites"
+        case .revokeInvite: "/api/invites/3"
         }
     }
 
@@ -38,6 +41,9 @@ enum Endpoint: String, CaseIterable, Sendable {
     var body: String? {
         switch self {
         case .exchange: #"{"code":"code_abc","code_verifier":"ver_xyz"}"#
+        case .exchangeWithInvite: #"{"code":"code_abc","code_verifier":"ver_xyz","invite":"inv_tok"}"#
+        case .createInvite: #"{}"#
+        case .createEmailInvite: #"{"email":"pal@x.com"}"#
         case .rename: #"{"name":"Sam L"}"#
         case .claim: #"{"id":"legacy:Jo"}"#
         case .add: #"{"note":"for you","url":"lol https://vm.tiktok.com/ZMabc/"}"#
@@ -49,13 +55,16 @@ enum Endpoint: String, CaseIterable, Sendable {
         case .reportLink: #"{"link_id":7,"reason":"offensive"}"#
         case .reportPerson: #"{"reason":"harassment","user_id":"user_01SAM"}"#
         case .block: #"{"user_id":"user_01SAM"}"#
-        case .signOut, .me, .deleteAccount, .state, .delete, .thumbnail, .unblock: nil
+        case .signOut, .me, .deleteAccount, .state, .delete, .thumbnail, .unblock, .invites, .revokeInvite: nil
         }
     }
 
     var reply: Reply {
         switch self {
-        case .exchange: .json(#"{"token": "tok_new", "user": \#(Fixture.sam), "claimable": []}"#)
+        case .exchange, .exchangeWithInvite: .json(#"{"token": "tok_new", "user": \#(Fixture.sam), "claimable": []}"#)
+        case .invites, .revokeInvite: .json(#"{"invites": [{"id": 3, "email": null, "created_at": 1700000000, "expires_at": 1700604800}]}"#)
+        case .createInvite, .createEmailInvite:
+            .json(#"{"invite": {"id": 4, "email": "pal@x.com", "created_at": 1700000000, "expires_at": 1700604800, "url": "https://links.test/invite/abc"}}"#, status: 201)
         case .signOut, .delete, .deleteAccount: .json(#"{"ok": true}"#)
         case .me, .rename, .claim: .json(Fixture.me)
         case .state: .json(#"{"me": "user_01SAM", "users": [\#(Fixture.sam)], "links": [\#(Fixture.link())]}"#)
@@ -90,6 +99,15 @@ enum Endpoint: String, CaseIterable, Sendable {
         case .reportPerson: try await client.report(person: "user_01SAM", reason: .harassment)
         case .block: #expect(try await client.block("user_01SAM") == ["user_01SAM"])
         case .unblock: #expect(try await client.unblock("user_01SAM") == [])
+        case .exchangeWithInvite: _ = try await client.exchange(code: "code_abc", verifier: "ver_xyz", invite: "inv_tok")
+        case .invites:
+            let invites = try await client.invites()
+            #expect(invites.map(\.id) == [3])
+            #expect(invites.first?.expiresAt == Date(timeIntervalSince1970: 1_700_604_800))
+            #expect(invites.first?.url == nil)
+        case .createInvite: #expect(try await client.createInvite().url == URL(string: "https://links.test/invite/abc"))
+        case .createEmailInvite: #expect(try await client.createInvite(email: "pal@x.com").email == "pal@x.com")
+        case .revokeInvite: #expect(try await client.revokeInvite(3).map(\.id) == [3])
         }
     }
 }

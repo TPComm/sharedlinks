@@ -2,8 +2,7 @@
 # One-time setup of a fresh Debian 12/13 or Ubuntu 22.04/24.04 VPS for Links, then a first deploy.
 #
 #   read -rs 'WORKOS_API_KEY?WorkOS API key (Enter to skip): ' && export WORKOS_API_KEY   # zsh
-#   WORKOS_CLIENT_ID=client_... ALLOWED_EMAILS=you@x.com,friend@y.com \
-#     deploy/setup.sh root@203.0.113.7 links.example.com
+#   WORKOS_CLIENT_ID=client_... deploy/setup.sh root@203.0.113.7 links.example.com
 #
 # Push notifications (see the README): add APNS_TEAM_ID, APNS_TOPIC, APNS_KEY_ID and the .p8 key, as
 # APNS_KEY_FILE (a local path) or APNS_KEY_P8 (its contents, e.g. from a secret). The key goes over
@@ -44,10 +43,10 @@ elif [[ -n "${APNS_KEY_FILE:-}" ]]; then
 fi
 
 # Only the settings you pass are sent; the VPS merges them into /etc/links/links.env, so re-running
-# with just WORKOS_API_KEY=... keeps your ALLOWED_EMAILS.
+# with just WORKOS_API_KEY=... keeps your WORKOS_CLIENT_ID.
 {
   echo "PUBLIC_URL=https://$DOMAIN"
-  for key in WORKOS_CLIENT_ID WORKOS_API_KEY ALLOWED_EMAILS SUPPORT_EMAIL APPLE_APP_IDS APP_STORE_ID \
+  for key in WORKOS_CLIENT_ID WORKOS_API_KEY SUPPORT_EMAIL APPLE_APP_IDS APP_STORE_ID \
              APNS_TEAM_ID APNS_TOPIC APNS_KEY_ID; do
     # An if, not &&: a trailing failed test would fail the pipeline and stop the script.
     if [[ -n "${!key:-}" ]]; then echo "$key=${!key}"; fi

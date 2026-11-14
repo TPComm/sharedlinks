@@ -15,8 +15,11 @@ export interface Config {
   /** Optional: with PKCE the code exchange works without it. */
   workosApiKey: string;
   workosApi: string;
-  /** Emails (or "@domain.com") allowed to sign in. Empty = anyone your AuthKit lets in. */
-  allowedEmails: string[];
+  /**
+   * The old ALLOWED_EMAILS guest list (emails or "@domain.com"). Only the v7 migration reads it, to
+   * decide who of those already signed up stays in; invites are the only way in now.
+   */
+  legacyAllowedEmails: string[];
   /** Let preview fetches reach private/loopback addresses. Only for tests. */
   allowPrivateNetwork: boolean;
   /** Log one line per request. */
@@ -56,7 +59,7 @@ export function configFromEnv(env: Record<string, string | undefined> = process.
     workosClientId: env.WORKOS_CLIENT_ID ?? "",
     workosApiKey: env.WORKOS_API_KEY ?? "",
     workosApi: (env.WORKOS_API ?? "https://api.workos.com").replace(/\/+$/, ""),
-    allowedEmails: (env.ALLOWED_EMAILS ?? "")
+    legacyAllowedEmails: (env.ALLOWED_EMAILS ?? "")
       .split(",")
       .map((e) => e.trim().toLowerCase())
       .filter(Boolean),

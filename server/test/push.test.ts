@@ -67,7 +67,6 @@ let app: ReturnType<typeof startServer>["app"];
 let stop: () => void;
 let publicKey: CryptoKey;
 let apnsServers: http2.Http2Server[] = [];
-const allowedEmails = ["@team.test", "gone@other.test"];
 
 async function call(path: string, opts: { method?: string; token?: string; body?: unknown } = {}) {
   const res = await fetch(api + path, {
@@ -98,12 +97,13 @@ beforeAll(async () => {
     ...configFromEnv({ APNS_TEAM_ID: "TEAM123456", APNS_TOPIC: "com.tpcomm.links", APNS_KEY_ID: "KEY1234567", APNS_KEY_FILE: keyFile,
                        APNS_HOST: prod.url, APNS_SANDBOX_HOST: sandbox.url }),
     port: 0, hostname: "127.0.0.1", dataDir, workosClientId: "client_TEST", workosApi: fakeWorkOS.url.origin,
-    allowedEmails, allowPrivateNetwork: true, logRequests: false, previewBackfillMs: 0,
+    allowPrivateNetwork: true, logRequests: false, previewBackfillMs: 0,
   };
   const started = startServer(config, { badgeDelayMs: 50, retryDelayMs: 10, previewWaitMs: 1000 });
   app = started.app;
   api = started.server.url.origin;
   stop = () => { app.push.close(); started.server.stop(true); };
+  for (const u of Object.values(users) as { email: string }[]) app.accounts.createInvite(null, u.email);
   [sam, alex, kim, gone] = await Promise.all(["sam", "alex", "kim", "gone"].map(signIn)) as [string, string, string, string];
   const kimOld = await signIn("kim");
   for (const [t, d] of [[sam, SAM], [alex, ALEX], [kim, KIM], [gone, GONE], [kimOld, KIM_OLD]] as const) {
@@ -111,8 +111,8 @@ beforeAll(async () => {
   }
   // Kim's older session hasn't been used for longer than SESSION_DAYS.
   app.db.run("UPDATE sessions SET last_used = 0 WHERE token_hash = ?", [app.accounts.sessionHash(kimOld)]);
-  // Gone was taken off the guest list after signing in.
-  allowedEmails.pop();
+  // Gone was let out after signing in.
+  app.db.run("UPDATE users SET member = 0 WHERE id = 'user_01GONE'");
 });
 
 afterAll(() => {
@@ -153,7 +153,7 @@ describe("pushes", () => {
   test("a new link alerts everyone else, with its title once the preview is in", async () => {
     const { data } = await call("/api/links", { token: sam, body: { url: `${fakeOrigin.url.origin}/video?n=1`, note: "look!" } });
     await settle();
-    // Not Sam (the sender), not Kim's expired session, not Gone (off the guest list).
+    // Not Sam (the sender), not Kim's expired session, not Gone (no longer a member).
     expect(sent.map((s) => s.token).sort()).toEqual([ALEX, KIM]);
     for (const s of sent) {
       expect(s.headers["apns-push-type"]).toBe("alert");

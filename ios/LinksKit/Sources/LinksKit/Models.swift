@@ -366,6 +366,23 @@ public struct MeResponse: Codable, Sendable {
     public var claimable: [LinkUser]
 }
 
+/// An invite I sent that nobody has used yet (GET /api/invites).
+public struct Invite: Codable, Sendable, Hashable, Identifiable {
+    public let id: Int
+    /// Who it's for, if I said: that verified address gets in even without the link.
+    public var email: String?
+    public var createdAt: Date
+    public var expiresAt: Date
+    /// Only in the reply that made it: the server keeps just a hash of the token.
+    public var url: URL?
+
+    enum CodingKeys: String, CodingKey {
+        case id, email, url
+        case createdAt = "created_at"
+        case expiresAt = "expires_at"
+    }
+}
+
 public struct SignInResult: Codable, Sendable {
     public var token: String
     public var user: LinkUser

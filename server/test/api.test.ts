@@ -41,6 +41,12 @@ const fakeWorkOS = Bun.serve({
           unverified: { id: "user_01UNVERIFIED", email: "friend2@team.test", email_verified: false },
           rude: { id: "user_01RUDE", email: "rude.person@team.test", email_verified: true, first_name: "Zonk" },
           blocker: { id: "user_01BLOCKER", email: "blocker@team.test", email_verified: true, first_name: "Bea" },
+          // No invite yet: they get in with one from someone who's in.
+          nova: { id: "user_01NOVA", email: "nova@else.test", email_verified: true, first_name: "Nova" },
+          sol: { id: "user_01SOL", email: "Sol@Else.test", email_verified: true, first_name: "Sol" },
+          kit: { id: "user_01KIT", email: "kit@else.test", email_verified: true, first_name: "Kit" },
+          pip: { id: "user_01PIP", email: "pip@else.test", email_verified: true, first_name: "Pip" },
+          unverifiedGuest: { id: "user_01UNVGUEST", email: "unv@else.test", email_verified: false },
         };
         const user = users[body.code];
         if (!user) return Response.json({ error: "invalid_grant", error_description: "Invalid authorization code." }, { status: 400 });
@@ -95,7 +101,6 @@ beforeAll(() => {
     publicUrl: "https://links.example.com",
     workosClientId: "client_TEST",
     workosApi: fakeWorkOS.url.origin,
-    allowedEmails: ["friend@example.com", "@team.test"],
     allowPrivateNetwork: true,
     logRequests: false,
     previewBackfillMs: 0,
@@ -103,6 +108,10 @@ beforeAll(() => {
   };
   baseConfig = config;
   const { app, server } = startServer(config);
+  // Invites are the only way in: these people were sent one (by the admin, `links-server invite`).
+  for (const email of ["friend@example.com", "jane.doe@team.test", "rude.person@team.test", "blocker@team.test", "friend2@team.test"]) {
+    app.accounts.createInvite(null, email);
+  }
   api = server.url.origin;
   origin = fakeOrigin.url.origin;
   idle = app.idle;
@@ -132,8 +141,8 @@ async function call(path: string, opts: { method?: string; token?: string; body?
   return { status: res.status, data, headers: res.headers };
 }
 
-const signIn = (code: string, verifier = VERIFIER) =>
-  call("/api/auth/token", { body: { code, code_verifier: verifier } });
+const signIn = (code: string, verifier = VERIFIER, invite?: string) =>
+  call("/api/auth/token", { body: { code, code_verifier: verifier, ...(invite ? { invite } : {}) } });
 
 describe("auth", () => {
   test("everything but sign-in needs a session", async () => {
@@ -164,8 +173,10 @@ describe("auth", () => {
     expect(res.headers.get("location")).toBe("sharedlinks://auth/callback?code=abc&state=xyz");
   });
 
-  test("code exchange: guest list, verification, PKCE", async () => {
-    expect((await signIn("stranger")).status).toBe(403);
+  test("code exchange: invite-only, verification, PKCE", async () => {
+    const stranger = await signIn("stranger");
+    expect(stranger.status).toBe(403);
+    expect(stranger.data.token).toBeUndefined();
     expect((await signIn("unverified")).data.error).toContain("Verify");
     const bad = await signIn("good", "w".repeat(43));
     expect(bad.status).toBe(400); // not 401, which the app would read as "signed out"
@@ -184,6 +195,121 @@ describe("auth", () => {
   });
 });
 
+describe("invites", () => {
+  const tokenOf = (url: string) => url.split("/invite/")[1]!;
+  let me: string;
+  let novaToken = "";
+  const nova = () => novaToken;
+  beforeAll(async () => { me = (await signIn("good")).data.token; });
+
+  test("make one, share its page, use it once", async () => {
+    expect((await call("/api/invites", { body: {} })).status).toBe(401);
+    const made = await call("/api/invites", { token: me, body: {} });
+    expect(made.status).toBe(201);
+    expect(made.data.invite.url).toMatch(/^https:\/\/links\.example\.com\/invite\/[A-Za-z0-9_-]{43}$/);
+    expect(made.data.invite.email).toBeNull();
+    const token = tokenOf(made.data.invite.url);
+    expect(made.data.invite.expires_at - made.data.invite.created_at).toBe(7 * 86400);
+
+    const listed = await call("/api/invites", { token: me });
+    expect(listed.data.invites.map((i: any) => i.id)).toContain(made.data.invite.id);
+    expect(JSON.stringify(listed.data)).not.toContain(token);
+
+    // Link previews and page loads don't use it up.
+    for (let i = 0; i < 2; i++) {
+      const page = await call(`/invite/${token}`);
+      expect(page.status).toBe(200);
+      expect(page.headers.get("content-type")).toContain("text/html");
+      expect(page.data).toContain('<meta property="og:title" content="Riley invited you to Links">');
+      expect(page.data).toContain(`href="sharedlinks://invite/${token}"`);
+      expect(page.data).not.toContain("apple-itunes-app"); // no App Store ID set
+    }
+    expect((await call("/icon.png")).headers.get("content-type")).toBe("image/png");
+
+    expect((await signIn("nova")).data.error).toBe("Links is invite-only. Ask a friend who uses it to invite you, then tap their invite link.");
+    const nova = await signIn("nova", VERIFIER, token);
+    expect(nova.status).toBe(200);
+    novaToken = nova.data.token;
+    // A member now: in, and still in on the next sign-in without a link.
+    expect((await call("/api/state", { token: nova.data.token })).status).toBe(200);
+    expect((await signIn("nova")).status).toBe(200);
+    const state = await call("/api/state", { token: me });
+    expect(state.data.users.map((u: any) => u.name)).toContain("Nova");
+
+    // Single use.
+    expect((await signIn("kit", VERIFIER, token)).status).toBe(403);
+    expect((await call(`/invite/${token}`)).status).toBe(404);
+    expect((await call(`/invite/${token}`)).data).toContain("doesn&#39;t work anymore");
+    expect((await call("/api/invites", { token: me })).data.invites.map((i: any) => i.id)).not.toContain(made.data.invite.id);
+    expect((await call("/invite/not-a-token")).status).toBe(404);
+  });
+
+  test("an invite to an email lets that verified email in without the link", async () => {
+    expect((await call("/api/invites", { token: me, body: { email: "nope" } })).status).toBe(400);
+    const made = await call("/api/invites", { token: me, body: { email: " sol@else.TEST " } });
+    expect(made.data.invite.email).toBe("sol@else.test");
+    // Someone else holding the link can't use an invite meant for Sol.
+    expect((await signIn("kit", VERIFIER, tokenOf(made.data.invite.url))).status).toBe(403);
+    const sol = await signIn("sol");
+    expect(sol.status).toBe(200);
+    expect((await call("/api/state", { token: sol.data.token })).status).toBe(200);
+
+    await call("/api/invites", { token: me, body: { email: "unv@else.test" } });
+    expect((await signIn("unverifiedGuest")).status).toBe(403);
+  });
+
+  test("someone who isn't a member can't read or write anything, even with a session", async () => {
+    const db = new Database(join(dataDir, "links.db"));
+    db.run("INSERT INTO users (id, email, name, created_at) VALUES ('user_01OUTSIDER', 'out@else.test', 'Outsider', 1)");
+    const outsider = "o".repeat(43);
+    db.run("INSERT INTO sessions VALUES (?, 'user_01OUTSIDER', ?, ?)",
+      [new Bun.CryptoHasher("sha256").update(outsider).digest("hex"), Date.now() / 1000, Date.now() / 1000]);
+    const linkId = (db.query("SELECT id FROM links ORDER BY id LIMIT 1").get() as { id: number }).id;
+    db.close();
+    for (const [method, path, body] of [
+      ["GET", "/api/state"], ["GET", "/api/me"], ["GET", "/api/invites"], ["POST", "/api/invites", {}],
+      ["POST", "/api/links", { url: `${origin}/plain?n=outsider` }], ["POST", `/api/links/${linkId}/seen`, { seen: true }],
+      ["GET", `/thumbs/${linkId}`], ["POST", "/api/blocks", { user_id: "user_01FRIEND" }], ["POST", "/api/reports", { link_id: linkId, reason: "spam" }],
+    ] as [string, string, object?][]) {
+      expect((await call(path, { method, token: outsider, body })).status, `${method} ${path}`).toBe(401);
+    }
+  });
+
+  test("an admin's invite (links-server invite) has a page with no inviter, and lets its holder in", async () => {
+    const db = new Database(join(dataDir, "links.db"));
+    const token = "a".repeat(43);
+    db.run("INSERT INTO invites (token_hash, invited_by, created_at, expires_at) VALUES (?, NULL, ?, ?)",
+      [new Bun.CryptoHasher("sha256").update(token).digest("hex"), Date.now() / 1000, Date.now() / 1000 + 86400]);
+    db.close();
+    const page = await call(`/invite/${token}`);
+    expect(page.status).toBe(200);
+    expect(page.data).toContain("<title>You&#39;re invited to Links</title>");
+    expect(page.data).toContain("If the invite was sent to your email address");
+    expect((await signIn("pip", VERIFIER, token)).status).toBe(200);
+  });
+
+  test("revoked and expired invites stop working", async () => {
+    const made = await call("/api/invites", { token: me, body: {} });
+    const { id } = made.data.invite;
+    expect((await call(`/api/invites/${id}`, { method: "DELETE", token: nova() })).status).toBe(404); // not theirs
+    const revoked = await call(`/api/invites/${id}`, { method: "DELETE", token: me });
+    expect(revoked.status).toBe(200);
+    expect(revoked.data.invites.map((i: any) => i.id)).not.toContain(id);
+    expect((await call(`/api/invites/${id}`, { method: "DELETE", token: me })).status).toBe(404);
+    expect((await call(`/invite/${tokenOf(made.data.invite.url)}`)).status).toBe(404);
+    expect((await signIn("kit", VERIFIER, tokenOf(made.data.invite.url))).status).toBe(403);
+
+    const old = await call("/api/invites", { token: me, body: {} });
+    const db = new Database(join(dataDir, "links.db"));
+    db.run("UPDATE invites SET expires_at = ? WHERE id = ?", [Date.now() / 1000 - 1, old.data.invite.id]);
+    db.close();
+    expect((await call(`/invite/${tokenOf(old.data.invite.url)}`)).status).toBe(404);
+    expect((await signIn("kit", VERIFIER, tokenOf(old.data.invite.url))).status).toBe(403);
+    expect((await call("/api/invites", { token: me })).data.invites.map((i: any) => i.id)).not.toContain(old.data.invite.id);
+  });
+
+});
+
 describe("links", () => {
   let token: string;
   let friendId: string;
@@ -197,7 +323,7 @@ describe("links", () => {
     const db = new Database(join(dataDir, "links.db"), { readonly: true });
     const { sql } = db.query("SELECT sql FROM sqlite_master WHERE name = 'links'").get() as { sql: string };
     expect(sql).toContain("AUTOINCREMENT");
-    expect((db.query("PRAGMA user_version").get() as any).user_version).toBe(6);
+    expect((db.query("PRAGMA user_version").get() as any).user_version).toBe(7);
     db.close();
     const { data } = await call("/api/state", { token });
     expect(data.links.map((l: any) => l.url)).toContain("https://de.wikipedia.org/wiki/M%C3%BCnchen");
@@ -554,7 +680,7 @@ describe("universal links", () => {
     }
   });
 
-  test.each(["/l/x", "/invite/x", "/g/x", "/l/AbC-_09", `/invite/${"a".repeat(64)}`])("%p is a placeholder page", async (path) => {
+  test.each(["/l/x", "/g/x", "/l/AbC-_09", `/g/${"a".repeat(64)}`])("%p is a placeholder page", async (path) => {
     const res = await call(path);
     expect(res.status).toBe(200);
     expect(res.headers.get("content-type")).toContain("text/html");
@@ -577,8 +703,8 @@ describe("universal links", () => {
     const dir = mkdtempSync(join(tmpdir(), "links-banner-"));
     const { server } = startServer({ ...baseConfig, appStoreId: "6700000000", dataDir: dir });
     try {
-      const html = await (await fetch(server.url.origin + "/invite/tok_1")).text();
-      expect(html).toContain('<meta name="apple-itunes-app" content="app-id=6700000000, app-argument=https://links.example.com/invite/tok_1">');
+      const html = await (await fetch(server.url.origin + "/l/tok_1")).text();
+      expect(html).toContain('<meta name="apple-itunes-app" content="app-id=6700000000, app-argument=https://links.example.com/l/tok_1">');
       expect(html).toContain("https://apps.apple.com/app/id6700000000");
     } finally {
       server.stop(true);
@@ -640,8 +766,10 @@ describe("deleting an account", () => {
     expect(Object.keys(theirs.seen)).toEqual([friendId]);
     expect(theirs.reactions).toEqual({ [friendId]: "❤️" });
 
-    // Still on the guest list, so she can sign up again (same WorkOS id, same email), but as a new,
-    // empty account: her old links don't come back.
+    // Deleting ends her membership: back in only with a new invite (same WorkOS id, same email), as
+    // a new, empty account. Her old links don't come back.
+    expect((await signIn("domain")).status).toBe(403);
+    await call("/api/invites", { token: friendToken, body: { email: "jane.doe@team.test" } });
     const again = await signIn("domain");
     expect(again.status).toBe(200);
     expect(again.data.user).toMatchObject({ id: janeId, name: "Jane Doe", email: "jane.doe@team.test" });

@@ -61,6 +61,13 @@ struct DeepLinkTests {
         #expect(LinksConfig.associatedDomain == nil)   // the test bundle's Info.plist has none
     }
 
+    @Test func invitesFromTheInvitePage() throws {
+        let token = "AbC-_0123456789abcdefghijklmnopqrstuvwxyzAB"
+        #expect(DeepLink(url: try #require(URL(string: "sharedlinks://invite/\(token)"))) == .invite(token: token))
+        #expect(DeepLink(url: try #require(URL(string: "sharedlinks:///invite/\(token)"))) == .invite(token: token))
+        #expect(DeepLink(url: try #require(URL(string: "sharedlinks://invite"))) == nil)
+    }
+
     @Test(arguments: [
         ("sharedlinks://open/42", DeepLink.open(linkID: 42)),
         ("sharedlinks:///open/42", .open(linkID: 42)),      // no host, all path

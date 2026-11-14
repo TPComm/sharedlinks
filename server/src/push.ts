@@ -164,14 +164,14 @@ export class Pusher {
     ).get(person) as { n: number }).n;
   }
 
-  /** Devices of live sessions (used within SESSION_DAYS) whose owner is still on the guest list. */
+  /** Devices of live sessions (used within SESSION_DAYS) whose owner is still a member. */
   devices(person: string): Device[] {
     const rows = this.db.query(
-      `SELECT d.token, d.env, d.updated_at, d.user_id, s.last_used, u.email FROM device_tokens d
+      `SELECT d.token, d.env, d.updated_at, d.user_id, s.last_used FROM device_tokens d
          JOIN sessions s ON s.token_hash = d.session_hash JOIN users u ON u.id = d.user_id
-         WHERE d.user_id = ? AND d.kind = 'app'`,
-    ).all(person) as (Device & { last_used: number; email: string | null })[];
-    return rows.filter((r) => this.accounts.isLive(r.last_used, r.email))
+         WHERE d.user_id = ? AND d.kind = 'app' AND u.member = 1`,
+    ).all(person) as (Device & { last_used: number })[];
+    return rows.filter((r) => this.accounts.isLive(r.last_used))
       .map(({ token, env, updated_at, user_id }) => ({ token, env, updated_at, user_id }));
   }
 
