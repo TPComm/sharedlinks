@@ -24,12 +24,16 @@ struct LinksApp: App {
 struct RootView: View {
     @Environment(AppModel.self) private var model
     @Environment(\.scenePhase) private var scenePhase
-    @Environment(\.openURL) private var openURL
+    /// The tab and link pages showing, which the system keeps for this window: if iOS ends the
+    /// app while TikTok is in front, coming back still lands on the link's page.
+    @SceneStorage("navigation") private var savedNavigation: Data?
+    @State private var restoredNavigation = false
 
     var body: some View {
         Group {
             if model.isSignedIn {
                 InboxView()
+                    .onAppear(perform: restoreNavigation)
                     .task(id: scenePhase) {
                         guard scenePhase == .active else { return }
                         model.requestBadgePermission()
@@ -40,7 +44,10 @@ struct RootView: View {
                 SignInView()
             }
         }
-        .onOpenURL { model.handle($0, openURL: openURL) }
+        .onOpenURL { model.handle($0) }
+        .onChange(of: model.navigation) { _, navigation in
+            savedNavigation = try? JSONEncoder().encode(navigation)
+        }
         .alert("Couldn't Do That", isPresented: Binding(
             get: { model.errorMessage != nil },
             set: { if !$0 { model.errorMessage = nil } })
@@ -50,6 +57,20 @@ struct RootView: View {
             Text(model.errorMessage ?? "")
         }
         .overlay(alignment: .bottom) { ToastView() }
+    }
+
+    private func restoreNavigation() {
+        guard !restoredNavigation else { return }
+        restoredNavigation = true
+        #if DEBUG
+        // Each UI test starts on the inbox, whatever an earlier test left showing. (XCUITest can't
+        // stand in for iOS ending the app: apps it launches are never suspended, which is when the
+        // system keeps a window's state. Checked by hand: background, `simctl terminate`, relaunch.)
+        if ProcessInfo.processInfo.environment["LINKS_UI_TESTS"] == "1" { return }
+        #endif
+        guard let data = savedNavigation,
+              let saved = try? JSONDecoder().decode(AppModel.Navigation.self, from: data) else { return }
+        model.restore(saved)
     }
 }
 

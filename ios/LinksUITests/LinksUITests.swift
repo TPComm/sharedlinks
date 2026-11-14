@@ -35,13 +35,21 @@ final class LinksUITests: XCTestCase {
         XCTAssert(row.label.contains("Not watched"), row.label)
     }
 
-    func testOpeningALinkMarksItWatched() throws {
+    func testLongPressOpenStillMarksItWatched() throws {
         let link = try seed(by: server.friend)
         launch()
         let row = waitForRow(link, in: "toWatch")
-        row.tap() // hands the link to Safari, which takes over the screen
+        // The fast path: straight out to the link (Safari, for these .invalid URLs), marking it watched.
         let me = try server.state(as: server.me).me
-        try server.eventually("seen by me") { try server.state(as: server.friend).link(link.id)?.seen[me] }
+        menu(on: row, item: "Open in Browser").tap()
+        try server.eventually(timeout: 20, "seen by me") { try server.state(as: server.friend).link(link.id)?.seen[me] }
+        XCTAssert(safari.wait(for: .runningForeground, timeout: safariLaunch), "the link didn't open")
+
+        // Back in the app it has left To Watch, and Watched has it (not an empty list: #7).
+        app.activate()
+        XCTAssert(row.waitForNonExistence(timeout: 10), "still in To Watch")
+        app.tabBars.buttons["Watched"].tap()
+        XCTAssert(self.row(link, in: "watched").waitForExistence(timeout: 5), "not in Watched")
     }
 
     func testMarkingWatchedMovesItToWatchedAndTellsTheServer() throws {
@@ -91,12 +99,103 @@ final class LinksUITests: XCTestCase {
         XCTAssert(row(other, in: "all").waitForNonExistence(timeout: 5), "a link that doesn't match")
     }
 
+    func testWidgetLinkOpensTheLinksPage() throws {
+        let link = try seed(by: server.friend)
+        launch()
+        waitForRow(link, in: "toWatch")
+        app.tabBars.buttons["Sent"].tap() // the page opens on the tab whose list has the link
+        app.open(URL(string: "sharedlinks://open/\(link.id)")!)
+        XCTAssert(page(link).waitForExistence(timeout: 10), "no page for the link")
+        XCTAssert(app.tabBars.buttons["To Watch"].isSelected)
+        // It stays in the app, and doesn't count as watched.
+        XCTAssertEqual(app.state, .runningForeground)
+        let me = try server.state(as: server.me).me
+        XCTAssertNil(try server.state(as: server.friend).link(link.id)?.seen[me], "the widget marked it watched")
+    }
+
     func testWidgetDeepLinkOpensTheNewLinkSheet() throws {
         launch()
         app.open(URL(string: "sharedlinks://add")!)
         XCTAssert(app.textFields["addLink.text"].waitForExistence(timeout: 10))
         XCTAssert(app.buttons["addLink.send"].exists)
         XCTAssertFalse(app.buttons["addLink.send"].isEnabled, "Send with nothing to send")
+    }
+
+    // MARK: Link pages
+
+    func testTappingALinkShowsItsPage() throws {
+        let note = "On the page \(shortID())"
+        let link = try seed(by: server.friend, note: note)
+        launch()
+        waitForRow(link, in: "toWatch").tap()
+        let page = page(link)
+        XCTAssert(page.waitForExistence(timeout: 5), "no page for the link")
+        XCTAssert(page.staticTexts[note].exists, "no note")
+        XCTAssert(page.staticTexts.matching(NSPredicate(format: "label BEGINSWITH %@", "From Friend")).firstMatch.exists,
+                  "no sender")
+        XCTAssertEqual(app.buttons["linkPage.watch"].label, "Open in Browser")
+        let me = try server.state(as: server.me).me
+        XCTAssertNil(try server.state(as: server.friend).link(link.id)?.seen[me], "showing the page marked it watched")
+
+        // React and mark it watched from the page, which stays. (Scrolled first: on an iPhone the
+        // reactions start just above the floating tab bar.)
+        page.swipeUp()
+        app.buttons["reaction.😂"].tap()
+        try server.eventually("my reaction") {
+            try server.state(as: server.friend).link(link.id)?.reactions[me] == "😂" ? true : nil
+        }
+        app.buttons["linkPage.markWatched"].tap()
+        try server.eventually("seen by me") { try server.state(as: server.friend).link(link.id)?.seen[me] }
+        XCTAssert(app.buttons["linkPage.markNotWatched"].waitForExistence(timeout: 5))
+        XCTAssert(page.exists, "marking it watched left the page")
+
+        // Back on the list, it has gone from To Watch.
+        app.navigationBars.buttons.element(boundBy: 0).tap()
+        XCTAssert(page.waitForNonExistence(timeout: 5), "still on the page")
+        XCTAssert(app.collectionViews["links.toWatch"].waitForExistence(timeout: 5))
+        XCTAssertFalse(row(link, in: "toWatch").exists, "still in To Watch")
+    }
+
+    /// The issue this page exists for (#7): watch it, come back, and you're on its page to react
+    /// and mark it watched, instead of on a list it has already left.
+    func testComingBackFromWatchingLandsOnTheLinksPage() throws {
+        let link = try seed(by: server.friend)
+        launch()
+        waitForRow(link, in: "toWatch").tap()
+        XCTAssert(page(link).waitForExistence(timeout: 5), "no page for the link")
+        XCTAssertFalse(app.staticTexts["Watched it?"].exists, "asked before watching")
+
+        app.buttons["linkPage.watch"].tap()
+        XCTAssert(safari.wait(for: .runningForeground, timeout: safariLaunch), "the link didn't open")
+        app.activate()
+        XCTAssert(page(link).waitForExistence(timeout: 10), "not on the link's page")
+        XCTAssert(app.staticTexts["Watched it?"].waitForExistence(timeout: 5), "no Watched it? prompt")
+        let me = try server.state(as: server.me).me
+        XCTAssertNil(try server.state(as: server.friend).link(link.id)?.seen[me], "opening it marked it watched")
+
+        app.buttons["linkPage.markWatched"].tap()
+        try server.eventually("seen by me") { try server.state(as: server.friend).link(link.id)?.seen[me] }
+        XCTAssert(app.staticTexts["Watched it?"].waitForNonExistence(timeout: 5), "still asking")
+    }
+
+    func testSentLinksPageShowsWhoHasSeenIt() throws {
+        let link = try seed(by: server.me)
+        launch()
+        app.tabBars.buttons["Sent"].tap()
+        waitForRow(link, in: "sent").tap()
+        let page = page(link)
+        XCTAssert(page.waitForExistence(timeout: 5), "no page for the link")
+        XCTAssert(page.staticTexts["Seen By"].exists)
+        XCTAssertFalse(app.buttons["linkPage.markWatched"].exists, "offered to mark my own link watched")
+
+        let receipt = page.descendants(matching: .any)
+            .matching(NSPredicate(format: "label BEGINSWITH %@", "Friend")).firstMatch
+        XCTAssert(receipt.waitForExistence(timeout: 5), "Friend isn't listed")
+        XCTAssert(receipt.label.contains("Not yet"), receipt.label)
+
+        try server.setSeen(link.id, true, as: server.friend)
+        // The page follows the inbox, which the app polls every few seconds.
+        waitFor(receipt, labelContaining: "now")
     }
 
     // MARK: Changes
@@ -194,9 +293,9 @@ final class LinksUITests: XCTestCase {
             try server.state(as: server.friend).link(link.id)?.reactions[me] == "❤️" ? true : nil
         }
         XCTAssertEqual(react.label, "Your reaction, ❤️")
-        // The react button sits on the row, but tapping it mustn't open (and so watch) the link.
-        XCTAssertEqual(app.state, .runningForeground)
-        XCTAssertNil(try server.state(as: server.friend).link(link.id)?.seen[me], "the link was opened")
+        // The react button sits on the row, but tapping it mustn't open the link's page.
+        XCTAssertFalse(page(link).exists, "the link's page opened")
+        XCTAssert(row.exists)
 
         // Picking the same one again takes it back.
         react.tap()
@@ -275,12 +374,14 @@ final class LinksUITests: XCTestCase {
 
     // MARK: Helpers
 
-    /// Launches signed in (DEBUG builds take a session token from LINKS_DEV_TOKEN).
+    /// Launches signed in (DEBUG builds take a session token from LINKS_DEV_TOKEN), on the inbox.
     private func launch(as token: String? = nil) {
         app.launchEnvironment = [
             "LINKS_SERVER_URL": server.url.absoluteString,
             "LINKS_DEV_TOKEN": token ?? server.me,
-            "LINKS_UI_TESTS": "1", // no badge-permission prompt (see AppModel.requestBadgePermission)
+            // No badge-permission prompt (AppModel.requestBadgePermission), and no pages restored
+            // from an earlier test (RootView.restoreNavigation).
+            "LINKS_UI_TESTS": "1",
         ]
         app.launch()
         XCTAssert(app.tabBars.buttons["To Watch"].waitForExistence(timeout: 20), "no inbox")
@@ -289,6 +390,16 @@ final class LinksUITests: XCTestCase {
     private func row(_ link: LinksServer.Link, in list: String) -> XCUIElement {
         app.collectionViews["links.\(list)"].buttons["link.\(link.id)"]
     }
+
+    private func page(_ link: LinksServer.Link) -> XCUIElement {
+        app.scrollViews["linkPage.\(link.id)"]
+    }
+
+    /// Where the links (all on .invalid hosts) open.
+    private var safari: XCUIApplication { XCUIApplication(bundleIdentifier: "com.apple.mobilesafari") }
+    /// Generous: on a busy CI runner the app's own idle wait after the tap can take 10 seconds
+    /// before Safari's launch even starts.
+    private let safariLaunch: TimeInterval = 30
 
     /// The row of a link the server already had at launch. If the launch fetch hasn't landed yet
     /// (a slow CI Simulator), pull to refresh once, as a person would, before failing.

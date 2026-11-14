@@ -45,6 +45,13 @@ struct InboxStateTests {
         }
     }
 
+    @Test func eachLinksHomeIsTheListThatHasIt() {
+        #expect(state.links.map(state.home(of:)) == [.toWatch, .watched, .sent, .toWatch, .watched])
+        for link in state.links {
+            #expect(state.links(for: state.home(of: link)).contains(link), "link \(link.id)")
+        }
+    }
+
     @Test func linkQuestions() throws {
         let mine = try #require(state.links.first { $0.id == 3 })
         let watched = try #require(state.links.first { $0.id == 4 })

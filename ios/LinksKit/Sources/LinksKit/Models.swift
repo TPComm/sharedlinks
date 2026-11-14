@@ -43,6 +43,15 @@ public enum Platform: String, Codable, Sendable, CaseIterable {
         }
     }
 
+    /// Whatever opens it: the platform's app, or the browser for the rest of the web.
+    public var opener: String { self == .web ? "Browser" : label }
+
+    /// Short-video platforms, which a link page offers to watch rather than open.
+    public var isVideo: Bool { [.tiktok, .instagram, .youtube].contains(self) }
+
+    /// The main button on a link's page: "Watch in TikTok", "Open in Browser".
+    public var openTitle: String { "\(isVideo ? "Watch" : "Open") in \(opener)" }
+
     /// Text glyph for placeholder thumbnails.
     public var glyph: String {
         switch self {
@@ -221,6 +230,11 @@ public extension InboxState {
     func isUnwatched(_ link: SharedLink) -> Bool { !isMine(link) && !isSeenByMe(link) }
 
     var toWatch: [SharedLink] { links.filter(isUnwatched) }
+
+    /// The one list of To Watch, Watched and Sent that has this link.
+    func home(of link: SharedLink) -> InboxFilter {
+        isMine(link) ? .sent : isSeenByMe(link) ? .watched : .toWatch
+    }
 
     /// Names of people (not me, not the sender) who have watched it, earliest first.
     func seenByOthers(_ link: SharedLink) -> [String] {

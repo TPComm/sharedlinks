@@ -15,6 +15,12 @@ final class AppModel {
     private(set) var isDeletingAccount = false
 
     var tab: InboxTab = .toWatch
+    /// Each tab's stack of link pages, by link id. Kept here, not in the views, so a widget can
+    /// open a page, and saved in SceneStorage (RootView) so coming back from TikTok lands on the
+    /// same page even if iOS ended the app meanwhile.
+    var paths: [InboxTab: [Int]] = [:]
+    /// The link last opened from its page: until it's marked, that page asks "Watched it?".
+    private(set) var watching: Int?
     var toast: String?
     var errorMessage: String?
     var showAddSheet = false
@@ -100,6 +106,8 @@ final class AppModel {
         account = nil
         inbox = .empty
         claimable = []
+        paths = [:]
+        watching = nil
         UNUserNotificationCenter.current().setBadgeCount(0)
         WidgetCenter.shared.reloadAllTimelines()
     }
@@ -270,6 +278,7 @@ final class AppModel {
     }
 
     func setSeen(_ link: SharedLink, _ seen: Bool) async {
+        if watching == link.id { watching = nil } // answered, either way
         let me = inbox.me
         var optimistic = link
         optimistic.seen[me] = seen ? .now : nil
@@ -327,7 +336,15 @@ final class AppModel {
         await perform { try await self.client.delete(link.id) }
     }
 
-    /// Open in TikTok/Instagram/YouTube (universal links), and count it as watched.
+    /// "Watch in TikTok" on a link's page: opens it (universal links) without marking it watched.
+    /// The page stays underneath, and asks "Watched it?" when the app comes back.
+    func watch(_ link: SharedLink, with openURL: OpenURLAction) {
+        if inbox.isUnwatched(link) { watching = link.id }
+        openURL(link.url)
+    }
+
+    /// The long-press menu's fast path: open it and count it as watched in one go, as tapping a
+    /// row did before links had pages.
     func open(_ link: SharedLink, with openURL: OpenURLAction) {
         if inbox.isUnwatched(link) {
             // Send the mark before leaving: once TikTok is in front, this app gets suspended.
@@ -342,16 +359,17 @@ final class AppModel {
         openURL(link.url)
     }
 
-    func handle(_ url: URL, openURL: OpenURLAction) {
+    func handle(_ url: URL) {
         switch DeepLink(url: url) {
         case .open(let id):
+            // The link's page, not TikTok straight away (see DeepLink.open).
             if let link = inbox.links.first(where: { $0.id == id }) {
-                open(link, with: openURL)
+                showPage(link)
             } else {
                 // From a widget that saw a newer inbox than this (backgrounded) app has.
                 Task {
                     await refresh()
-                    if let link = inbox.links.first(where: { $0.id == id }) { open(link, with: openURL) }
+                    if let link = inbox.links.first(where: { $0.id == id }) { showPage(link) }
                 }
             }
         case .add:
@@ -360,6 +378,39 @@ final class AppModel {
         case .inbox, nil:
             break
         }
+    }
+
+    // MARK: Navigation
+
+    /// A row's link page, on top of that row's list.
+    func showPage(_ link: SharedLink, on tab: InboxTab) {
+        paths[tab] = [link.id]
+    }
+
+    /// A link's page on the tab whose list has it, e.g. from a widget.
+    func showPage(_ link: SharedLink) {
+        let tab = InboxTab(inbox.home(of: link))
+        self.tab = tab
+        paths[tab] = [link.id]
+    }
+
+    /// What RootView keeps in SceneStorage.
+    struct Navigation: Codable, Equatable {
+        var tab: InboxTab
+        var paths: [InboxTab: [Int]]
+        var watching: Int?
+    }
+
+    var navigation: Navigation { Navigation(tab: tab, paths: paths, watching: watching) }
+
+    /// Puts back the tab and pages that were showing when iOS ended the app, minus links that
+    /// have gone since. A page a widget already opened wins.
+    func restore(_ saved: Navigation) {
+        guard paths.values.allSatisfy(\.isEmpty) else { return }
+        let ids = Set(inbox.links.map(\.id))
+        tab = saved.tab
+        paths = saved.paths.mapValues { $0.filter(ids.contains) }
+        watching = saved.watching.flatMap { ids.contains($0) ? $0 : nil }
     }
 
     private func perform(onFailure: (() -> Void)? = nil, _ work: @escaping () async throws -> Void) async {

@@ -1,8 +1,18 @@
 import LinksKit
 import SwiftUI
 
-enum InboxTab: Hashable {
+enum InboxTab: String, Hashable, Codable {
     case toWatch, watched, sent, search
+
+    /// The tab that shows a filter's list.
+    init(_ filter: InboxFilter) {
+        switch filter {
+        case .toWatch: self = .toWatch
+        case .watched: self = .watched
+        case .sent: self = .sent
+        case .all: self = .search
+        }
+    }
 }
 
 struct InboxView: View {
@@ -51,9 +61,11 @@ struct LinkListScreen: View {
     var query: String = ""
 
     var body: some View {
-        NavigationStack {
+        let tab = InboxTab(filter)
+        NavigationStack(path: Binding(get: { model.paths[tab] ?? [] }, set: { model.paths[tab] = $0 })) {
             LinkList(filter: filter, query: query)
                 .navigationTitle(filter.title)
+                .navigationDestination(for: Int.self) { LinkDetailView(linkID: $0) }
                 .toolbar {
                     ToolbarItem(placement: .topBarLeading) { AccountMenu() }
                     ToolbarItem(placement: .topBarTrailing) {
@@ -78,7 +90,7 @@ struct LinkList: View {
     var body: some View {
         let links = model.inbox.links(for: filter, matching: query)
         List(links) { link in
-            LinkRow(link: link)
+            LinkRow(link: link, tab: InboxTab(filter))
         }
         .listStyle(.plain)
         .accessibilityIdentifier("links.\(filter.rawValue)")
