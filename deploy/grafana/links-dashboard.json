@@ -2102,7 +2102,7 @@
     {
       "type": "timeseries",
       "title": "Service restarts",
-      "description": "systemd automatic restarts per interval.",
+      "description": "systemd automatic restarts per interval. After a counter reset (e.g. systemctl reset-failed) the interval counts the restarts since the reset.",
       "datasource": {
         "type": "prometheus",
         "uid": "${prom}"
@@ -2114,7 +2114,7 @@
             "type": "prometheus",
             "uid": "${prom}"
           },
-          "expr": "sum by (name) (clamp_min(node_systemd_service_restart_total{instance=\"$host\"} - node_systemd_service_restart_total{instance=\"$host\"} offset $__interval, 0))",
+          "expr": "sum by (name) ((node_systemd_service_restart_total{instance=\"$host\"} - node_systemd_service_restart_total{instance=\"$host\"} offset $__interval >= 0) or (node_systemd_service_restart_total{instance=\"$host\"} < node_systemd_service_restart_total{instance=\"$host\"} offset $__interval))",
           "legendFormat": "{{name}}"
         }
       ],
