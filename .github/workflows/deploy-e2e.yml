@@ -163,6 +163,14 @@ jobs:
           deploy/test/e2e.sh data
           deploy/test/e2e.sh tidy
 
+      # Against a stand-in for Grafana Cloud on loopback: CI has no Grafana token, nor should it.
+      - name: monitoring.sh ships logs and metrics
+        timeout-minutes: 6
+        run: |
+          deploy/test/e2e.sh monitoring
+          deploy/test/e2e.sh stack
+          deploy/test/e2e.sh tidy
+
       - name: Diagnostics
         if: always()
         timeout-minutes: 2

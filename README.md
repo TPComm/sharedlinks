@@ -176,6 +176,23 @@ at startup and sends nothing.
 
 **Backups off the box:** `rsync -a root@203.0.113.7:/var/lib/links/backups/ ./backups/`
 
+**Logs and metrics in Grafana Cloud** (its free tier covers them). `deploy/monitoring.sh` installs
+[Fluent Bit](https://fluentbit.io) (~25 MB of RAM, capped at 80 MB) to ship the journal of `links`,
+`links-backup` and Caddy to Loki and host CPU, memory, disk, network and unit metrics to Prometheus
+once a minute, labelled `job="links"`. Get the URLs and numeric users from the stack's Loki and
+Prometheus **Details** pages on grafana.com, and an access policy token with `logs:write` and
+`metrics:write`; the token goes to a root-only `/etc/fluent-bit/links.env`, never a command line:
+
+```bash
+read -rs 'GRAFANA_CLOUD_TOKEN?Grafana Cloud token: ' && export GRAFANA_CLOUD_TOKEN   # zsh
+LOKI_URL=https://logs-prod-036.grafana.net LOKI_USER=1881108 \
+PROM_URL=https://prometheus-prod-56-prod-us-east-2.grafana.net/api/prom/push PROM_USER=3770880 \
+  deploy/monitoring.sh root@203.0.113.7
+```
+
+It checks both pushes before it finishes and is safe to re-run, for example with a new token. In
+Grafana's Explore: `{job="links"}` for logs, `node_memory_MemAvailable_bytes{job="links"}` for metrics.
+
 **Reports and moderation** (App Store guideline 1.2). Whoever runs the server reads the reports:
 
 - People report a link or a person from its long-press menu or its page. A reported link is hidden
