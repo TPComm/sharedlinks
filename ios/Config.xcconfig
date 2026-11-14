@@ -25,3 +25,10 @@ LINKS_SERVER_URL = $(LINKS_SERVER_URL_$(CONFIGURATION))
 // and on the sign-in screen: a mailto: address, or an https: page (written https:/$()/...).
 // Use the same address as the server's SUPPORT_EMAIL, which its /support page shows.
 LINKS_SUPPORT_URL = mailto:support@tpcomm.co
+
+// The server's host name, without https:// or a port. Its https://HOST/l/, /invite/ and /g/ links
+// open the app (universal links), once the server sets APPLE_APP_IDS. Needs a paid Apple Developer
+// team. Debug builds add ?mode=developer, which reads the file straight from the server instead of
+// Apple's cache (turn on Settings > Developer > Associated Domains Development on the phone).
+LINKS_ASSOCIATED_DOMAIN = links.tpcomm.co
+LINKS_ASSOCIATED_DOMAIN_MODE[config=Debug] = ?mode=developer

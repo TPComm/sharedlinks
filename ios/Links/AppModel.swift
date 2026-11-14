@@ -515,7 +515,8 @@ final class AppModel {
         case .add:
             addPrefill = ""
             showAddSheet = true
-        case .inbox, nil:
+        // The server's universal links, handled once invites, link pages and chats ship.
+        case .inbox, .link, .invite, .group, nil:
             break
         }
     }

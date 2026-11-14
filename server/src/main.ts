@@ -13,9 +13,9 @@
  * In development, `bun src/main.ts ...` does the same as the compiled `links-server`.
  *
  * Env: WORKOS_CLIENT_ID (required for sign-in), WORKOS_API_KEY (optional with PKCE),
- *      PUBLIC_URL, ALLOWED_EMAILS, SUPPORT_EMAIL, APP_SCHEME, PORT, HOST, DATA_DIR, SESSION_DAYS,
- *      APNS_TEAM_ID, APNS_TOPIC (the app's bundle id), APNS_KEY_ID + APNS_KEY_FILE (one .p8 key for
- *      Sandbox and Production); push is off without them
+ *      PUBLIC_URL, ALLOWED_EMAILS, SUPPORT_EMAIL, APPLE_APP_IDS, APP_STORE_ID, APP_SCHEME, PORT, HOST,
+ *      DATA_DIR, SESSION_DAYS, APNS_TEAM_ID, APNS_TOPIC (the app's bundle id), APNS_KEY_ID +
+ *      APNS_KEY_FILE (one .p8 key for Sandbox and Production); push is off without them
  */
 import { mkdirSync, readdirSync, rmSync } from "node:fs";
 import { join } from "node:path";

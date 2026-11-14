@@ -485,7 +485,9 @@ final class LinksUITests: XCTestCase {
         field.typeText(text)
     }
 
-    private func waitFor(_ element: XCUIElement, labelContaining text: String, timeout: TimeInterval = 15) {
+    /// A change made on the server shows up at the app's next inbox poll, up to 8 seconds away, and
+    /// on a slow CI Simulator a single accessibility query can take another 15.
+    private func waitFor(_ element: XCUIElement, labelContaining text: String, timeout: TimeInterval = 30) {
         let label = XCTNSPredicateExpectation(predicate: NSPredicate(format: "label CONTAINS %@", text), object: element)
         wait(for: [label], timeout: timeout)
     }

@@ -84,7 +84,7 @@ jobs:
       - name: setup.sh, first run
         timeout-minutes: 12
         run: |
-          WORKOS_CLIENT_ID=client_E2E ALLOWED_EMAILS=e2e@example.com \
+          WORKOS_CLIENT_ID=client_E2E ALLOWED_EMAILS=e2e@example.com APPLE_APP_IDS=ABCDE12345.com.example.links \
             deploy/setup.sh root@localhost localhost 2>&1 | tee "$RUNNER_TEMP/setup-1.log" \
             || { echo "::error::setup.sh exited $? after: $(tail -n 1 "$RUNNER_TEMP/setup-1.log")"; exit 1; }
 
@@ -95,9 +95,10 @@ jobs:
           deploy/test/e2e.sh stack
           deploy/test/e2e.sh trust-caddy
           deploy/test/e2e.sh env-file PUBLIC_URL=https://localhost WORKOS_CLIENT_ID=client_E2E \
-            ALLOWED_EMAILS=e2e@example.com -WORKOS_API_KEY -APNS_KEY_FILE
+            ALLOWED_EMAILS=e2e@example.com APPLE_APP_IDS=ABCDE12345.com.example.links -WORKOS_API_KEY -APP_STORE_ID -APNS_KEY_FILE
           deploy/test/e2e.sh firewall "$RUNNER_TEMP/setup-1.log"
           deploy/test/e2e.sh api
+          deploy/test/e2e.sh aasa ABCDE12345.com.example.links
           deploy/test/e2e.sh backup
           deploy/test/e2e.sh first-deploy
           deploy/test/e2e.sh tidy
@@ -117,7 +118,7 @@ jobs:
         run: |
           deploy/test/e2e.sh finished "$RUNNER_TEMP/setup-2.log" live
           deploy/test/e2e.sh env-file PUBLIC_URL=https://localhost WORKOS_CLIENT_ID=client_E2E \
-            ALLOWED_EMAILS=e2e@example.com WORKOS_API_KEY=sk_test_e2e APNS_TEAM_ID=TEAME2E \
+            ALLOWED_EMAILS=e2e@example.com WORKOS_API_KEY=sk_test_e2e APPLE_APP_IDS=ABCDE12345.com.example.links APNS_TEAM_ID=TEAME2E \
             APNS_TOPIC=com.tpcomm.links APNS_KEY_ID=KEYE2E APNS_KEY_FILE=/etc/links/apns.p8
           deploy/test/e2e.sh apns-key
           deploy/test/e2e.sh service-env WORKOS_API_KEY=sk_test_e2e ALLOWED_EMAILS=e2e@example.com \

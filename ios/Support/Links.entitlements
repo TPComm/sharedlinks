@@ -11,5 +11,12 @@
 	<array>
 		<string>group.$(LINKS_BUNDLE_ID)</string>
 	</array>
+	<!-- App only, not the extensions: https://HOST/l/, /invite/ and /g/ open Links (universal links),
+	     and the server's sign-in can use its passwords. -->
+	<key>com.apple.developer.associated-domains</key>
+	<array>
+		<string>applinks:$(LINKS_ASSOCIATED_DOMAIN)$(LINKS_ASSOCIATED_DOMAIN_MODE)</string>
+		<string>webcredentials:$(LINKS_ASSOCIATED_DOMAIN)$(LINKS_ASSOCIATED_DOMAIN_MODE)</string>
+	</array>
 </dict>
 </plist>

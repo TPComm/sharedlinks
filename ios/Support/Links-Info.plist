@@ -6,6 +6,8 @@
 	<string>$(LINKS_SERVER_URL)</string>
 	<key>LinksSupportURL</key>
 	<string>$(LINKS_SUPPORT_URL)</string>
+	<key>LinksAssociatedDomain</key>
+	<string>$(LINKS_ASSOCIATED_DOMAIN)</string>
 	<key>LinksAppGroup</key>
 	<string>group.$(LINKS_BUNDLE_ID)</string>
 	<key>CFBundleURLTypes</key>
