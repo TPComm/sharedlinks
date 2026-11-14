@@ -144,6 +144,7 @@ final class AppModel {
         paths = [:]
         watching = nil
         UNUserNotificationCenter.current().setBadgeCount(0)
+        UNUserNotificationCenter.current().removeAllDeliveredNotifications() // names and titles from this account
         WidgetCenter.shared.reloadAllTimelines()
     }
 
