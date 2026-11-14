@@ -59,7 +59,7 @@ jobs:
     if: ${{ !cancelled() && needs.changes.outputs.relevant != 'false' }}
     # The only hosted image with Xcode 27.
     runs-on: xcode-27
-    timeout-minutes: 30
+    timeout-minutes: 50
     strategy:
       # Let the other slice finish, so one failing test doesn't hide another.
       fail-fast: false
@@ -110,9 +110,11 @@ jobs:
           bun-version: 1.4.4
 
       # Starts the server from source with an empty database and drives the app in the "Links UI
-      # Tests" Simulator through this slice of the tests.
+      # Tests" Simulator through this slice of the tests. A slice takes ~12 minutes, but the
+      # Simulator's first boot alone has taken 3-8 and a runner crash means a second boot, so the
+      # limit leaves room for both rather than kill a passing run.
       - name: UI tests
-        timeout-minutes: 25
+        timeout-minutes: 40
         env:
           LINKS_UI_TEST_ACTION: test-without-building
           LINKS_UI_TEST_SHARD: ${{ matrix.shard }}/${{ strategy.job-total }}

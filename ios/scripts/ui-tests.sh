@@ -82,28 +82,31 @@ if [[ -z "$destination" ]]; then
   fi
   xcrun simctl list devices | grep -q "$udid) (Booted)" || shutdown_udid="$udid"
   destination="platform=iOS Simulator,id=$udid"
-
-  # On a freshly created CI Simulator the app's first launch can outlast XCUITest's launch timeout
-  # ("Timed out while launching application via Xcode"), failing whichever test runs first. Later
-  # launches take a second, so the app is installed and launched once here, where simctl waits as
-  # long as it takes. Only with an app already built (test-without-building); best effort.
-  app="${LINKS_UI_TEST_DERIVED_DATA:-build}"
-  if [[ "$app" != /* ]]; then app="$ios/$app"; fi
-  app="$app/Build/Products/Debug-iphonesimulator/Links.app"
-  if [[ "${LINKS_UI_TEST_ACTION:-test}" == test-without-building && -d "$app" ]]; then
-    started=$SECONDS
-    xcrun simctl boot "$udid" 2>/dev/null || true
-    if xcrun simctl install "$udid" "$app"; then
-      # Right after boot SpringBoard may not take launches yet, so a failed launch gets a few more.
-      for _ in 1 2 3 4 5 6; do
-        SIMCTL_CHILD_LINKS_UI_TESTS=1 xcrun simctl launch "$udid" com.tpcomm.links >/dev/null && break
-        sleep 10
-      done
-      xcrun simctl terminate "$udid" com.tpcomm.links 2>/dev/null || true
-    fi
-    echo "Simulator booted and Links launched once in $((SECONDS - started))s"
-  fi
 fi
+
+# On a freshly booted CI Simulator the app's first launch can take minutes, outlasting XCUITest's
+# launch timeout ("Timed out while launching application via Xcode") or stalling the test runner
+# until it crashes. Later launches take a second, so the app is installed and launched once here,
+# where simctl waits as long as it takes. Only on our own Simulator with an app already built
+# (test-without-building); best effort.
+app="${LINKS_UI_TEST_DERIVED_DATA:-build}"
+if [[ "$app" != /* ]]; then app="$ios/$app"; fi
+app="$app/Build/Products/Debug-iphonesimulator/Links.app"
+warm_up() {
+  [[ -n "${udid:-}" && "${LINKS_UI_TEST_ACTION:-test}" == test-without-building && -d "$app" ]] || return 0
+  local started=$SECONDS
+  xcrun simctl boot "$udid" 2>/dev/null || true
+  if xcrun simctl install "$udid" "$app"; then
+    # Right after boot SpringBoard may not take launches yet, so a failed launch gets a few more.
+    for _ in 1 2 3 4 5 6; do
+      SIMCTL_CHILD_LINKS_UI_TESTS=1 xcrun simctl launch "$udid" com.tpcomm.links >/dev/null && break
+      sleep 10
+    done
+    xcrun simctl terminate "$udid" com.tpcomm.links 2>/dev/null || true
+  fi
+  echo "Simulator booted and Links launched once in $((SECONDS - started))s"
+}
+warm_up
 
 # -- shard: deal the tests out in the order the test files list them, read from the source. The
 # last slice runs everything the others don't (-skip-testing), so a test the scan misses still runs.
@@ -172,6 +175,7 @@ if [[ $status -ne 0 ]] && grep -q "crashed while preparing to run tests" "$logs/
   echo "warning: the test runner crashed before any test ran; trying once more" >&2
   mv "$logs/xcodebuild.log" "$logs/xcodebuild-crashed.log"
   if [[ -n "${udid:-}" ]]; then xcrun simctl shutdown "$udid" 2>/dev/null || true; fi
+  warm_up
   status=0
   run_tests "$@" || status=$?
 fi
