@@ -38,8 +38,7 @@ final class TourUITests: XCTestCase {
                   "the Share Extension didn't open in practice mode")
         let note = app.textFields["share.note"]
         XCTAssert(note.exists, "no note field in practice mode")
-        note.tap()
-        note.typeText("Practice note")
+        type("Practice note", into: note)
         app.buttons["share.send"].tap()
         XCTAssert(app.staticTexts["That's It"].waitForExistence(timeout: 10), "practice Send didn't say it worked")
         // The extension told the app (App Group defaults), and the step ticked itself off.
