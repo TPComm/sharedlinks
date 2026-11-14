@@ -1,8 +1,10 @@
 name: Server
 
 on:
+  # Every PR, not just server/ ones: main requires this workflow's check, and a check that never
+  # reports blocks the merge. The changes job below decides whether it runs or reports "skipped",
+  # which counts as passing.
   pull_request:
-    paths: ["server/**", ".github/workflows/server.yml"]
   push:
     branches: [main]
     paths: ["server/**", ".github/workflows/server.yml"]
@@ -16,8 +18,33 @@ permissions:
   contents: read
 
 jobs:
+  changes:
+    name: Changes
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      relevant: ${{ steps.diff.outputs.relevant }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 2
+      # A PR checks out GitHub's test merge, whose first parent is main: the diff is what merging
+      # changes. (The list is saved first because grep -q in a pipe would cut git off and fail it.)
+      - id: diff
+        run: |
+          files=$(git diff --name-only HEAD^1 HEAD)
+          if grep -qE '^(server/|\.github/workflows/server\.yml$)' <<<"$files"; then
+            echo relevant=true >>"$GITHUB_OUTPUT"
+          else
+            echo relevant=false >>"$GITHUB_OUTPUT"
+          fi
+
   check:
     name: Typecheck, test and build
+    needs: changes
+    # Pushes to main skip `changes`; if it failed, run rather than let a skipped check pass.
+    if: ${{ !cancelled() && needs.changes.outputs.relevant != 'false' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     defaults:
