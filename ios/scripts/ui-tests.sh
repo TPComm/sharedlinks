@@ -85,8 +85,8 @@ if [[ -z "$destination" ]]; then
   destination="platform=iOS Simulator,id=$udid"
 fi
 
-# -- shard: deal the tests out in the order the test files list them, read from the source so a
-# new test always lands in some slice.
+# -- shard: deal the tests out in the order the test files list them, read from the source. The
+# last slice runs everything the others don't (-skip-testing), so a test the scan misses still runs.
 shard_args=()
 if [[ -n "${LINKS_UI_TEST_SHARD:-}" ]]; then
   if [[ ! "$LINKS_UI_TEST_SHARD" =~ ^([0-9]+)/([0-9]+)$ ]] \
@@ -94,25 +94,30 @@ if [[ -n "${LINKS_UI_TEST_SHARD:-}" ]]; then
     echo "error: LINKS_UI_TEST_SHARD must be K/N with 1 <= K <= N, not \"$LINKS_UI_TEST_SHARD\"" >&2
     exit 1
   fi
-  shard="${BASH_REMATCH[1]}" shards="${BASH_REMATCH[2]}" i=0
+  shard="${BASH_REMATCH[1]}" shards="${BASH_REMATCH[2]}" i=0 mine=0
   while IFS= read -r test; do
-    if (( i % shards == shard - 1 )); then shard_args+=("-only-testing:$test"); fi
+    if (( i % shards == shard - 1 )); then
+      mine=$((mine + 1))
+      if (( shard < shards )); then shard_args+=("-only-testing:$test"); fi
+    elif (( shard == shards )); then
+      shard_args+=("-skip-testing:$test")
+    fi
     i=$((i + 1))
-  done < <(awk '
+  done < <(find "$ios/LinksUITests" -name '*.swift' | LC_ALL=C sort | xargs awk '
     FNR == 1 { class = "" }
-    /^[[:space:]]*(final[[:space:]]+)?class[[:space:]]+[A-Za-z0-9_]+[[:space:]]*:[[:space:]]*XCTestCase/ {
-      sub(/^[[:space:]]*(final[[:space:]]+)?class[[:space:]]+/, ""); sub(/[[:space:]]*:.*/, ""); class = $0; next
+    /(^|[^A-Za-z0-9_])class[[:space:]]+[A-Za-z0-9_]+[[:space:]]*:[[:space:]]*XCTestCase/ {
+      sub(/.*class[[:space:]]+/, ""); sub(/[[:space:]]*:.*/, ""); class = $0; next
     }
-    class != "" && /^[[:space:]]*func[[:space:]]+test[A-Za-z0-9_]*[[:space:]]*\(/ {
-      sub(/^[[:space:]]*func[[:space:]]+/, ""); sub(/[[:space:]]*\(.*/, ""); print "LinksUITests/" class "/" $0
+    class != "" && /^[[:space:]]*(@[A-Za-z]+[[:space:]]+)*func[[:space:]]+test[A-Za-z0-9_]*[[:space:]]*\(/ {
+      sub(/.*func[[:space:]]+/, ""); sub(/[[:space:]]*\(.*/, ""); print "LinksUITests/" class "/" $0
     }
-  ' "$ios"/LinksUITests/*.swift)
-  if [[ ${#shard_args[@]} -eq 0 ]]; then
+  ')
+  if (( mine == 0 )); then
     echo "error: UI test slice $LINKS_UI_TEST_SHARD has no tests ($i in all)" >&2
     exit 1
   fi
-  echo "UI test slice $LINKS_UI_TEST_SHARD: ${#shard_args[@]} of $i tests"
-  printf '  %s\n' "${shard_args[@]#-only-testing:}"
+  echo "UI test slice $LINKS_UI_TEST_SHARD: $mine of the $i tests found, plus any the scan missed in the last slice"
+  if (( ${#shard_args[@]} )); then printf '  %s\n' "${shard_args[@]}"; fi
 fi
 
 # xcodebuild hands TEST_RUNNER_<NAME> to the test runner as <NAME>. The tests pass the URL and
