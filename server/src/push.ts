@@ -83,8 +83,9 @@ export class Pusher {
     if (!link) return;
     const recipients = this.db.query(
       `SELECT DISTINCT d.user_id FROM device_tokens d WHERE d.user_id != ?1
-         AND NOT EXISTS (SELECT 1 FROM blocks WHERE blocker = d.user_id AND blocked = ?1)`,
-    ).all(link.added_by) as { user_id: string }[];
+         AND NOT EXISTS (SELECT 1 FROM blocks WHERE blocker = d.user_id AND blocked = ?1)
+         AND NOT EXISTS (SELECT 1 FROM reports WHERE reporter = d.user_id AND link_id = ?2)`,
+    ).all(link.added_by, linkId) as { user_id: string }[];
     const noun = nounOf(link.platform);
     const lead = `sent ${article(noun)} ${noun}`;
     await Promise.all(recipients.map(({ user_id }) => this.toPerson(user_id, "alert", (badge) => this.fit({
