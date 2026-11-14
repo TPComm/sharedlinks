@@ -185,8 +185,8 @@ Prometheus **Details** pages on grafana.com, and an access policy token with `lo
 
 ```bash
 read -rs 'GRAFANA_CLOUD_TOKEN?Grafana Cloud token: ' && export GRAFANA_CLOUD_TOKEN   # zsh
-LOKI_URL=https://logs-prod-036.grafana.net LOKI_USER=1881108 \
-PROM_URL=https://prometheus-prod-56-prod-us-east-2.grafana.net/api/prom/push PROM_USER=3770880 \
+LOKI_URL=https://logs-prod-000.grafana.net LOKI_USER=123456 \
+PROM_URL=https://prometheus-prod-00-prod-us-east-0.grafana.net/api/prom/push PROM_USER=654321 \
   deploy/monitoring.sh root@203.0.113.7
 ```
 
