@@ -330,7 +330,8 @@ export function createApp(config: Config, opts: AppOptions = {}) {
                env = excluded.env, updated_at = excluded.updated_at`,
           [token, me, session, data.env, t, t],
         ));
-        return json({ ok: true });
+        // `push`: whether this server sends any, so the app knows it can poll less often.
+        return json({ ok: true, push: push.enabled });
       }),
     },
     "/api/devices/:token": {

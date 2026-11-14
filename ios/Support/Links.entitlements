@@ -4,6 +4,9 @@
 <dict>
 	<!-- Shared by the app, Share Extension and widgets: the session keychain item
 	     (an App Group id doubles as a keychain access group), the inbox cache and thumbnails. -->
+	<!-- Push notifications. Xcode swaps in "production" when it signs for TestFlight and the App Store. -->
+	<key>aps-environment</key>
+	<string>development</string>
 	<key>com.apple.security.application-groups</key>
 	<array>
 		<string>group.$(LINKS_BUNDLE_ID)</string>

@@ -1,7 +1,7 @@
 import XCTest
 
 /// The welcome tour (#10) and its share-sheet step (#9), as on a first launch. The other UI tests
-/// launch with LINKS_UI_TESTS=1, which skips the tour, the tips and the badge prompt; this one
+/// launch with LINKS_UI_TESTS=1, which skips the tour, the tips and the notification prompt; this one
 /// doesn't, and LINKS_RESET_ONBOARDING=1 makes its first launch a first launch every time.
 @MainActor
 final class TourUITests: XCTestCase {
@@ -46,7 +46,7 @@ final class TourUITests: XCTestCase {
         XCTAssert(waitForPage("A Couple of Extras"))
         XCTAssertFalse(app.buttons["tour.skip"].exists, "Skip on the last page")
         app.buttons["tour.done"].tap()
-        allowBadgeIfAsked()
+        allowNotificationsIfAsked()
 
         // The inbox, with the gesture tips on the friend's link, one after another.
         XCTAssert(app.tabBars.buttons["To Watch"].waitForExistence(timeout: 10))
@@ -97,8 +97,8 @@ final class TourUITests: XCTestCase {
         return XCTWaiter.wait(for: [shown], timeout: timeout) == .completed
     }
 
-    /// The badge prompt comes when the tour ends, unless this Simulator has answered it before.
-    private func allowBadgeIfAsked() {
+    /// The notification prompt comes when the tour ends, unless this Simulator has answered it before.
+    private func allowNotificationsIfAsked() {
         let allow = XCUIApplication(bundleIdentifier: "com.apple.springboard").alerts.buttons["Allow"]
         if allow.waitForExistence(timeout: 5) { allow.tap() }
     }

@@ -191,7 +191,7 @@ All endpoints except sign-in need `Authorization: Bearer <session token>`.
 | GET | `/auth/callback` | AuthKit's redirect; bounces to `sharedlinks://auth/callback?code=…` |
 | POST | `/api/auth/token` | `{code, code_verifier}` → `{token, user, claimable}` |
 | POST | `/api/auth/logout` | ends this session (and removes its device tokens) |
-| POST | `/api/devices` | `{token, env}`: this session's APNs device token (hex), `env` is `sandbox` or `production`. Registering a token again moves it to this session |
+| POST | `/api/devices` | `{token, env}`: this session's APNs device token (hex), `env` is `sandbox` or `production` → `{ok, push}` (`push`: whether the server sends any). Registering a token again moves it to this session |
 | DELETE | `/api/devices/:token` | forget one of your device tokens |
 | GET/PATCH/DELETE | `/api/me` | `{user, claimable}`; PATCH `{name}`; DELETE deletes the account, its sessions, watched marks and reactions; the links it sent stay, from `deleted` ("Deleted user"). Also the WorkOS user, given `WORKOS_API_KEY` |
 | POST | `/api/me/claim` | `{id}` of a legacy person |

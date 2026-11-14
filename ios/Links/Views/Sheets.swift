@@ -83,6 +83,7 @@ struct AddLinkSheet: View {
 
 struct AccountMenu: View {
     @Environment(AppModel.self) private var model
+    @Environment(\.openURL) private var openURL
     @State private var renaming = false
     @State private var nameDraft = ""
     @State private var confirmingDelete = false
@@ -119,6 +120,11 @@ struct AccountMenu: View {
                 }
                 Button("Show Tour Again", systemImage: "sparkles") {
                     model.startTour()
+                }
+                // iOS asks only once, so this is where people who said no (or only allowed the
+                // badge, before notifications) turn them on.
+                if let url = URL(string: UIApplication.openNotificationSettingsURLString) {
+                    Button("Notification Settings", systemImage: "bell.badge") { openURL(url) }
                 }
             }
             Section {

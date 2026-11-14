@@ -423,7 +423,7 @@ final class LinksUITests: XCTestCase {
         app.launchEnvironment = [
             "LINKS_SERVER_URL": server.url.absoluteString,
             "LINKS_DEV_TOKEN": token ?? server.me,
-            // No badge-permission prompt (AppModel.requestBadgePermission), and no pages restored
+            // No notification prompt (AppModel.requestNotificationPermission), and no pages restored
             // from an earlier test (RootView.restoreNavigation).
             "LINKS_UI_TESTS": "1",
         ]

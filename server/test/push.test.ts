@@ -104,7 +104,7 @@ beforeAll(async () => {
   [sam, alex, kim, gone] = await Promise.all(["sam", "alex", "kim", "gone"].map(signIn)) as [string, string, string, string];
   const kimOld = await signIn("kim");
   for (const [t, d] of [[sam, SAM], [alex, ALEX], [kim, KIM], [gone, GONE], [kimOld, KIM_OLD]] as const) {
-    expect((await register(t, d)).data).toEqual({ ok: true });
+    expect((await register(t, d)).data).toEqual({ ok: true, push: true });
   }
   // Kim's older session hasn't been used for longer than SESSION_DAYS.
   app.db.run("UPDATE sessions SET last_used = 0 WHERE token_hash = ?", [app.accounts.sessionHash(kimOld)]);

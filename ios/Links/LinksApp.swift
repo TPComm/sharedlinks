@@ -4,6 +4,7 @@ import SwiftUI
 
 @main
 struct LinksApp: App {
+    @UIApplicationDelegateAdaptor private var delegate: AppDelegate
     @State private var model: AppModel
 
     init() {
@@ -24,6 +25,7 @@ struct LinksApp: App {
 
 struct RootView: View {
     @Environment(AppModel.self) private var model
+    @EnvironmentObject private var delegate: AppDelegate
     @Environment(\.scenePhase) private var scenePhase
     /// The tab and link pages showing, which the system keeps for this window: if iOS ends the
     /// app while TikTok is in front, coming back still lands on the link's page.
@@ -39,7 +41,7 @@ struct RootView: View {
                     .task(id: scenePhase) {
                         guard scenePhase == .active else { return }
                         model.showTourIfNeeded()
-                        model.requestBadgePermission()
+                        model.requestNotificationPermission()
                         await model.loadAccount()
                         await model.pollWhileActive()
                     }
@@ -51,6 +53,16 @@ struct RootView: View {
             }
         }
         .onOpenURL { model.handle($0) }
+        // Again for each sign-in: the token moves to whoever signed in on this phone.
+        .task(id: "\(delegate.deviceToken ?? "")|\(model.isSignedIn)") {
+            if let token = delegate.deviceToken { await model.registerDevice(token) }
+        }
+        .onChange(of: delegate.openLinkID, initial: true) { _, id in
+            guard let id, model.isSignedIn else { return }
+            delegate.openLinkID = nil
+            model.handle(DeepLink.open(linkID: id).url)
+        }
+        .onChange(of: delegate.refreshes) { Task { await model.refresh() } }
         .onChange(of: model.navigation) { _, navigation in
             savedNavigation = try? JSONEncoder().encode(navigation)
         }
