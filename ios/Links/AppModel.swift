@@ -33,6 +33,9 @@ final class AppModel {
     private(set) var tourCompleted = Onboarding.shared.hasCompletedTour
 
     private var fastPollUntil = Date.distantPast
+    /// The server sends push notifications for this phone, so polling can be slower.
+    private var pushRegistered = false
+    private var registeredToken: String?
     /// Changes on every sign-in/out, so work that started under an old session can tell.
     private var sessionID = UUID()
     /// Bumped by every local change, so a poll that started before it doesn't undo it.
@@ -50,7 +53,7 @@ final class AppModel {
     /// Invites I sent that nobody has used yet (the People sheet).
     private(set) var invites: [Invite] = []
 
-    /// UI tests launch with LINKS_UI_TESTS=1: no tour, tips or badge prompt to get in their way.
+    /// UI tests launch with LINKS_UI_TESTS=1: no tour, tips or notification prompt to get in their way.
     static let isUITesting: Bool = {
         #if DEBUG
         ProcessInfo.processInfo.environment["LINKS_UI_TESTS"] == "1"
@@ -116,6 +119,7 @@ final class AppModel {
             showClaimSheet = !claimable.isEmpty
             await refresh()
             WidgetCenter.shared.reloadAllTimelines() // even if the inbox happens to be empty
+            if !Self.isUITesting { UIApplication.shared.registerForRemoteNotifications() }
         } catch let error as ASWebAuthenticationSessionError where error.code == .canceledLogin {
             // The person closed the sheet.
         } catch {
@@ -131,6 +135,8 @@ final class AppModel {
     private func endSession() {
         sessionID = UUID()
         showTour = false
+        pushRegistered = false
+        registeredToken = nil
         SessionStore.clear()
         InboxSnapshot.clear()
         ThumbnailCache.clear()
@@ -144,6 +150,10 @@ final class AppModel {
         paths = [:]
         watching = nil
         UNUserNotificationCenter.current().setBadgeCount(0)
+        UNUserNotificationCenter.current().removeAllDeliveredNotifications() // names and titles from this account
+        // Even if the server never heard about the sign-out (offline), this phone stops showing pushes.
+        // Signing in registers again.
+        if !Self.isUITesting { UIApplication.shared.unregisterForRemoteNotifications() }
         WidgetCenter.shared.reloadAllTimelines()
     }
 
@@ -266,12 +276,45 @@ final class AppModel {
         }
     }
 
-    /// Poll while the app is in the foreground; faster right after adding (previews arrive).
+    /// Poll while the app is in the foreground; faster right after adding (previews arrive), and
+    /// slower when push notifications bring new links and badge changes.
     func pollWhileActive() async {
         while !Task.isCancelled {
             await refresh()
-            let interval: Duration = fastPollUntil > .now ? .seconds(1.5) : .seconds(8)
+            let interval: Duration = if fastPollUntil > .now {
+                .seconds(1.5)
+            } else if await pushesArrive() {
+                .seconds(45)
+            } else {
+                .seconds(8)
+            }
             try? await Task.sleep(for: interval)
+        }
+    }
+
+    private func pushesArrive() async -> Bool {
+        guard pushRegistered else { return false }
+        return await UNUserNotificationCenter.current().notificationSettings().alertSetting == .enabled
+    }
+
+    /// Sends the server this phone's APNs token. A failure just leaves polling as it was.
+    /// Again each time the app comes to the front until it works, so a failed attempt isn't final.
+    func registerDevice(_ deviceToken: String) async {
+        guard isSignedIn, registeredToken != deviceToken else { return }
+        let session = sessionID
+        #if DEBUG
+        let env = "sandbox"
+        #else
+        let env = "production"
+        #endif
+        do {
+            let push = try await client.registerDevice(token: deviceToken, env: env)
+            if session == sessionID {
+                pushRegistered = push
+                registeredToken = deviceToken
+            }
+        } catch {
+            print("Couldn't register this device for push notifications: \(error.localizedDescription)")
         }
     }
 
@@ -299,13 +342,14 @@ final class AppModel {
         setInbox(state)
     }
 
-    /// The app icon badge shows the To Watch count. iOS only asks once; later calls are no-ops.
-    func requestBadgePermission() {
+    /// Notifications for new links and reactions, and the To Watch count on the app icon. iOS only
+    /// asks once; later calls are no-ops (Settings changes it: the tour and account menu link there).
+    func requestNotificationPermission() {
         // No system prompt in UI tests: while it's up the app is inactive and doesn't fetch, and a
         // fresh CI Simulator shows it whenever it likes (ios/scripts/ui-tests.sh).
         // Nor over the tour: its last page offers it, and finishTour asks if that wasn't used.
         guard !Self.isUITesting, tourCompleted else { return }
-        Task { _ = try? await UNUserNotificationCenter.current().requestAuthorization(options: [.badge]) }
+        Task { _ = try? await UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .badge, .sound]) }
     }
 
     // MARK: Tour
@@ -329,7 +373,7 @@ final class AppModel {
         Onboarding.shared.completeTour()
         tourCompleted = true
         showTour = false
-        requestBadgePermission()
+        requestNotificationPermission()
     }
 
     // MARK: Actions

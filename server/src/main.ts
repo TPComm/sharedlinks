@@ -15,7 +15,8 @@
  *
  * Env: WORKOS_CLIENT_ID (required for sign-in), WORKOS_API_KEY (optional with PKCE),
  *      PUBLIC_URL, SUPPORT_EMAIL, APPLE_APP_IDS, APP_STORE_ID, APP_SCHEME, PORT, HOST, DATA_DIR,
- *      SESSION_DAYS
+ *      SESSION_DAYS, APNS_TEAM_ID, APNS_TOPIC (the app's bundle id), APNS_KEY_ID + APNS_KEY_FILE (one
+ *      .p8 key for Sandbox and Production); push is off without them
  */
 import { mkdirSync, readdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
@@ -24,6 +25,7 @@ import { startServer } from "./app.ts";
 import { configFromEnv } from "./config.ts";
 import { openDatabase } from "./db.ts";
 import { BadRequest } from "./links.ts";
+import { Pusher, pushEnabled } from "./push.ts";
 import { formatReport, openReports, resolveReport } from "./moderation.ts";
 import { BUILD_COMMIT } from "./version.ts";
 
@@ -71,10 +73,17 @@ if (command === "mint-session") {
   const db = openDatabase(config.dataDir, config.legacyAllowedEmails);
   const accounts = new Accounts(db, config);
   const users = accounts.usersWithEmail(email);
+  // Their links leave others' To Watch; the running server doesn't see this, so badge from here.
+  const tasks: Promise<void>[] = [];
+  const push = new Pusher(db, config, accounts, (t) => { tasks.push(t); }, { badgeDelayMs: 0 });
   for (const user of users) {
+    const unwatched = push.enabled ? push.unwatchedFrom(user.id) : [];
     const { links, workos } = await accounts.deleteUser(user.id);
+    push.badges(unwatched);
     console.log(`deleted ${user.name} (${user.id}); ${links} sent link${links === 1 ? "" : "s"} deleted; WorkOS user: ${workos}`);
   }
+  await Promise.all(tasks);
+  push.close();
   db.close();
   if (!users.length) {
     console.error(`no account with the email ${email}`);
@@ -106,7 +115,16 @@ if (command === "mint-session") {
         console.error("usage: links-server reports [resolve <id> [--remove]]");
         process.exit(1);
       }
-      const report = resolveReport(db, config.dataDir, Number(id), remove);
+      // The running server doesn't see this, so badge the people the link leaves To Watch for from here.
+      const tasks: Promise<void>[] = [];
+      const push = new Pusher(db, config, new Accounts(db, config), (t) => { tasks.push(t); }, { badgeDelayMs: 0 });
+      let unwatched: string[] = [];
+      const report = resolveReport(db, config.dataDir, Number(id), remove, (linkId) => {
+        if (push.enabled) unwatched = push.unwatchedBy(linkId);
+      });
+      push.badges(unwatched);
+      await Promise.all(tasks);
+      push.close();
       console.log(`report #${report.id} resolved: ${report.resolution}${remove ? ` (link ${report.link_id} deleted)` : ""}`);
     }
   } catch (e) {
@@ -123,6 +141,9 @@ if (command === "mint-session") {
   process.exit(1);
 } else {
   if (!config.workosClientId) console.warn("warning: WORKOS_CLIENT_ID isn't set, so nobody can sign in.");
+  if (!pushEnabled(config)) {
+    console.warn("warning: APNS_TEAM_ID, APNS_TOPIC and an APNs key (APNS_KEY_ID/APNS_KEY_FILE) aren't all set, so push notifications are off.");
+  }
   if (config.legacyAllowedEmails.length) {
     console.warn("note: ALLOWED_EMAILS is only read once, to keep those already signed up who are on it; invites are the only way in now, so it can go.");
   }

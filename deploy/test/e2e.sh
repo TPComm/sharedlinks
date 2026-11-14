@@ -136,6 +136,16 @@ check_env_file() {
   ok "$ENV_FILE is 640 root:links and has ${keys[*]}"
 }
 
+# apns-key: /etc/links/apns.p8 is installed like the settings file, readable by links only.
+check_apns_key() {
+  local file=/etc/links/apns.p8 perms
+  perms=$(sudo stat -c '%a %U:%G' "$file") || fail "$file is missing"
+  [ "$perms" = "640 root:links" ] || fail "$file is $perms, want 640 root:links"
+  sudo -u links test -r "$file" || fail "the links user can't read $file"
+  if sudo -u nobody test -r "$file"; then fail "other users can read $file"; fi
+  ok "the APNs key is 640 root:links"
+}
+
 # service-env KEY=VALUE...: the running links-server got these, so a re-run restarted it with them.
 check_service_env() {
   local pid environ arg
@@ -380,6 +390,7 @@ case $command in
   cloud-init) cloud_init ;;
   stack) check_stack ;;
   env-file) check_env_file "$@" ;;
+  apns-key) check_apns_key ;;
   service-env) check_service_env "$@" ;;
   firewall) check_firewall "$@" ;;
   api) check_api ;;
@@ -397,7 +408,7 @@ case $command in
   rolled-back) check_rolled_back "$@" ;;
   diagnostics) diagnostics ;;
   *)
-    echo "usage: deploy/test/e2e.sh ssh-root | cloud-init | stack | env-file KEY=VALUE... -KEY... |" \
+    echo "usage: deploy/test/e2e.sh ssh-root | cloud-init | stack | env-file KEY=VALUE... -KEY... | apns-key |" \
          "service-env KEY=VALUE... | firewall LOG | api | data | backup | checksum NAME [FILE] |" \
          "same-binary NAME [FILE] | same-file NAME FILE | new-file NAME FILE | first-deploy | tidy |" \
          "trust-caddy | finished LOG [live] | rolled-back CODE LOG | diagnostics" >&2

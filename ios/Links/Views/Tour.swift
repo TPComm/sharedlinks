@@ -229,9 +229,9 @@ private struct ExtrasPage: View {
             VStack(alignment: .leading, spacing: 18) {
                 Feature(symbol: "square.grid.2x2", title: "Home Screen Widget",
                         text: "Touch and hold the Home Screen, tap **Edit**, then **Add Widget**, and search for Links. Tick links off as watched right from it.")
-                Feature(symbol: "app.badge", title: "Badge on the App Icon",
-                        text: "Shows how many links are waiting for you.") {
-                    BadgeButton()
+                Feature(symbol: "bell.badge", title: "Notifications",
+                        text: "Get notified when friends send you something, and see how many are waiting on the app icon.") {
+                    NotificationsButton()
                 }
             }
         }
@@ -348,12 +348,13 @@ private struct PageDots: View {
     }
 }
 
-/// Turns on the app icon badge, or says it's on. (Whoever skips this is asked when the tour ends,
-/// as before the tour existed.)
-private struct BadgeButton: View {
+/// Turns on notifications, or says they're on, or opens Settings (iOS only asks once, so people
+/// who answered the old badge-only prompt turn alerts on there). Whoever skips this is asked when
+/// the tour ends.
+private struct NotificationsButton: View {
     @Environment(\.openURL) private var openURL
     @State private var status: UNAuthorizationStatus?
-    @State private var badgeOn = false
+    @State private var alertsOn = false
 
     var body: some View {
         Group {
@@ -364,9 +365,9 @@ private struct BadgeButton: View {
             case .notDetermined?:
                 Button("Turn On") { Task { await turnOn() } }
                     .buttonStyle(.bordered)
-                    .accessibilityIdentifier("tour.badge")
+                    .accessibilityIdentifier("tour.notifications")
             default:
-                if badgeOn {
+                if alertsOn {
                     Label("On", systemImage: "checkmark")
                         .font(.subheadline.weight(.semibold))
                         .foregroundStyle(.secondary)
@@ -384,11 +385,11 @@ private struct BadgeButton: View {
     private func load() async {
         let settings = await UNUserNotificationCenter.current().notificationSettings()
         status = settings.authorizationStatus
-        badgeOn = settings.badgeSetting == .enabled
+        alertsOn = settings.alertSetting == .enabled
     }
 
     private func turnOn() async {
-        _ = try? await UNUserNotificationCenter.current().requestAuthorization(options: [.badge])
+        _ = try? await UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .badge, .sound])
         await load()
     }
 }

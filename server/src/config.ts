@@ -32,7 +32,17 @@ export interface Config {
   appStoreId: string;
   /** Pause between re-fetches of old links' previews after an upgrade; 0 turns that off. */
   previewBackfillMs: number;
+  /** Push notifications (APNs). Without a key, push is off. */
+  apnsTeamId: string;
+  /** The app's bundle id (LINKS_BUNDLE_ID in ios/Config.xcconfig). */
+  apnsTopic: string;
+  /** One token-based (.p8) key, made for both Sandbox and Production. */
+  apnsKey: { keyId: string; keyFile: string } | null;
+  /** Overridable for tests, like workosApi. */
+  apnsHosts: Record<ApnsEnv, string>;
 }
+
+export type ApnsEnv = "production" | "sandbox";
 
 /** Same as LINKS_SUPPORT_URL in ios/Config.xcconfig. */
 export const DEFAULT_SUPPORT_EMAIL = "support@tpcomm.co";
@@ -63,5 +73,14 @@ export function configFromEnv(env: Record<string, string | undefined> = process.
       .map((id) => id.trim())
       .filter(Boolean),
     appStoreId: env.APP_STORE_ID?.trim() ?? "",
+    apnsTeamId: env.APNS_TEAM_ID?.trim() ?? "",
+    apnsTopic: env.APNS_TOPIC?.trim() ?? "",
+    apnsKey: env.APNS_KEY_ID?.trim() && env.APNS_KEY_FILE?.trim()
+      ? { keyId: env.APNS_KEY_ID.trim(), keyFile: resolve(env.APNS_KEY_FILE.trim()) }
+      : null,
+    apnsHosts: {
+      production: (env.APNS_HOST ?? "https://api.push.apple.com").replace(/\/+$/, ""),
+      sandbox: (env.APNS_SANDBOX_HOST ?? "https://api.sandbox.push.apple.com").replace(/\/+$/, ""),
+    },
   };
 }

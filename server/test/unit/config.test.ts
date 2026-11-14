@@ -21,7 +21,22 @@ describe("configFromEnv", () => {
       previewBackfillMs: 5000,
       appleAppIds: [],
       appStoreId: "",
+      apnsTeamId: "",
+      apnsTopic: "",
+      apnsKey: null,
+      apnsHosts: { production: "https://api.push.apple.com", sandbox: "https://api.sandbox.push.apple.com" },
     });
+  });
+
+  test("APNs key: one for both environments, only with both its id and file", () => {
+    const c = configFromEnv({
+      APNS_TEAM_ID: " TEAM ", APNS_TOPIC: "com.tpcomm.links", APNS_KEY_ID: "K1", APNS_KEY_FILE: "keys/apns.p8",
+      APNS_HOST: "http://127.0.0.1:9/",
+    });
+    expect(c.apnsTeamId).toBe("TEAM");
+    expect(c.apnsKey).toEqual({ keyId: "K1", keyFile: join(process.cwd(), "keys/apns.p8") });
+    expect(configFromEnv({ APNS_KEY_ID: "K1" }).apnsKey).toBeNull();
+    expect(c.apnsHosts).toEqual({ production: "http://127.0.0.1:9", sandbox: "https://api.sandbox.push.apple.com" });
   });
 
   test("passes strings through", () => {
