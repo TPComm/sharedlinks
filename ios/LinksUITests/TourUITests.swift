@@ -33,9 +33,15 @@ final class TourUITests: XCTestCase {
             sheet.cells["More"].tap()
         }
         app.cells["Links"].firstMatch.tap()
-        let practiceDone = app.buttons["share.practiceDone"]
-        XCTAssert(practiceDone.waitForExistence(timeout: 30), "the Share Extension didn't open in practice mode")
-        practiceDone.tap()
+        // Practice mode is the real compose screen (#54): a note field and Send, nothing sent.
+        XCTAssert(app.descendants(matching: .any)["share.practiceIntro"].waitForExistence(timeout: 30),
+                  "the Share Extension didn't open in practice mode")
+        let note = app.textFields["share.note"]
+        XCTAssert(note.exists, "no note field in practice mode")
+        note.tap()
+        note.typeText("Practice note")
+        app.buttons["share.send"].tap()
+        XCTAssert(app.staticTexts["That's It"].waitForExistence(timeout: 10), "practice Send didn't say it worked")
         // The extension told the app (App Group defaults), and the step ticked itself off.
         XCTAssert(waitForPage("Links Is in Your Share Sheet"), "the step didn't notice")
         app.buttons["tour.continue"].tap()

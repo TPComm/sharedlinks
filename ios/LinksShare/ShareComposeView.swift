@@ -11,26 +11,25 @@ struct ShareComposeView: View {
                 .navigationTitle("Links")
                 .navigationBarTitleDisplayMode(.inline)
                 .toolbar {
-                    if model.phase == .practice {
-                        ToolbarItem(placement: .confirmationAction) {
-                            Button("Done") { model.finishPractice() }
-                                .accessibilityIdentifier("share.practiceDone")
+                    ToolbarItem(placement: .cancellationAction) {
+                        Button("Cancel", role: .cancel) { model.cancel() }
+                    }
+                    ToolbarItem(placement: .confirmationAction) {
+                        Button("Send") {
+                            noteFocused = false
+                            Task { await model.send() }
                         }
-                    } else {
-                        ToolbarItem(placement: .cancellationAction) {
-                            Button("Cancel", role: .cancel) { model.cancel() }
-                        }
-                        ToolbarItem(placement: .confirmationAction) {
-                            Button("Send") { Task { await model.send() } }
-                                .disabled(model.phase != .ready && !isFailed)
-                        }
+                        .disabled(model.phase != .ready && model.phase != .practice && !isFailed)
+                        .accessibilityIdentifier("share.send")
                     }
                 }
         }
         .tint(Color.linksAccent) // extensions don't get the app's AccentColor asset
         .overlay { resultOverlay }
-        .sensoryFeedback(.success, trigger: model.phase) { _, new in new == .sent || new == .practice }
+        .sensoryFeedback(.success, trigger: model.phase) { _, new in new == .sent || new == .practiceSent }
     }
+
+    private var isPractice: Bool { model.phase == .practice || model.phase == .practiceSent }
 
     private var isFailed: Bool {
         if case .failed = model.phase { return true }
@@ -47,24 +46,35 @@ struct ShareComposeView: View {
         case .noLink:
             ContentUnavailableView("No Link Found", systemImage: "link",
                                    description: Text("There's no web link in what you shared."))
-        case .practice:
-            ContentUnavailableView {
-                Label("You Found Links", systemImage: "checkmark.circle.fill")
-                    .foregroundStyle(Color.linksAccent)
-            } description: {
-                Text("This is where reels and TikToks go to your friends: add a note if you like, then tap Send. This practice link stays here.")
-            }
         default:
             Form {
+                if isPractice {
+                    // The tour's practice link gets the real compose screen, so the first send
+                    // someone sees here is how every send looks: preview, note, Send.
+                    Section {
+                        Label {
+                            Text("You found Links. This is how you send a reel or TikTok: add a note if you like, then tap **Send**. It's a practice link, so nothing goes to anyone.")
+                        } icon: {
+                            Image(systemName: "checkmark.circle.fill").foregroundStyle(Color.linksAccent)
+                        }
+                        .font(.subheadline)
+                        .accessibilityIdentifier("share.practiceIntro")
+                    }
+                }
                 Section {
                     HStack(alignment: .top, spacing: 12) {
-                        ThumbnailImage(platform: model.platform, image: model.image)
-                            .frame(width: 60, height: 80)
+                        if isPractice {
+                            BrandMarkIcon(size: 60)
+                                .frame(width: 60, height: 80)
+                        } else {
+                            ThumbnailImage(platform: model.platform, image: model.image)
+                                .frame(width: 60, height: 80)
+                        }
                         VStack(alignment: .leading, spacing: 4) {
-                            Text(model.title ?? model.platform.noun)
+                            Text(isPractice ? "Practice Link" : model.title ?? model.platform.noun)
                                 .font(.headline)
                                 .lineLimit(3)
-                            Text(model.url?.host() ?? "")
+                            Text(isPractice ? "Practice only" : model.url?.host() ?? "")
                                 .font(.footnote)
                                 .foregroundStyle(.secondary)
                         }
@@ -75,9 +85,11 @@ struct ShareComposeView: View {
                     TextField("Add a note (optional)", text: $model.note, axis: .vertical)
                         .lineLimit(1...5)
                         .focused($noteFocused)
+                        .accessibilityIdentifier("share.note")
                 } footer: {
                     if !model.recipients.isEmpty {
-                        Text("Goes to \(LinkFormat.names(model.recipients)).")
+                        let names = LinkFormat.names(model.recipients)
+                        Text(isPractice ? "A real link goes to \(names)." : "Goes to \(names).")
                     }
                 }
                 if case .failed(let message) = model.phase {
@@ -87,7 +99,7 @@ struct ShareComposeView: View {
                     }
                 }
             }
-            .disabled(model.phase == .sending)
+            .disabled(model.phase == .sending || model.phase == .practiceSent)
         }
     }
 
@@ -97,6 +109,9 @@ struct ShareComposeView: View {
             ProgressView().controlSize(.large)
         case .sent:
             ResultBadge(symbol: "checkmark.circle.fill", title: "Sent", subtitle: nil)
+        case .practiceSent:
+            ResultBadge(symbol: "checkmark.circle.fill", title: "That's It",
+                        subtitle: "A real link and its note would be in your friends' To Watch now.")
         case .duplicate(let message):
             ResultBadge(symbol: "checkmark.circle", title: "Already in Links", subtitle: message)
         default:

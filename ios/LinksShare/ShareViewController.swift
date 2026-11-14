@@ -29,8 +29,8 @@ final class ShareViewController: UIViewController {
 final class ShareModel {
     enum Phase: Equatable {
         case loading, ready, noLink, signedOut, sending, sent, duplicate(String), failed(String)
-        /// Opened with the tour's practice link: say it worked, send nothing.
-        case practice
+        /// Opened with the tour's practice link: compose as usual, but Send sends nothing.
+        case practice, practiceSent
     }
 
     private weak var context: NSExtensionContext?
@@ -109,6 +109,12 @@ final class ShareModel {
     }
 
     func send() async {
+        if phase == .practice {
+            phase = .practiceSent
+            try? await Task.sleep(for: .seconds(1.8))
+            context?.completeRequest(returningItems: nil)
+            return
+        }
         guard let url else { return }
         phase = .sending
         do {
@@ -132,10 +138,6 @@ final class ShareModel {
         } catch {
             phase = .failed(error.localizedDescription)
         }
-    }
-
-    func finishPractice() {
-        context?.completeRequest(returningItems: nil)
     }
 
     func cancel() {
