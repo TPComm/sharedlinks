@@ -381,6 +381,12 @@ final class AppModel {
         await perform { self.patch(try await self.client.setNote(link.id, note)) }
     }
 
+    /// "Try Loading the Preview Again" on a link whose preview failed.
+    func refreshPreview(_ link: SharedLink) async {
+        await perform { self.patch(try await self.client.refreshPreview(link.id)) }
+        fastPollUntil = .now.addingTimeInterval(15)
+    }
+
     func delete(_ link: SharedLink) async {
         localEdits += 1
         linkEdits[link.id, default: 0] += 1

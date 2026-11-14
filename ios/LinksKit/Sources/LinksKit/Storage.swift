@@ -41,7 +41,8 @@ public enum InboxSnapshot {
 /// JPEGs in the App Group so the widget can use them without a network round trip.
 public actor ThumbnailStore {
     public static let shared = ThumbnailStore()
-    public static let maxPixelSize = 420
+    /// Sharp enough for a full-width rich preview card on a 3x screen.
+    public static let maxPixelSize = 800
 
     private var inFlight: [Int: Task<Data?, Never>] = [:]
 

@@ -96,6 +96,12 @@ public struct APIClient: Sendable {
         return r.link
     }
 
+    /// Asks the server to fetch the link's preview again (after it failed).
+    public func refreshPreview(_ linkID: Int) async throws -> SharedLink {
+        let r: LinkEnvelope = try await send("POST", "api/links/\(linkID)/refresh", json: [:])
+        return r.link
+    }
+
     public func setNote(_ linkID: Int, _ note: String) async throws -> SharedLink {
         let r: LinkEnvelope = try await send("PATCH", "api/links/\(linkID)", json: ["note": note])
         return r.link

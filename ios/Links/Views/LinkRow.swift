@@ -302,23 +302,11 @@ struct LinkPreviewCard: View {
     let link: SharedLink
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            ThumbnailView(link: link, cornerRadius: 0)
-                .frame(width: 280, height: 360)
-            VStack(alignment: .leading, spacing: 4) {
-                Text(link.displayTitle).font(.headline).lineLimit(3)
-                Text(link.url.host() ?? link.url.absoluteString)
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
-            }
-            .padding(12)
-        }
-        .frame(width: 280)
+        RichLinkCard(link: link)
+            .frame(width: link.isPortrait ? 260 : 320)
     }
 }
 
-/// A row's reaction button, like the web app's: your emoji once you've reacted, else a smiley.
-/// It opens a tapback bar of reactionEmojis (the long-press menu has the same choices).
 private struct ReactButton: View {
     @Environment(AppModel.self) private var model
     let link: SharedLink

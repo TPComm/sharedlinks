@@ -111,6 +111,13 @@ public struct SharedLink: Codable, Sendable, Hashable, Identifiable {
     public var author: String?
     public var note: String
     public var thumb: String?
+    /// Open Graph description: an article's standfirst, an Instagram post's like and comment counts.
+    public var summary: String?
+    /// The site's own name ("The Guardian"), or the platform's.
+    public var siteName: String?
+    /// The thumbnail's pixel size, when the server knows it.
+    public var thumbWidth: Int?
+    public var thumbHeight: Int?
     public var meta: String
     public var addedBy: String
     public var addedAt: Date
@@ -119,6 +126,10 @@ public struct SharedLink: Codable, Sendable, Hashable, Identifiable {
 
     enum CodingKeys: String, CodingKey {
         case id, url, platform, title, author, note, thumb, meta, seen, reactions
+        case summary = "description"
+        case siteName = "site_name"
+        case thumbWidth = "thumb_w"
+        case thumbHeight = "thumb_h"
         case addedBy = "added_by"
         case addedAt = "added_at"
     }
@@ -136,6 +147,10 @@ public struct SharedLink: Codable, Sendable, Hashable, Identifiable {
         author = try c.decodeIfPresent(String.self, forKey: .author)
         note = try c.decodeIfPresent(String.self, forKey: .note) ?? ""
         thumb = try c.decodeIfPresent(String.self, forKey: .thumb)
+        summary = try c.decodeIfPresent(String.self, forKey: .summary)
+        siteName = try c.decodeIfPresent(String.self, forKey: .siteName)
+        thumbWidth = try? c.decodeIfPresent(Int.self, forKey: .thumbWidth)
+        thumbHeight = try? c.decodeIfPresent(Int.self, forKey: .thumbHeight)
         meta = try c.decodeIfPresent(String.self, forKey: .meta) ?? "done"
         addedBy = try c.decode(String.self, forKey: .addedBy)
         addedAt = try c.decode(Date.self, forKey: .addedAt)
@@ -144,7 +159,8 @@ public struct SharedLink: Codable, Sendable, Hashable, Identifiable {
     }
 
     public init(id: Int, url: URL, platform: Platform, title: String? = nil, author: String? = nil,
-                note: String = "", thumb: String? = nil, meta: String = "done", addedBy: String,
+                note: String = "", thumb: String? = nil, summary: String? = nil, siteName: String? = nil,
+                thumbWidth: Int? = nil, thumbHeight: Int? = nil, meta: String = "done", addedBy: String,
                 addedAt: Date = .now, seen: [String: Date] = [:], reactions: [String: String] = [:]) {
         self.id = id
         self.url = url
@@ -153,6 +169,10 @@ public struct SharedLink: Codable, Sendable, Hashable, Identifiable {
         self.author = author
         self.note = note
         self.thumb = thumb
+        self.summary = summary
+        self.siteName = siteName
+        self.thumbWidth = thumbWidth
+        self.thumbHeight = thumbHeight
         self.meta = meta
         self.addedBy = addedBy
         self.addedAt = addedAt
@@ -161,6 +181,36 @@ public struct SharedLink: Codable, Sendable, Hashable, Identifiable {
     }
 
     public var isLoadingPreview: Bool { meta == "pending" }
+
+    /// The server tried and found nothing to show; the app offers a retry.
+    public var previewFailed: Bool { meta == "failed" }
+
+    /// Width over height of the thumbnail, clamped to what a card can show (9:16 portrait to 2:1 wide).
+    /// Without a known size, short-video platforms are assumed portrait and the web landscape.
+    public var thumbAspect: Double {
+        if let w = thumbWidth, let h = thumbHeight, w > 0, h > 0 {
+            return min(max(Double(w) / Double(h), 9.0 / 16.0), 2)
+        }
+        switch platform {
+        case .tiktok, .instagram: return 9.0 / 16.0
+        case .youtube: return 16.0 / 9.0
+        default: return 1.91
+        }
+    }
+
+    /// Tall cards (reels, TikToks) are shown narrower, as Messages does.
+    public var isPortrait: Bool { thumbAspect < 1 }
+
+    /// The domain without "www.", as Messages shows under a link.
+    public var host: String {
+        url.host()?.replacingOccurrences(of: "www.", with: "", options: .anchored) ?? url.absoluteString
+    }
+
+    /// Where it's from, for the card's footer: the site's name, else the platform or the domain.
+    public var sourceName: String {
+        if let siteName, !siteName.isEmpty { return siteName }
+        return platform == .web ? host : platform.label
+    }
 
     public var displayTitle: String {
         if let title, !title.isEmpty { return title }

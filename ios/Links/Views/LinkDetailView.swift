@@ -78,42 +78,33 @@ private struct LinkPage: View {
 
     // MARK: Sections
 
-    /// The thumbnail, which opens the link too. #8's rich preview card replaces this.
+    /// The rich preview card, which opens the link too, with a retry when the preview failed.
     private var preview: some View {
-        Button(action: watch) {
-            ThumbnailView(link: link, cornerRadius: 16)
-                .frame(width: 180, height: 240)
-                .shadow(color: .black.opacity(0.15), radius: 16, y: 6)
+        VStack(spacing: 10) {
+            Button(action: watch) {
+                RichLinkCard(link: link)
+                    .shadow(color: .black.opacity(0.12), radius: 14, y: 5)
+            }
+            .buttonStyle(.plain)
+            .frame(maxWidth: link.isPortrait ? 300 : .infinity)
+            .accessibilityElement(children: .combine)
+            .accessibilityAddTraits(.isHeader)
+            .accessibilityHint(link.platform.openTitle)
+            .accessibilityIdentifier("linkPage.preview")
+            if link.previewFailed {
+                Button("Try Loading the Preview Again", systemImage: "arrow.clockwise") {
+                    Task { await model.refreshPreview(link) }
+                }
+                .font(.subheadline)
+                .accessibilityIdentifier("linkPage.retryPreview")
+            }
         }
-        .buttonStyle(.plain)
         .frame(maxWidth: .infinity)
-        .accessibilityHidden(true) // the Watch button below does the same
     }
 
     private var about: some View {
         let from = mine ? "You sent this" : "From \(inbox.name(of: link.addedBy))"
         return VStack(alignment: .leading, spacing: 14) {
-            VStack(alignment: .leading, spacing: 6) {
-                HStack(spacing: 6) {
-                    PlatformBadge(platform: link.platform)
-                    if let author = link.author {
-                        Text(author)
-                            .font(.subheadline)
-                            .foregroundStyle(.secondary)
-                            .lineLimit(1)
-                    }
-                }
-                Group {
-                    if link.isLoadingPreview {
-                        Text("Loading preview title").redacted(reason: .placeholder)
-                    } else {
-                        Text(link.displayTitle)
-                    }
-                }
-                .font(.title2.weight(.bold))
-                .accessibilityAddTraits(.isHeader)
-            }
-
             // Who sent it, and their note as a message from them.
             HStack(alignment: .top, spacing: 10) {
                 AvatarView(user: inbox.user(link.addedBy), size: 32)

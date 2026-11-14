@@ -192,6 +192,61 @@ struct DisplayTitleTests {
     }
 }
 
+@Suite("Rich previews")
+struct RichPreviewTests {
+    @Test func decodesTheRichPreviewFields() throws {
+        let link = try Fixture.decode(SharedLink.self, """
+        {"id": 1, "url": "https://www.instagram.com/reel/C1/", "platform": "instagram", "title": "beach day",
+         "author": "@sam", "description": "12K likes, 40 comments", "site_name": "Instagram",
+         "thumb": "/thumbs/1", "thumb_w": 640, "thumb_h": 1136, "meta": "done", "added_by": "u", "added_at": 1}
+        """)
+        #expect(link.summary == "12K likes, 40 comments")
+        #expect(link.siteName == "Instagram")
+        #expect(link.thumbWidth == 640 && link.thumbHeight == 1136)
+        #expect(link.isPortrait)
+        #expect(abs(link.thumbAspect - 640.0 / 1136.0) < 0.0001)
+    }
+
+    @Test func olderServersAndOddSizesStillDecode() throws {
+        let link = try Fixture.decode(SharedLink.self, """
+        {"id": 1, "url": "https://example.com/a", "platform": "web", "thumb_w": "wide", "added_by": "u", "added_at": 1}
+        """)
+        #expect(link.summary == nil && link.siteName == nil && link.thumbWidth == nil)
+        #expect(link.thumbAspect == 1.91)
+    }
+
+    @Test(arguments: [
+        (Platform.tiktok, 9.0 / 16.0), (.instagram, 9.0 / 16.0), (.youtube, 16.0 / 9.0), (.web, 1.91), (.x, 1.91),
+    ])
+    func unknownSizeGuessesByPlatform(_ platform: Platform, _ aspect: Double) {
+        let link = SharedLink(id: 1, url: URL(string: "https://example.com")!, platform: platform, addedBy: "u")
+        #expect(link.thumbAspect == aspect)
+    }
+
+    @Test func aspectIsClamped() {
+        func aspect(_ w: Int, _ h: Int) -> Double {
+            SharedLink(id: 1, url: URL(string: "https://example.com")!, platform: .web, thumbWidth: w, thumbHeight: h,
+                       addedBy: "u").thumbAspect
+        }
+        #expect(aspect(100, 1000) == 9.0 / 16.0)
+        #expect(aspect(1000, 100) == 2)
+        #expect(aspect(1200, 630) == 1200.0 / 630.0)
+        #expect(aspect(0, 100) == 1.91)
+    }
+
+    @Test func sourceName() {
+        let url = URL(string: "https://www.theguardian.com/a")!
+        #expect(SharedLink(id: 1, url: url, platform: .web, siteName: "The Guardian", addedBy: "u").sourceName == "The Guardian")
+        #expect(SharedLink(id: 1, url: url, platform: .web, addedBy: "u").sourceName == "theguardian.com")
+        #expect(SharedLink(id: 1, url: URL(string: "https://youtu.be/x")!, platform: .youtube, addedBy: "u").sourceName == "YouTube")
+    }
+
+    @Test func failedPreview() {
+        let link = SharedLink(id: 1, url: URL(string: "https://example.com")!, platform: .web, meta: "failed", addedBy: "u")
+        #expect(link.previewFailed && !link.isLoadingPreview)
+    }
+}
+
 @Suite("Inbox decoding")
 struct InboxDecodingTests {
     @Test func badRowsAreSkippedNotFatal() throws {
