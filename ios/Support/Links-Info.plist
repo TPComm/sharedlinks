@@ -26,5 +26,9 @@
 		<key>NSAllowsLocalNetworking</key>
 		<true/>
 	</dict>
+	<!-- Only Apple's built-in, exempt encryption (HTTPS, the Keychain, CryptoKit), so App Store
+	     Connect doesn't ask about export compliance for every build. -->
+	<key>ITSAppUsesNonExemptEncryption</key>
+	<false/>
 </dict>
 </plist>
