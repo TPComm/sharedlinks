@@ -373,9 +373,12 @@ final class LinksUITests: XCTestCase {
     func testSigningOutReturnsToSignIn() throws {
         launch(as: server.spare)
         app.buttons["account"].tap()
+        XCTAssert(app.descendants(matching: .any)["Privacy Policy"].waitForExistence(timeout: 5),
+                  "no Privacy Policy in the account menu")
         app.buttons["Sign Out"].tap()
         let signIn = app.buttons["signIn"]
         XCTAssert(signIn.waitForExistence(timeout: 10))
+        XCTAssert(app.descendants(matching: .any)["signIn.privacy"].exists, "no Privacy Policy on the sign-in screen")
         XCTAssertFalse(app.tabBars.firstMatch.exists)
         XCTAssertEqual(app.buttons["Create Account"].frame.width, signIn.frame.width, accuracy: 1,
                        "the sign-in buttons differ in width")

@@ -128,6 +128,9 @@ struct AccountMenu: View {
                 if let support = LinksConfig.supportURL {
                     ContactSupportButton(url: support)
                 }
+                Link(destination: LinksConfig.privacyPolicyURL) {
+                    Label("Privacy Policy", systemImage: "lock.shield")
+                }
             }
             Button("Sign Out", systemImage: "rectangle.portrait.and.arrow.right", role: .destructive) {
                 Task { await model.signOut() }

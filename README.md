@@ -34,8 +34,10 @@ itself off, and TipKit tips then point out the gestures once each.
 
 ## Set up WorkOS (once)
 
-1. Create a WorkOS account and enable **AuthKit** (email + password, Google, Apple, passkeys,
-   whatever you like).
+1. Create a WorkOS account and enable **AuthKit** (email + password, passkeys, Apple…). If you turn
+   on **Google** (or any other social login), turn on **Sign in with Apple** too: App Store guideline
+   4.8 asks for an equivalent login next to a social one. Email + password and passkeys alone don't
+   need it.
 2. **Redirects**: add `https://YOUR-HOST/auth/callback`. For local development (staging environment)
    also add `http://localhost:8000/auth/callback`.
 3. Copy the **Client ID** (and optionally an **API key**; the code exchange also works with PKCE
@@ -43,6 +45,20 @@ itself off, and TipKit tips then point out the gestures once each.
 4. Decide who can get in: set `ALLOWED_EMAILS` on the server (`you@x.com,friend@y.com`, or
    `@yourdomain.com` for a whole domain). Without it, anyone who can sign in to your AuthKit
    can see everything. You can also turn off sign-ups in the WorkOS dashboard.
+
+**Sign in with Apple and the guest list.** Someone who picks *Hide My Email* signs in with a relay
+address (`…@privaterelay.appleid.com`, and `…@private.icloud.com` for new ones from late 2026), not
+the email on your guest list, so the server turns them away ("isn't on the guest list"). Until
+invites can let people in without a matching email, ask friends to choose *Share My Email*. Never
+add the relay domains to `ALLOWED_EMAILS`: that would let in anyone with an Apple Account who hides
+their email.
+
+Deleting an account (`DELETE /api/me` with `WORKOS_API_KEY` set) deletes the WorkOS user too.
+WorkOS's docs don't say whether that also revokes the person's Sign in with Apple tokens, and
+Links never sees those tokens (WorkOS keeps them). If it doesn't, Apple's
+[TN3194](https://developer.apple.com/documentation/technotes/tn3194-handling-account-deletions-and-revoking-tokens-for-sign-in-with-apple)
+covers it: once the account data is gone, the person can stop using Sign in with Apple with Links
+in their Apple Account settings.
 
 How it fits together: the app opens `/auth/authorize` in `ASWebAuthenticationSession` with a PKCE
 challenge; the server forwards to AuthKit; AuthKit redirects back to `/auth/callback`, which hands
@@ -136,6 +152,10 @@ runtime is inside the binary, so run `bun upgrade && deploy/deploy.sh …` about
   the App Store listing's Support URL. The app shows the same address (`LINKS_SUPPORT_URL` in
   `ios/Config.xcconfig`) in the account menu and on the sign-in screen. A different server can set
   its own with `SUPPORT_EMAIL` (pass it to `setup.sh`), along with `LINKS_SUPPORT_URL`.
+- The privacy policy (App Store guideline 5.1.1) is on `https://YOUR-HOST/privacy`: use that page as
+  the listing's Privacy Policy URL. The app opens it from the account menu and the sign-in screen.
+  It gives `SUPPORT_EMAIL` for privacy requests. Keep it in step with
+  `ios/Links/PrivacyInfo.xcprivacy` and the listing's privacy answers.
 
 ### Moving over from the old Python web app
 
@@ -179,6 +199,7 @@ All endpoints except sign-in need `Authorization: Bearer <session token>`.
 | POST | `/api/reports` | `{link_id \| user_id, reason, details?}`; reason is `spam`, `offensive`, `harassment` or `other` → 201 |
 | POST | `/api/blocks` | `{user_id}` → `{blocked}` |
 | DELETE | `/api/blocks/:user_id` | unblock (URL-encode the id) → `{blocked}` |
+| GET | `/privacy` | public privacy policy page, with the same address, for the App Store Privacy Policy URL |
 | GET | `/support` | public page with the support address (`SUPPORT_EMAIL`, default `support@tpcomm.co`), for the App Store Support URL |
 | GET | `/thumbs/:id` | the cached thumbnail |
 
