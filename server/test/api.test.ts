@@ -363,6 +363,53 @@ describe("deleting an account", () => {
     expect(after.links.find((l: any) => l.id === sent.id).added_by).toBe("deleted");
     expect(after.links.some((l: any) => l.added_by === janeId || l.seen[janeId] || l.reactions[janeId])).toBe(false);
   });
+
+  test("a request still in flight when the account goes writes nothing for it", async () => {
+    const jane = await signIn("domain");
+    const friend = await signIn("good");
+    const [janeId, token] = [jane.data.user.id, jane.data.token];
+    const link = (await call("/api/links", { token: friend.data.token, body: { url: `${origin}/plain?n=inflight` } })).data.link;
+
+    // Each request sends its headers (and passes the session check), then waits for its body.
+    const slow = (method: string, path: string, body: unknown) => {
+      let send!: () => void;
+      const sent = new Promise<void>((resolve) => (send = resolve));
+      const stream = new ReadableStream({
+        async start(controller) {
+          await sent;
+          controller.enqueue(new TextEncoder().encode(JSON.stringify(body)));
+          controller.close();
+        },
+      });
+      const res = fetch(api + path, {
+        method, body: stream, duplex: "half",
+        headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+      } as RequestInit);
+      return { send, res };
+    };
+    const inFlight = [
+      slow("POST", "/api/links", { url: `${origin}/plain?n=late` }),
+      slow("POST", `/api/links/${link.id}/seen`, { seen: true }),
+      slow("POST", `/api/links/${link.id}/react`, { emoji: "🔥" }),
+      slow("PATCH", "/api/me", { name: "Late Name" }),
+    ];
+    await Bun.sleep(50);
+    expect((await call("/api/me", { method: "DELETE", token })).status).toBe(200);
+    for (const r of inFlight) r.send();
+    // The 401 the app reads as "signed out", and no rows left under the deleted id.
+    expect(await Promise.all(inFlight.map(async (r) => (await r.res).status))).toEqual([401, 401, 401, 401]);
+    await idle();
+
+    const db = new Database(join(dataDir, "links.db"), { readonly: true });
+    try {
+      for (const where of ["users WHERE id = ?", "seen WHERE person = ?", "reactions WHERE person = ?", "links WHERE added_by = ?"]) {
+        expect(db.query(`SELECT COUNT(*) AS n FROM ${where}`).get(janeId), where).toEqual({ n: 0 });
+      }
+      expect(db.query("SELECT 1 FROM links WHERE url LIKE ?").get("%n=late")).toBeNull();
+    } finally {
+      db.close();
+    }
+  });
 });
 
 describe("helpers", () => {
