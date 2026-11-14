@@ -1,5 +1,5 @@
 import { Database } from "bun:sqlite";
-import { mkdirSync } from "node:fs";
+import { mkdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { normalize } from "./links.ts";
 
@@ -97,6 +97,7 @@ export function openDatabase(dataDir: string): Database {
   migrateToV3(db);
   migrateToV4(db);
   migrateToV5(db);
+  migrateToV6(db, dataDir);
   return db;
 }
 
@@ -187,6 +188,24 @@ function migrateToV5(db: Database) {
     }
     db.run("PRAGMA user_version = 5");
   })();
+}
+
+/**
+ * v6: Instagram's login page used to pass for the post (fixed in #35), so a fetch could save its logo
+ * as the thumbnail and "Instagram" as the @handle, over a reel's real ones during #31's backfill.
+ * Drop both and let the backfill fetch those links again.
+ */
+function migrateToV6(db: Database, dataDir: string) {
+  const { user_version } = db.query("PRAGMA user_version").get() as { user_version: number };
+  if (user_version >= 6) return;
+  const damaged = db.transaction(() => {
+    const rows = db.query(`UPDATE links SET author = NULL, thumb_type = NULL, thumb_w = NULL, thumb_h = NULL,
+        thumb_v = thumb_v + 1, preview_v = 0 WHERE platform = 'instagram' AND author = 'Instagram' RETURNING id`)
+      .all() as { id: number }[];
+    db.run("PRAGMA user_version = 6");
+    return rows;
+  })();
+  for (const { id } of damaged) rmSync(join(dataDir, "thumbs", String(id)), { force: true });
 }
 
 /**
