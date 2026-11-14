@@ -5,6 +5,10 @@
 #   WORKOS_CLIENT_ID=client_... ALLOWED_EMAILS=you@x.com,friend@y.com \
 #     deploy/setup.sh root@203.0.113.7 links.example.com
 #
+# Push notifications (see the README): add APNS_TEAM_ID, APNS_TOPIC, and APNS_KEY_ID with
+# APNS_KEY_FILE (a local path to the .p8 key) and/or APNS_SANDBOX_KEY_ID with APNS_SANDBOX_KEY_FILE.
+# The key files go over SSH stdin to /etc/links/apns-{production,sandbox}.p8.
+#
 # The hostname's DNS A (and AAAA, if any) record must already point at the VPS, because Caddy
 # fetches a Let's Encrypt certificate for it. Safe to re-run: it only changes what's missing, and
 # only the settings you pass. Read the API key as above rather than typing it on the command line,
@@ -31,14 +35,26 @@ ssh "$HOST" 'umask 077 && mkdir -p /tmp/links-setup'
 for f in links.service links-backup.service links-backup.timer; do upload "$HERE/$f" "/tmp/links-setup/$f"; done
 sed "s/links.example.com/$DOMAIN/" "$HERE/Caddyfile" | ssh "$HOST" 'cat > /tmp/links-setup/Caddyfile'
 
+# APNs keys: the service can't read /home or /root (ProtectHome), so they're installed in /etc/links.
+APNS_FILES=()
+for pair in production:APNS_KEY_FILE sandbox:APNS_SANDBOX_KEY_FILE; do
+  env=${pair%%:*} var=${pair#*:}
+  [[ -n "${!var:-}" ]] || continue
+  [[ -r "${!var}" ]] || { echo "$var: can't read ${!var}" >&2; exit 1; }
+  ssh "$HOST" "umask 077; cat > /tmp/links-setup/apns-$env.p8" < "${!var}"
+  APNS_FILES+=("$var=/etc/links/apns-$env.p8")
+done
+
 # Only the settings you pass are sent; the VPS merges them into /etc/links/links.env, so re-running
 # with just WORKOS_API_KEY=... keeps your ALLOWED_EMAILS.
 {
   echo "PUBLIC_URL=https://$DOMAIN"
-  for key in WORKOS_CLIENT_ID WORKOS_API_KEY ALLOWED_EMAILS SUPPORT_EMAIL; do
+  for key in WORKOS_CLIENT_ID WORKOS_API_KEY ALLOWED_EMAILS SUPPORT_EMAIL \
+             APNS_TEAM_ID APNS_TOPIC APNS_KEY_ID APNS_SANDBOX_KEY_ID; do
     # An if, not &&: a trailing failed test would fail the pipeline and stop the script.
     if [[ -n "${!key:-}" ]]; then echo "$key=${!key}"; fi
   done
+  for line in "${APNS_FILES[@]+"${APNS_FILES[@]}"}"; do echo "$line"; done
 } | ssh "$HOST" 'umask 077; cat > /tmp/links-setup/links.env.new'
 
 echo "==> Configuring the VPS"
@@ -124,6 +140,12 @@ while IFS= read -r line; do
   mv /etc/links/links.env.tmp /etc/links/links.env
 done < /tmp/links-setup/links.env.new
 chown root:links /etc/links/links.env && chmod 640 /etc/links/links.env
+for env in production sandbox; do
+  if [ -f "/tmp/links-setup/apns-$env.p8" ]; then
+    install -o root -g links -m 640 "/tmp/links-setup/apns-$env.p8" "/etc/links/apns-$env.p8"
+    echo "    installed the APNs $env key"
+  fi
+done
 grep -q '^WORKOS_CLIENT_ID=.' /etc/links/links.env \
   || echo "    NOTE: set WORKOS_CLIENT_ID in /etc/links/links.env (or re-run setup.sh with it), then: systemctl restart links"
 

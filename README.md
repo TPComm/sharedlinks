@@ -117,6 +117,28 @@ A build that doesn't come up healthy is rolled back automatically; the last good
 `links-server.prev`. Re-running `setup.sh` only changes the settings you pass. The OS and Caddy patch themselves; Bun's
 runtime is inside the binary, so run `bun upgrade && deploy/deploy.sh …` about once a month.
 
+**Push notifications** (new links, reactions, and the app badge while Links is closed). Without
+them the app still works, polling while it's open. To turn them on:
+
+1. In [Certificates, Identifiers & Profiles](https://developer.apple.com/account/resources/identifiers/list),
+   open the app's identifier (`LINKS_BUNDLE_ID`) and tick **Push Notifications**.
+2. Under [Keys](https://developer.apple.com/account/resources/authkeys/list), add a key with
+   **Apple Push Notifications service (APNs)**. New keys are for one environment: make one for
+   **Sandbox** (Xcode builds) and one for **Production** (TestFlight and the App Store). Download each
+   `.p8` (only possible once) and note its Key ID and your Team ID (top right of the page).
+3. Pass them to `setup.sh`, which installs the keys as `/etc/links/apns-{production,sandbox}.p8`
+   (`640 root:links`) and restarts the server:
+
+```bash
+APNS_TEAM_ID=ABCDE12345 APNS_TOPIC=com.example.links \
+APNS_KEY_ID=PROD123456 APNS_KEY_FILE=~/Downloads/AuthKey_PROD123456.p8 \
+APNS_SANDBOX_KEY_ID=SAND123456 APNS_SANDBOX_KEY_FILE=~/Downloads/AuthKey_SAND123456.p8 \
+  deploy/setup.sh root@203.0.113.7 links.example.com
+```
+
+`APNS_TOPIC` is the app's bundle ID. An older key that works in both environments can be passed as
+both. Without any keys the server logs one warning at startup and sends nothing.
+
 **Backups off the box:** `rsync -a root@203.0.113.7:/var/lib/links/backups/ ./backups/`
 
 **Reports and moderation** (App Store guideline 1.2). Whoever runs the server reads the reports:
@@ -168,7 +190,9 @@ All endpoints except sign-in need `Authorization: Bearer <session token>`.
 | GET | `/auth/authorize` | `?code_challenge=&state=[&screen_hint=sign-up]` → redirects to AuthKit |
 | GET | `/auth/callback` | AuthKit's redirect; bounces to `sharedlinks://auth/callback?code=…` |
 | POST | `/api/auth/token` | `{code, code_verifier}` → `{token, user, claimable}` |
-| POST | `/api/auth/logout` | ends this session |
+| POST | `/api/auth/logout` | ends this session (and removes its device tokens) |
+| POST | `/api/devices` | `{token, env}`: this session's APNs device token (hex), `env` is `sandbox` or `production`. Registering a token again moves it to this session |
+| DELETE | `/api/devices/:token` | forget one of your device tokens |
 | GET/PATCH/DELETE | `/api/me` | `{user, claimable}`; PATCH `{name}`; DELETE deletes the account, its sessions, watched marks and reactions; the links it sent stay, from `deleted` ("Deleted user"). Also the WorkOS user, given `WORKOS_API_KEY` |
 | POST | `/api/me/claim` | `{id}` of a legacy person |
 | GET | `/api/state` | `{me, users, links, blocked}`: without links I reported or that people I blocked sent, and without blocked people's watched marks and reactions |
