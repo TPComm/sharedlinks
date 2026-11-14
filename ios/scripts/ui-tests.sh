@@ -13,6 +13,8 @@
 #                               test-without-building)
 #   LINKS_UI_TEST_LOGS          keep the server and xcodebuild logs here (default: a temp folder,
 #                               deleted at exit)
+#   LINKS_UI_TEST_SHARD         K/N: run only every Nth test starting with the Kth, as CI does to
+#                               split the tests across N runners (default: all of them)
 set -euo pipefail
 
 ios="$(cd "$(dirname "$0")/.." && pwd)"
@@ -82,6 +84,41 @@ if [[ -z "$destination" ]]; then
   destination="platform=iOS Simulator,id=$udid"
 fi
 
+# -- shard: deal the tests out in the order the test files list them, read from the source. The
+# last slice runs everything the others don't (-skip-testing), so a test the scan misses still runs.
+shard_args=()
+if [[ -n "${LINKS_UI_TEST_SHARD:-}" ]]; then
+  if [[ ! "$LINKS_UI_TEST_SHARD" =~ ^([0-9]+)/([0-9]+)$ ]] \
+    || (( BASH_REMATCH[1] < 1 || BASH_REMATCH[1] > BASH_REMATCH[2] )); then
+    echo "error: LINKS_UI_TEST_SHARD must be K/N with 1 <= K <= N, not \"$LINKS_UI_TEST_SHARD\"" >&2
+    exit 1
+  fi
+  shard="${BASH_REMATCH[1]}" shards="${BASH_REMATCH[2]}" i=0 mine=0
+  while IFS= read -r test; do
+    if (( i % shards == shard - 1 )); then
+      mine=$((mine + 1))
+      if (( shard < shards )); then shard_args+=("-only-testing:$test"); fi
+    elif (( shard == shards )); then
+      shard_args+=("-skip-testing:$test")
+    fi
+    i=$((i + 1))
+  done < <(find "$ios/LinksUITests" -name '*.swift' -print0 | LC_ALL=C sort -z | xargs -0 awk '
+    FNR == 1 { class = "" }
+    /(^|[^A-Za-z0-9_])class[[:space:]]+[A-Za-z0-9_]+[[:space:]]*:[[:space:]]*XCTestCase/ {
+      sub(/.*class[[:space:]]+/, ""); sub(/[[:space:]]*:.*/, ""); class = $0; next
+    }
+    class != "" && /^[[:space:]]*(@[A-Za-z]+[[:space:]]+)*func[[:space:]]+test[A-Za-z0-9_]*[[:space:]]*\(/ {
+      sub(/.*func[[:space:]]+/, ""); sub(/[[:space:]]*\(.*/, ""); print "LinksUITests/" class "/" $0
+    }
+  ')
+  if (( mine == 0 )); then
+    echo "error: UI test slice $LINKS_UI_TEST_SHARD has no tests ($i in all)" >&2
+    exit 1
+  fi
+  echo "UI test slice $LINKS_UI_TEST_SHARD: $mine of the $i tests found, plus any the scan missed in the last slice"
+  if (( ${#shard_args[@]} )); then printf '  %s\n' "${shard_args[@]}"; fi
+fi
+
 # xcodebuild hands TEST_RUNNER_<NAME> to the test runner as <NAME>. The tests pass the URL and
 # token on to the app (DEBUG builds read LINKS_SERVER_URL and LINKS_DEV_TOKEN).
 # Signed (ad hoc, for the Simulator): the app needs its App Group entitlement for the keychain.
@@ -100,6 +137,7 @@ run_tests() {
       -destination "$destination" \
       -derivedDataPath "${LINKS_UI_TEST_DERIVED_DATA:-build}" \
       -parallel-testing-enabled NO \
+      ${shard_args[@]+"${shard_args[@]}"} \
       "$@"
   ) 2>&1 | tee "$logs/xcodebuild.log"
 }

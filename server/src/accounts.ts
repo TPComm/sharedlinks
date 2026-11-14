@@ -2,7 +2,7 @@ import type { Database } from "bun:sqlite";
 import { rmSync } from "node:fs";
 import { join } from "node:path";
 import type { Config } from "./config.ts";
-import { LEGACY, now, type InviteRow, type UserRow } from "./db.ts";
+import { defaultGroup, deleteEmptyGroups, LEGACY, now, type InviteRow, type UserRow } from "./db.ts";
 import { BadRequest, clip } from "./links.ts";
 import { screener } from "./moderation.ts";
 
@@ -199,6 +199,7 @@ export class Accounts {
         .get(legacyId, `${LEGACY}%`) as { name: string } | null;
       if (!legacy) throw new BadRequest("That person was already claimed.");
       this.db.run("UPDATE links SET added_by = ? WHERE added_by = ?", [userId, legacyId]);
+      this.db.run("UPDATE OR IGNORE group_members SET user_id = ? WHERE user_id = ?", [userId, legacyId]);
       for (const table of ["seen", "reactions"]) {
         this.db.run(`UPDATE OR IGNORE ${table} SET person = ? WHERE person = ?`, [userId, legacyId]);
         this.db.run(`DELETE FROM ${table} WHERE person = ?`, [legacyId]);
@@ -222,11 +223,13 @@ export class Accounts {
       const ids = this.db.query("DELETE FROM links WHERE added_by = ? RETURNING id").all(userId) as { id: number }[];
       this.db.run("DELETE FROM seen WHERE person = ?", [userId]);
       this.db.run("DELETE FROM reactions WHERE person = ?", [userId]);
-      this.db.run("DELETE FROM users WHERE id = ?", [userId]); // sessions cascade
-      return ids;
+      this.db.run("DELETE FROM users WHERE id = ?", [userId]); // sessions and memberships cascade
+      return { ids, orphaned: deleteEmptyGroups(this.db) };
     })();
-    for (const { id } of sent) rmSync(join(this.config.dataDir, "thumbs", String(id)), { force: true });
-    return { links: sent.length, workos: await this.deleteWorkOSUser(userId) };
+    for (const id of [...sent.ids.map((r) => r.id), ...sent.orphaned]) {
+      rmSync(join(this.config.dataDir, "thumbs", String(id)), { force: true });
+    }
+    return { links: sent.ids.length, workos: await this.deleteWorkOSUser(userId) };
   }
 
   /** Best effort: the Links account is already gone, so a failure here is only logged. */
@@ -316,11 +319,18 @@ export class Accounts {
         throw new AuthError("Links is invite-only. Ask a friend who uses it to invite you, then tap their invite link.", 403);
       }
       this.upsertUser(user.id, email, name, avatar);
-      this.db.run("UPDATE users SET member = 1 WHERE id = ?", [user.id]);
+      this.admit(user.id);
       this.db.run("UPDATE invites SET used_by = ?, used_at = ? WHERE id = ?", [user.id, now(), invite.id]);
       console.log(`invite ${invite.id} from ${invite.invited_by ?? "admin"} used by ${user.id}`);
     }).immediate();
     return { token: this.newSession(user.id), ...this.mePayload(user.id) };
+  }
+
+  /** Let someone in: a member, in the default chat like everyone before groups. */
+  private admit(userId: string) {
+    this.db.run("UPDATE users SET member = 1 WHERE id = ?", [userId]);
+    this.db.run("INSERT OR IGNORE INTO group_members (group_id, user_id, joined_at) VALUES (?, ?, ?)",
+      [defaultGroup(this.db), userId, now()]);
   }
 
   /** Signed-in people (not legacy ones) with this email, for the admin commands. */
@@ -335,7 +345,7 @@ export class Accounts {
       .get(email, `${LEGACY}%`) as { id: string } | null;
     const id = row?.id ?? `local_${Buffer.from(crypto.getRandomValues(new Uint8Array(8))).toString("hex")}`;
     this.upsertUser(id, email, name || titleCase(email.split("@")[0] ?? "Someone"), null);
-    this.db.run("UPDATE users SET member = 1 WHERE id = ?", [id]); // the admin minting it vouches for them
+    if (!this.isMember(id)) this.admit(id); // the admin minting it vouches for them
     return this.newSession(id);
   }
 }
