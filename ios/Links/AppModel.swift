@@ -204,8 +204,11 @@ final class AppModel {
     }
 
     func revokeInvite(_ invite: Invite) async {
+        let before = invites
         invites.removeAll { $0.id == invite.id }
-        await perform { self.invites = try await self.client.revokeInvite(invite.id) }
+        await perform(onFailure: { self.invites = before }) {
+            self.invites = try await self.client.revokeInvite(invite.id)
+        }
     }
 
     /// Deletes the account on the server (the links it sent stay, from "Deleted user"), then
