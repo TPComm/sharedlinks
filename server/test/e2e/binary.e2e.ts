@@ -87,6 +87,14 @@ const fakeOrigin = Bun.serve({
 });
 const origin = `http://127.0.0.1:${fakeOrigin.port}`;
 
+// A throwaway APNs key, so the configured server has push on and warns about nothing.
+const apnsKeyFile = join(mkdtempSync(join(tmpdir(), "links-apns-")), "apns.p8");
+{
+  const { privateKey } = await crypto.subtle.generateKey({ name: "ECDSA", namedCurve: "P-256" }, true, ["sign"]);
+  const der = Buffer.from(await crypto.subtle.exportKey("pkcs8", privateKey)).toString("base64");
+  writeFileSync(apnsKeyFile, `-----BEGIN PRIVATE KEY-----\n${der.match(/.{1,64}/g)!.join("\n")}\n-----END PRIVATE KEY-----\n`);
+}
+
 function env(overrides: Record<string, string | undefined> = {}) {
   return {
     PATH: process.env.PATH,
@@ -96,6 +104,12 @@ function env(overrides: Record<string, string | undefined> = {}) {
     WORKOS_CLIENT_ID: CLIENT_ID,
     WORKOS_API: workos.url.href,
     ALLOWED_EMAILS: " alice@example.com , @team.test",
+    // Push on (nobody registers a device here, so nothing is sent), and never to Apple.
+    APNS_TEAM_ID: "TEAM123456",
+    APNS_TOPIC: "com.example.links",
+    APNS_KEY_ID: "KEY1234567",
+    APNS_KEY_FILE: apnsKeyFile,
+    APNS_HOST: "https://127.0.0.1:9",
     ...egress.env,
     ...overrides,
   };
@@ -565,11 +579,12 @@ describe("a server that isn't set up yet", () => {
     // Built with --no-compile-autoload-dotenv: a .env in the working directory must not configure it.
     writeFileSync(join(dir, ".env"), "WORKOS_CLIENT_ID=client_FROM_DOTENV\nALLOWED_EMAILS=someone@example.com\n");
     const server = await startServer("links-server (unconfigured)", binary, {
-      cwd: dir, env: env({ WORKOS_CLIENT_ID: undefined, ALLOWED_EMAILS: undefined, DATA_DIR: undefined }),
+      cwd: dir, env: env({ WORKOS_CLIENT_ID: undefined, ALLOWED_EMAILS: undefined, DATA_DIR: undefined, APNS_KEY_FILE: undefined }),
     });
     try {
       await printed(server, "stderr", "warning: WORKOS_CLIENT_ID isn't set, so nobody can sign in.\n");
       await printed(server, "stderr", "warning: ALLOWED_EMAILS isn't set, so anyone who can sign in to your AuthKit can see and add links.\n");
+      await printed(server, "stderr", "warning: APNS_TEAM_ID, APNS_TOPIC and an APNs key (APNS_KEY_ID/APNS_KEY_FILE) aren't all set, so push notifications are off.\n");
       const unavailable = { status: 503, data: { error: "Sign-in isn't set up on the server (WORKOS_CLIENT_ID)." } };
       expect(await request(server.url, `/auth/authorize?code_challenge=${pkce().challenge}&state=x`)).toMatchObject(unavailable);
       expect(await request(server.url, "/api/auth/token", { body: { code: "c", code_verifier: "v" } })).toMatchObject(unavailable);
