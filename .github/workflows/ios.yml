@@ -46,10 +46,12 @@ jobs:
             echo relevant=false >>"$GITHUB_OUTPUT"
           fi
 
-  # The check main requires is the last job, which passes when these do. The UI tests take ~9
-  # minutes one after another, so two runners split them, each booting its Simulator while it
-  # builds. Two, not more: each slice adds ~4 minutes of build and boot, and the org runs at most
-  # 5 macOS jobs at once, so a run asking for more runners waits longer behind other PRs' runs.
+  # The check main requires is the last job, which passes when these do. The UI tests take ~12
+  # minutes one after another, so two runners split them. Two, not more: each slice adds its own
+  # build and Simulator boot, and the org runs at most 5 macOS jobs at once, so a run asking for
+  # more runners waits longer behind other PRs' runs. The Simulator boots after the build, not
+  # beside it: booting in the background slowed the build and LinksKit tests from ~1 minute each
+  # to 8-9.
   ui-tests:
     name: ${{ matrix.shard == 1 && 'LinksKit tests, ' || '' }}App build and UI tests (${{ matrix.shard }} of ${{ strategy.job-total }})
     needs: changes
@@ -73,16 +75,6 @@ jobs:
         run: |
           xcodebuild -version
           xcrun simctl list runtimes
-
-      # The first boot takes 1.5-8.5 minutes, so it starts in the background and overlaps the
-      # build. Only `simctl boot`, not `bootstatus`: #46 found bootstatus waits longer than
-      # xcodebuild, which needs less of the boot finished to start testing. ui-tests.sh finds the
-      # Simulator by name.
-      - name: Start booting the Simulator
-        run: |
-          udid="$(xcrun simctl create "Links UI Tests" "iPhone 17")"
-          echo "SIMULATOR_UDID=$udid" >>"$GITHUB_ENV"
-          nohup xcrun simctl boot "$udid" >"$RUNNER_TEMP/simulator-boot.log" 2>&1 &
 
       - name: LinksKit tests
         if: matrix.shard == 1
@@ -124,12 +116,7 @@ jobs:
         env:
           LINKS_UI_TEST_ACTION: test-without-building
           LINKS_UI_TEST_SHARD: ${{ matrix.shard }}/${{ strategy.job-total }}
-        run: |
-          until xcrun simctl list devices | grep -q "$SIMULATOR_UDID) (Booted)"; do
-            cat "$RUNNER_TEMP/simulator-boot.log"
-            sleep 5
-          done
-          ios/scripts/ui-tests.sh
+        run: ios/scripts/ui-tests.sh
 
   check:
     # The name main's ruleset requires: rename it there too if it changes.
