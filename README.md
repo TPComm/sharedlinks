@@ -128,21 +128,19 @@ them the app still works, polling while it's open. To turn them on:
 1. In [Certificates, Identifiers & Profiles](https://developer.apple.com/account/resources/identifiers/list),
    open the app's identifier (`LINKS_BUNDLE_ID`) and tick **Push Notifications**.
 2. Under [Keys](https://developer.apple.com/account/resources/authkeys/list), add a key with
-   **Apple Push Notifications service (APNs)**. New keys are for one environment: make one for
-   **Sandbox** (Xcode builds) and one for **Production** (TestFlight and the App Store). Download each
-   `.p8` (only possible once) and note its Key ID and your Team ID (top right of the page).
-3. Pass them to `setup.sh`, which installs the keys as `/etc/links/apns-{production,sandbox}.p8`
-   (`640 root:links`) and restarts the server:
+   **Apple Push Notifications service (APNs)**, for **Sandbox & Production** so one key covers Xcode
+   builds and TestFlight/App Store builds. Download the `.p8` (only possible once) and note its Key ID.
+3. Pass them to `setup.sh`, which installs the key as `/etc/links/apns.p8` (`640 root:links`) and
+   restarts the server:
 
 ```bash
-APNS_TEAM_ID=ABCDE12345 APNS_TOPIC=com.example.links \
-APNS_KEY_ID=PROD123456 APNS_KEY_FILE=~/Downloads/AuthKey_PROD123456.p8 \
-APNS_SANDBOX_KEY_ID=SAND123456 APNS_SANDBOX_KEY_FILE=~/Downloads/AuthKey_SAND123456.p8 \
+APNS_TEAM_ID=9F2D9SPG9Z APNS_TOPIC=com.tpcomm.links \
+APNS_KEY_ID=ABC123DEFG APNS_KEY_FILE=~/Downloads/AuthKey_ABC123DEFG.p8 \
   deploy/setup.sh root@203.0.113.7 links.example.com
 ```
 
-`APNS_TOPIC` is the app's bundle ID. An older key that works in both environments can be passed as
-both. Without any keys the server logs one warning at startup and sends nothing.
+`APNS_TOPIC` is the app's bundle ID (`LINKS_BUNDLE_ID`). Without a key the server logs one warning
+at startup and sends nothing.
 
 **Backups off the box:** `rsync -a root@203.0.113.7:/var/lib/links/backups/ ./backups/`
 

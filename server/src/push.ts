@@ -39,7 +39,7 @@ export interface PushOptions {
   retryDelayMs?: number;
 }
 
-export const pushEnabled = (c: Config) => !!(c.apnsTeamId && c.apnsTopic && Object.keys(c.apnsKeys).length);
+export const pushEnabled = (c: Config) => !!(c.apnsTeamId && c.apnsTopic && c.apnsKey);
 
 const b64url = (data: string | ArrayBuffer) =>
   Buffer.from(typeof data === "string" ? Buffer.from(data) : new Uint8Array(data)).toString("base64url");
@@ -54,8 +54,8 @@ const size = (payload: unknown) => Buffer.byteLength(JSON.stringify(payload));
 
 export class Pusher {
   readonly enabled: boolean;
-  private keys = new Map<ApnsEnv, Promise<CryptoKey>>();
-  private jwts = new Map<ApnsEnv, { jwt: string; iat: number }>();
+  private signingKey: Promise<CryptoKey> | null = null;
+  private jwt: { jwt: string; iat: number } | null = null;
   private conns = new Map<string, { session: http2.ClientHttp2Session; lastUsed: number; timer: Timer }>();
   private badgeTimers = new Map<string, { timer: Timer; done: () => void }>();
   private badgeDelayMs: number;
@@ -214,12 +214,12 @@ export class Pusher {
       }
       if (reason === "BadDeviceToken") {
         const other: ApnsEnv = env === "production" ? "sandbox" : "production";
-        if (!retried.env && this.config.apnsKeys[other]) { retried.env = true; env = other; continue; }
+        if (!retried.env) { retried.env = true; env = other; continue; }
         this.forget(device, `push ${short}: BadDeviceToken`);
         return;
       }
       if (reason === "DeviceTokenNotForTopic") { this.forget(device, `push ${short}: DeviceTokenNotForTopic (is APNS_TOPIC the app's bundle id?)`); return; }
-      if (reason === "ExpiredProviderToken" && !retried.jwt) { retried.jwt = true; this.jwts.delete(env); continue; }
+      if (reason === "ExpiredProviderToken" && !retried.jwt) { retried.jwt = true; this.jwt = null; continue; }
       if (res.status === 429 && !retried.rate) { retried.rate = true; await Bun.sleep(this.retryDelayMs); continue; }
       console.error(`push ${short}: APNs ${env} said ${res.status} ${reason ?? ""}`.trim());
       return;
@@ -232,7 +232,7 @@ export class Pusher {
   }
 
   private async request(env: ApnsEnv, token: string, type: PushType, body: string) {
-    const jwt = await this.providerToken(env);
+    const jwt = await this.providerToken();
     const session = this.connection(this.config.apnsHosts[env]);
     const headers: http2.OutgoingHttpHeaders = {
       ":method": "POST",
@@ -291,25 +291,23 @@ export class Pusher {
     return session;
   }
 
-  /** The ES256 provider token for this environment's key, re-signed every 50 minutes. */
-  async providerToken(env: ApnsEnv): Promise<string> {
-    const cached = this.jwts.get(env);
+  /** The ES256 provider token, re-signed every 50 minutes. The same key and token work for both hosts. */
+  async providerToken(): Promise<string> {
     const t = Math.floor(now());
-    if (cached && t - cached.iat < JWT_TTL_S) return cached.jwt;
-    const key = this.config.apnsKeys[env];
-    if (!key) throw new Error(`no APNs key for ${env}`);
-    let signingKey = this.keys.get(env);
-    if (!signingKey) {
-      signingKey = crypto.subtle.importKey("pkcs8", pemToDer(readFileSync(key.keyFile, "utf8")),
+    if (this.jwt && t - this.jwt.iat < JWT_TTL_S) return this.jwt.jwt;
+    const key = this.config.apnsKey;
+    if (!key) throw new Error("no APNs key");
+    if (!this.signingKey) {
+      const signingKey = crypto.subtle.importKey("pkcs8", pemToDer(readFileSync(key.keyFile, "utf8")),
         { name: "ECDSA", namedCurve: "P-256" }, false, ["sign"]);
-      signingKey.catch(() => this.keys.delete(env));
-      this.keys.set(env, signingKey);
+      signingKey.catch(() => { if (this.signingKey === signingKey) this.signingKey = null; });
+      this.signingKey = signingKey;
     }
     const input = `${b64url(JSON.stringify({ alg: "ES256", kid: key.keyId }))}.${b64url(JSON.stringify({ iss: this.config.apnsTeamId, iat: t }))}`;
     // WebCrypto's ECDSA signature is already the raw r||s that JWS wants.
-    const sig = await crypto.subtle.sign({ name: "ECDSA", hash: "SHA-256" }, await signingKey, new TextEncoder().encode(input));
+    const sig = await crypto.subtle.sign({ name: "ECDSA", hash: "SHA-256" }, await this.signingKey, new TextEncoder().encode(input));
     const jwt = `${input}.${b64url(sig)}`;
-    this.jwts.set(env, { jwt, iat: t });
+    this.jwt = { jwt, iat: t };
     return jwt;
   }
 

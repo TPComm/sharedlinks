@@ -107,7 +107,7 @@ jobs:
         timeout-minutes: 10
         run: |
           openssl genpkey -algorithm EC -pkeyopt ec_paramgen_curve:P-256 -out "$RUNNER_TEMP/apns.p8"
-          WORKOS_API_KEY=sk_test_e2e APNS_TEAM_ID=TEAME2E APNS_TOPIC=com.example.links \
+          WORKOS_API_KEY=sk_test_e2e APNS_TEAM_ID=TEAME2E APNS_TOPIC=com.tpcomm.links \
           APNS_KEY_ID=KEYE2E APNS_KEY_FILE="$RUNNER_TEMP/apns.p8" \
             deploy/setup.sh root@localhost localhost 2>&1 | tee "$RUNNER_TEMP/setup-2.log" \
             || { echo "::error::setup.sh exited $? after: $(tail -n 1 "$RUNNER_TEMP/setup-2.log")"; exit 1; }
@@ -118,11 +118,10 @@ jobs:
           deploy/test/e2e.sh finished "$RUNNER_TEMP/setup-2.log" live
           deploy/test/e2e.sh env-file PUBLIC_URL=https://localhost WORKOS_CLIENT_ID=client_E2E \
             ALLOWED_EMAILS=e2e@example.com WORKOS_API_KEY=sk_test_e2e APNS_TEAM_ID=TEAME2E \
-            APNS_TOPIC=com.example.links APNS_KEY_ID=KEYE2E APNS_KEY_FILE=/etc/links/apns-production.p8 \
-            -APNS_SANDBOX_KEY_FILE
-          deploy/test/e2e.sh apns-keys production
+            APNS_TOPIC=com.tpcomm.links APNS_KEY_ID=KEYE2E APNS_KEY_FILE=/etc/links/apns.p8
+          deploy/test/e2e.sh apns-key
           deploy/test/e2e.sh service-env WORKOS_API_KEY=sk_test_e2e ALLOWED_EMAILS=e2e@example.com \
-            APNS_KEY_FILE=/etc/links/apns-production.p8
+            APNS_KEY_FILE=/etc/links/apns.p8
           deploy/test/e2e.sh stack
           deploy/test/e2e.sh data
           deploy/test/e2e.sh tidy

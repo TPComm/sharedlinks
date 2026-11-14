@@ -92,8 +92,8 @@ beforeAll(async () => {
   const [prod, sandbox] = await Promise.all([fakeApns("production"), fakeApns("sandbox")]);
   apnsServers = [prod.server, sandbox.server];
   const config = {
-    ...configFromEnv({ APNS_TEAM_ID: "TEAM123456", APNS_TOPIC: "com.example.links", APNS_KEY_ID: "KEYPROD", APNS_KEY_FILE: keyFile,
-                       APNS_SANDBOX_KEY_ID: "KEYSAND", APNS_SANDBOX_KEY_FILE: keyFile, APNS_HOST: prod.url, APNS_SANDBOX_HOST: sandbox.url }),
+    ...configFromEnv({ APNS_TEAM_ID: "TEAM123456", APNS_TOPIC: "com.tpcomm.links", APNS_KEY_ID: "KEY1234567", APNS_KEY_FILE: keyFile,
+                       APNS_HOST: prod.url, APNS_SANDBOX_HOST: sandbox.url }),
     port: 0, hostname: "127.0.0.1", dataDir, workosClientId: "client_TEST", workosApi: fakeWorkOS.url.origin,
     allowedEmails, allowPrivateNetwork: true, logRequests: false, previewBackfillMs: 0,
   };
@@ -155,7 +155,7 @@ describe("pushes", () => {
     for (const s of sent) {
       expect(s.headers["apns-push-type"]).toBe("alert");
       expect(s.headers["apns-priority"]).toBe("10");
-      expect(s.headers["apns-topic"]).toBe("com.example.links");
+      expect(s.headers["apns-topic"]).toBe("com.tpcomm.links");
       expect(s.headers["apns-expiration"]).toBeUndefined();
       expect(s.body).toEqual({
         aps: {
@@ -197,7 +197,7 @@ describe("pushes", () => {
     const jwts = new Set(sent.map((s) => s.jwt));
     expect(jwts.size).toBe(1);
     const [h, c, sig] = [...jwts][0]!.split(".");
-    expect(JSON.parse(Buffer.from(h!, "base64url").toString())).toEqual({ alg: "ES256", kid: "KEYPROD" });
+    expect(JSON.parse(Buffer.from(h!, "base64url").toString())).toEqual({ alg: "ES256", kid: "KEY1234567" });
     const claims = JSON.parse(Buffer.from(c!, "base64url").toString());
     expect(claims.iss).toBe("TEAM123456");
     expect(Math.abs(claims.iat - Date.now() / 1000)).toBeLessThan(60 * 60);

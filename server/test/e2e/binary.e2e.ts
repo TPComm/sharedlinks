@@ -106,7 +106,7 @@ function env(overrides: Record<string, string | undefined> = {}) {
     ALLOWED_EMAILS: " alice@example.com , @team.test",
     // Push on (nobody registers a device here, so nothing is sent), and never to Apple.
     APNS_TEAM_ID: "TEAM123456",
-    APNS_TOPIC: "com.example.links",
+    APNS_TOPIC: "com.tpcomm.links",
     APNS_KEY_ID: "KEY1234567",
     APNS_KEY_FILE: apnsKeyFile,
     APNS_HOST: "https://127.0.0.1:9",

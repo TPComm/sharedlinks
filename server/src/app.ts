@@ -1,7 +1,7 @@
 import type { Database } from "bun:sqlite";
 import { join } from "node:path";
 import { Accounts, AuthError, publicUser } from "./accounts.ts";
-import type { ApnsEnv, Config } from "./config.ts";
+import type { Config } from "./config.ts";
 import { deleteLink, now, openDatabase, type LinkRow, type UserRow } from "./db.ts";
 import { BadRequest, canonical, clipText, extractUrl } from "./links.ts";
 import { REPORT_REASONS } from "./moderation.ts";
@@ -334,7 +334,7 @@ export function createApp(config: Config, opts: AppOptions = {}) {
           [token, me, session, data.env, t, t],
         ));
         // `push`: whether this server sends any, so the app knows it can poll less often.
-        return json({ ok: true, push: push.enabled && !!config.apnsKeys[data.env as ApnsEnv] });
+        return json({ ok: true, push: push.enabled });
       }),
     },
     "/api/devices/:token": {
