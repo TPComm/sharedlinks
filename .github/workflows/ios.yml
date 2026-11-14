@@ -53,6 +53,15 @@ jobs:
           -derivedDataPath build
           ARCHS=arm64
 
+      # App Store Connect rejects a bundle that uses a required-reason API (UserDefaults, via
+      # LinksKit) without declaring it, so every shipped bundle must carry a valid manifest.
+      - name: Privacy manifest in every bundle
+        working-directory: ios/build/Build/Products/Debug-iphonesimulator
+        run: |
+          for bundle in Links.app Links.app/PlugIns/LinksShare.appex Links.app/PlugIns/LinksWidgets.appex; do
+            plutil -lint "$bundle/PrivacyInfo.xcprivacy"
+          done
+
       - uses: oven-sh/setup-bun@v2
         with:
           # Same Bun as server.yml and local development.
