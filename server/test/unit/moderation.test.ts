@@ -91,7 +91,9 @@ describe("reports", () => {
     expect(resolveReport(db, tmp.dir, 2, false).resolution).toBe("kept");
     expect(db.query("SELECT 1 FROM links WHERE id = 2").get()).not.toBeNull();
 
-    expect(resolveReport(db, tmp.dir, 1, true).resolution).toBe("removed");
+    const removing: number[] = [];
+    expect(resolveReport(db, tmp.dir, 1, true, (id) => removing.push(id)).resolution).toBe("removed");
+    expect(removing).toEqual([1]);
     expect(db.query("SELECT 1 FROM links WHERE id = 1").get()).toBeNull();
     expect(existsSync(join(tmp.dir, "thumbs", "1"))).toBe(false);
     expect(openReports(db).map((r) => r.id)).toEqual([3]);

@@ -364,6 +364,9 @@ export function createApp(config: Config, opts: AppOptions = {}) {
         const id = String((await readJson(req)).id ?? "");
         return json(asUser(me, () => {
           accounts.claimLegacy(me, id);
+          // Their links leave your To Watch, and blocks of them now hide your links too.
+          const blockers = db.query("SELECT blocker FROM blocks WHERE blocked = ?").all(me) as { blocker: string }[];
+          push.badges([me, ...blockers.map((b) => b.blocker)]);
           return accounts.mePayload(me);
         }));
       }),

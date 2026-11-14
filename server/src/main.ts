@@ -24,7 +24,7 @@ import { startServer } from "./app.ts";
 import { configFromEnv } from "./config.ts";
 import { openDatabase } from "./db.ts";
 import { BadRequest } from "./links.ts";
-import { pushEnabled } from "./push.ts";
+import { Pusher, pushEnabled } from "./push.ts";
 import { formatReport, openReports, resolveReport } from "./moderation.ts";
 import { BUILD_COMMIT } from "./version.ts";
 
@@ -85,7 +85,16 @@ if (command === "mint-session") {
         console.error("usage: links-server reports [resolve <id> [--remove]]");
         process.exit(1);
       }
-      const report = resolveReport(db, config.dataDir, Number(id), remove);
+      // The running server doesn't see this, so badge the people the link leaves To Watch for from here.
+      const tasks: Promise<void>[] = [];
+      const push = new Pusher(db, config, new Accounts(db, config), (t) => { tasks.push(t); }, { badgeDelayMs: 0 });
+      let unwatched: string[] = [];
+      const report = resolveReport(db, config.dataDir, Number(id), remove, (linkId) => {
+        if (push.enabled) unwatched = push.unwatchedBy(linkId);
+      });
+      push.badges(unwatched);
+      await Promise.all(tasks);
+      push.close();
       console.log(`report #${report.id} resolved: ${report.resolution}${remove ? ` (link ${report.link_id} deleted)` : ""}`);
     }
   } catch (e) {

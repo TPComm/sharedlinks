@@ -196,7 +196,8 @@ export class Pusher {
   async send(device: Device, type: PushType, body: string) {
     let env = device.env;
     let retried = { env: false, jwt: false, rate: false };
-    for (;;) {
+    for (let attempt = 0; ; attempt++) {
+      if (attempt && !this.stillRegistered(device)) return;
       const res = await this.request(env, device.token, type, body);
       if (res.status === 200) {
         if (env !== device.env) {
@@ -224,6 +225,12 @@ export class Pusher {
       console.error(`push ${short}: APNs ${env} said ${res.status} ${reason ?? ""}`.trim());
       return;
     }
+  }
+
+  /** Not signed out, taken over by another account or registered again since this send began. */
+  private stillRegistered(device: Device) {
+    return !!this.db.query("SELECT 1 FROM device_tokens WHERE token = ? AND user_id = ? AND updated_at = ?")
+      .get(device.token, device.user_id, device.updated_at);
   }
 
   private forget(device: Device, message: string) {

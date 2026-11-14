@@ -145,6 +145,9 @@ final class AppModel {
         watching = nil
         UNUserNotificationCenter.current().setBadgeCount(0)
         UNUserNotificationCenter.current().removeAllDeliveredNotifications() // names and titles from this account
+        // Even if the server never heard about the sign-out (offline), this phone stops showing pushes.
+        // Signing in registers again.
+        if !Self.isUITesting { UIApplication.shared.unregisterForRemoteNotifications() }
         WidgetCenter.shared.reloadAllTimelines()
     }
 

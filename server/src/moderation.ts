@@ -98,7 +98,9 @@ export function formatReport(r: ReturnType<typeof openReports>[number]): string 
  * Mark a report handled. With `remove`, the reported link goes for everyone, and every other open
  * report on it is resolved with it.
  */
-export function resolveReport(db: Database, dataDir: string, id: number, remove: boolean): ReportRow {
+export function resolveReport(
+  db: Database, dataDir: string, id: number, remove: boolean, beforeRemove?: (linkId: number) => void,
+): ReportRow {
   return db.transaction(() => {
     const report = db.query("SELECT * FROM reports WHERE id = ?").get(id) as ReportRow | null;
     if (!report) throw new BadRequest(`no report #${id}`);
@@ -107,6 +109,7 @@ export function resolveReport(db: Database, dataDir: string, id: number, remove:
       if (report.link_id === null) {
         throw new BadRequest("--remove only removes links; to remove a person, use links-server delete-user <email>");
       }
+      beforeRemove?.(report.link_id);
       deleteLink(db, dataDir, report.link_id);
       db.run("UPDATE reports SET resolved_at = ?, resolution = 'removed' WHERE link_id = ? AND resolved_at IS NULL",
         [now(), report.link_id]);

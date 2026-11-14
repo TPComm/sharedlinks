@@ -38,7 +38,7 @@ const fakeOrigin = Bun.serve({
 
 interface Sent { env: string; token: string; headers: http2.IncomingHttpHeaders; body: any; jwt: string }
 /** Answers per token, in order, then 200. */
-const replies = new Map<string, { status: number; body?: object }[]>();
+const replies = new Map<string, { status: number; body?: object; before?: () => void }[]>();
 let sent: Sent[] = [];
 function fakeApns(env: string) {
   const server = http2.createServer();
@@ -51,6 +51,7 @@ function fakeApns(env: string) {
       sent.push({ env, token, headers, body: JSON.parse(data), jwt: String(headers.authorization).replace("bearer ", "") });
       const queue = [replies.get(`${env}:${token}`), replies.get(token)].find((q) => q?.length);
       const reply = queue?.shift() ?? { status: 200 };
+      reply.before?.();
       stream.respond({ ":status": reply.status, "apns-id": crypto.randomUUID() });
       stream.end(reply.body ? JSON.stringify(reply.body) : undefined);
     });
@@ -244,6 +245,14 @@ describe("pushes", () => {
     await settle();
     expect(sent.map((s) => [s.token, Object.keys(s.body.aps)])).toEqual([[ALEX, ["badge"]]]);
   });
+
+  test("claiming a pre-sign-in person updates your badge", async () => {
+    app.db.run("INSERT INTO users (id, name, created_at) VALUES ('legacy:Kim', 'Kim', 1)");
+    app.db.run("INSERT INTO links (url, platform, added_by, added_at) VALUES ('https://a.test/kim', 'web', 'legacy:Kim', 1)");
+    expect((await call("/api/me/claim", { token: kim, body: { id: "legacy:Kim" } })).status).toBe(200);
+    await settle();
+    expect(sent.find((s) => s.token === KIM)?.body).toEqual({ aps: { badge: expect.any(Number) } });
+  });
 });
 
 describe("APNs answers", () => {
@@ -296,6 +305,21 @@ describe("APNs answers", () => {
     await badge("user_01ALEX");
     expect(sent.length).toBe(1);
     expect(tokens().some((t) => t.token === ALEX)).toBe(true);
+  });
+
+  test("a retry stops once the token was signed out or taken over", async () => {
+    replies.set(ALEX, [{ status: 429, body: { reason: "TooManyRequests" },
+                         before: () => app.db.run("DELETE FROM device_tokens WHERE token = ?", [ALEX]) }]);
+    await badge("user_01ALEX");
+    expect(sent.length).toBe(1);
+    await register(alex, ALEX);
+
+    sent = [];
+    replies.set(ALEX, [{ status: 403, body: { reason: "ExpiredProviderToken" },
+                         before: () => app.db.run("UPDATE device_tokens SET user_id = 'user_01SAM', updated_at = updated_at + 1 WHERE token = ?", [ALEX]) }]);
+    await badge("user_01ALEX");
+    expect(sent.length).toBe(1);
+    await register(alex, ALEX);
   });
 
   test("signing out removes that session's tokens; deleting the account removes the rest", async () => {

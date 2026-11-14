@@ -58,6 +58,9 @@ struct RootView: View {
         .task(id: "\(delegate.deviceToken ?? "")|\(model.isSignedIn)") {
             if let token = delegate.deviceToken { await model.registerDevice(token) }
         }
+        .onChange(of: model.isSignedIn) { _, signedIn in
+            if !signedIn { delegate.deviceToken = nil } // unregistered; signing in brings a new one
+        }
         .onChange(of: delegate.openLinkID, initial: true) { _, id in
             guard let id, model.isSignedIn else { return }
             delegate.openLinkID = nil
