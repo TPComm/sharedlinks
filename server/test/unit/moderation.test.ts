@@ -62,8 +62,8 @@ describe("reports", () => {
     writeFileSync(join(tmp.dir, "thumbs", "1"), "png");
     db.exec(`
       INSERT INTO users (id, email, name, created_at) VALUES ('user_A', 'a@x.com', 'Ann', 1), ('user_B', 'b@x.com', 'Bo', 2);
-      INSERT INTO links (id, url, platform, added_by, added_at) VALUES (1, 'https://a.com/1', 'web', 'user_B', 1),
-        (2, 'https://a.com/2', 'web', 'user_B', 1);
+      INSERT INTO links (group_id, id, url, platform, added_by, added_at) VALUES (1, 1, 'https://a.com/1', 'web', 'user_B', 1),
+        (1, 2, 'https://a.com/2', 'web', 'user_B', 1);
       INSERT INTO reports (reporter, link_id, reason, details, snapshot, created_at) VALUES
         ('user_A', 1, 'offensive', 'rude', '{"url":"https://a.com/1","note":"hi","title":null}', 10),
         ('user_A', 2, 'spam', '', '{"url":"https://a.com/2"}', 20);

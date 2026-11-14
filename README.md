@@ -249,8 +249,12 @@ All endpoints except sign-in need `Authorization: Bearer <session token>`.
 | DELETE | `/api/devices/:token` | forget one of your device tokens |
 | GET/PATCH/DELETE | `/api/me` | `{user, claimable}`; PATCH `{name}`; DELETE deletes the account, its sessions, watched marks and reactions, and the links it sent (with their notes and thumbnails, for everyone). Also the WorkOS user, given `WORKOS_API_KEY` |
 | POST | `/api/me/claim` | `{id}` of a legacy person |
-| GET | `/api/state` | `{me, users, links, blocked}`: without links I reported or that people I blocked sent, and without blocked people's watched marks and reactions |
-| POST | `/api/links` | `{url, note?}`; `url` may be any text containing a link → `{link, duplicate}` |
+| GET | `/api/state` | `{me, users, groups, links, blocked}`: the chats I'm in (`{id, name, created_by, created_at, default, members}`) and their links (each with its `group_id`), without links I reported or that people I blocked sent, and without blocked people's watched marks and reactions; `?group_id=` for one chat's links |
+| POST | `/api/links` | `{url, note?, group_id?}`; `url` may be any text containing a link; without `group_id` (apps from before chats) it goes to the default chat, or my only chat if I left that → `{link, duplicate}` (a duplicate only within the same chat) |
+| POST | `/api/groups` | `{name?, members?}` (user ids; I'm added) → 201 `{group}`. An empty name means the app names it after its members; up to 50 people |
+| PATCH | `/api/groups/:id` | `{name}`: any member renames it → `{group}` |
+| POST | `/api/groups/:id/members` | `{members}`: any member adds people who are in Links → `{group}`. Nobody removes anyone else |
+| DELETE | `/api/groups/:id` | Leave the chat; the links I sent stay in it. The last one out deletes it and its links (never the default chat) |
 | POST | `/api/links/:id/seen` | `{seen: true/false}` |
 | POST | `/api/links/:id/react` | `{emoji}` (`null` removes) |
 | PATCH / DELETE | `/api/links/:id` | `{note}` (sender only) / –; 403 if the sender blocked you |

@@ -1,8 +1,9 @@
 import type { Database } from "bun:sqlite";
+import { rmSync } from "node:fs";
 import { join } from "node:path";
 import { Accounts, AuthError, INVITE_TOKEN_RE, publicUser } from "./accounts.ts";
 import type { Config } from "./config.ts";
-import { deleteLink, now, openDatabase, type LinkRow, type UserRow } from "./db.ts";
+import { defaultGroup, deleteEmptyGroups, deleteLink, now, openDatabase, type GroupRow, type LinkRow, type UserRow } from "./db.ts";
 import { BadRequest, canonical, clipText, extractUrl } from "./links.ts";
 import { REPORT_REASONS } from "./moderation.ts";
 import { fetchMetadata, PREVIEW_VERSION } from "./previews.ts";
@@ -14,6 +15,9 @@ import { BUILD_COMMIT } from "./version.ts";
 export const EMOJIS = new Set(["❤️", "😂", "🔥", "😮", "😭", "👎"]);
 
 class NotFound extends Error {}
+
+const MAX_GROUP_NAME = 60;
+const MAX_GROUP_MEMBERS = 50;
 
 const json = (body: unknown, status = 200) =>
   Response.json(body, { status, headers: { "Cache-Control": "no-store" } });
@@ -246,10 +250,12 @@ export function createApp(config: Config, opts: AppOptions = {}) {
   if (config.previewBackfillMs > 0) setTimeout(backfillNext, config.previewBackfillMs).unref();
 
   /**
-   * A link `?1` can see: not one they reported, nor one from someone they blocked. Everyone else
-   * still sees it. getState, getLink's callers (via linkId) and addLink's duplicate check use this.
+   * A link `?1` can see: one in a chat they're in (#12), but not one they reported, nor one from
+   * someone they blocked. Everyone else in the chat still sees it. getState, getLink's callers (via
+   * linkId) and addLink's duplicate check use this.
    */
-  const VISIBLE = `NOT EXISTS (SELECT 1 FROM reports WHERE reporter = ?1 AND link_id = links.id)
+  const VISIBLE = `EXISTS (SELECT 1 FROM group_members WHERE group_id = links.group_id AND user_id = ?1)
+    AND NOT EXISTS (SELECT 1 FROM reports WHERE reporter = ?1 AND link_id = links.id)
     AND NOT EXISTS (SELECT 1 FROM blocks WHERE blocker = ?1 AND blocked = links.added_by)`;
 
   const isVisible = (id: number, me: string) =>
@@ -264,11 +270,41 @@ export function createApp(config: Config, opts: AppOptions = {}) {
   const hasBlocked = (blocker: string, blocked: string) =>
     !!db.query("SELECT 1 FROM blocks WHERE blocker = ? AND blocked = ?").get(blocker, blocked);
 
-  /** `me`'s view: no hidden links, and no seen marks or reactions from people they blocked. */
-  function getState(me: string) {
+  const inGroup = (groupId: number, me: string) =>
+    !!db.query("SELECT 1 FROM group_members WHERE group_id = ? AND user_id = ?").get(groupId, me);
+
+  /** A chat `me` is in, from a request; any other is a 404, as if it were gone. */
+  function groupOf(id: unknown, me: string): number {
+    const n = typeof id === "string" && /^\d+$/.test(id) ? Number(id) : id;
+    if (!Number.isSafeInteger(n) || !inGroup(n as number, me)) throw new NotFound("That chat isn't there anymore.");
+    return n as number;
+  }
+
+  /** A chat as the app sees it: `members` are user ids, oldest first; `default` is the one everyone started in. */
+  function toGroup(r: GroupRow) {
+    const members = (db.query("SELECT user_id FROM group_members WHERE group_id = ? ORDER BY joined_at, user_id")
+      .all(r.id) as { user_id: string }[]).map((m) => m.user_id);
+    return { id: r.id, name: r.name, created_by: r.created_by, created_at: r.created_at, default: !!r.is_default, members };
+  }
+
+  const getGroup = (id: number) => toGroup(db.query("SELECT * FROM groups WHERE id = ?").get(id) as GroupRow);
+
+  function groupsOf(me: string) {
+    return (db.query(`SELECT g.* FROM groups g JOIN group_members m ON m.group_id = g.id AND m.user_id = ?
+        ORDER BY g.is_default DESC, g.created_at, g.id`).all(me) as GroupRow[]).map(toGroup);
+  }
+
+  /**
+   * `me`'s view: the chats they're in and those chats' links (just one chat's with `groupId`), with no
+   * hidden links, and no seen marks or reactions from people they blocked.
+   */
+  function getState(me: string, groupId?: number) {
     const blocked = blockedBy(me);
     const links = new Map<number, ReturnType<typeof toLink>>();
-    for (const r of db.query(`SELECT * FROM links WHERE ${VISIBLE} ORDER BY added_at DESC`).all(me) as LinkRow[]) {
+    const only = groupId === undefined ? "" : " AND group_id = ?2";
+    const rows = db.query(`SELECT * FROM links WHERE ${VISIBLE}${only} ORDER BY added_at DESC`)
+      .all(...(groupId === undefined ? [me] : [me, groupId])) as LinkRow[];
+    for (const r of rows) {
       links.set(r.id, toLink(r));
     }
     for (const r of db.query("SELECT * FROM seen").all() as { link_id: number; person: string; seen_at: number }[]) {
@@ -281,12 +317,12 @@ export function createApp(config: Config, opts: AppOptions = {}) {
     }
     // Blocked people stay in `users`, so the app can name them under Blocked People.
     const users = (db.query("SELECT * FROM users ORDER BY created_at").all() as UserRow[]).map(publicUser);
-    return { me, users, links: [...links.values()], blocked: [...blocked] };
+    return { me, users, groups: groupsOf(me), links: [...links.values()], blocked: [...blocked] };
   }
 
   function toLink(r: LinkRow) {
     return {
-      id: r.id, url: r.url, platform: r.platform, title: r.title, author: r.author, note: r.note,
+      id: r.id, group_id: r.group_id, url: r.url, platform: r.platform, title: r.title, author: r.author, note: r.note,
       description: r.description, site_name: r.site_name,
       thumb: r.thumb_type ? `/thumbs/${r.id}${r.thumb_v ? `/${r.thumb_v}` : ""}` : null, thumb_w: r.thumb_w, thumb_h: r.thumb_h, meta: r.meta, added_by: r.added_by, added_at: r.added_at,
       seen: {} as Record<string, number>, reactions: {} as Record<string, string>,
@@ -320,23 +356,41 @@ export function createApp(config: Config, opts: AppOptions = {}) {
     }).immediate();
   }
 
-  async function addLink(text: unknown, note: unknown, by: string) {
+  /**
+   * Where a link goes: the chat asked for, or for apps from before groups, the default chat (or
+   * their only one, if they left it).
+   */
+  function targetGroup(requested: unknown, by: string): number {
+    if (requested !== undefined && requested !== null) return groupOf(requested, by);
+    const mine = db.query(`SELECT g.id FROM groups g JOIN group_members m ON m.group_id = g.id AND m.user_id = ?
+        ORDER BY g.is_default DESC LIMIT 2`).all(by) as { id: number }[];
+    const everyone = defaultGroup(db);
+    if (mine[0]?.id === everyone || mine.length === 1) return mine[0]!.id;
+    throw new BadRequest(mine.length ? "Pick a chat to send it to." : "Start a chat to send links.");
+  }
+
+  async function addLink(text: unknown, note: unknown, requestedGroup: unknown, by: string) {
     const raw = extractUrl(text);
     if (!raw) throw new BadRequest("That doesn't look like a link.");
     const cleanNote = clipText(note, 500);
     accounts.screen(cleanNote, "note");
     const { url, platform } = await canonical(raw, fetchOpts);
     if (!new URL(url).hostname) throw new BadRequest("That doesn't look like a link.");
-    const existing = db.query("SELECT id FROM links WHERE url = ?").get(url) as { id: number } | null;
+    const groupId = asUser(by, () => targetGroup(requestedGroup, by));
+    const existing = db.query("SELECT id FROM links WHERE group_id = ? AND url = ?").get(groupId, url) as { id: number } | null;
     if (existing) {
       // Hidden for them (reported, or from someone they blocked): don't hand it back.
       if (!isVisible(existing.id, by)) throw new BadRequest("That link was already shared.");
       return { link: getLink(existing.id, by)!, duplicate: true };
     }
-    const { lastInsertRowid } = asUser(by, () => db.run(
-      "INSERT INTO links (url, platform, note, added_by, added_at) VALUES (?, ?, ?, ?, ?)",
-      [url, platform, cleanNote, by, now()],
-    ));
+    const { lastInsertRowid } = asUser(by, () => {
+      // They may have left while the short link resolved.
+      if (!inGroup(groupId, by)) throw new NotFound("That chat isn't there anymore.");
+      return db.run(
+        "INSERT INTO links (group_id, url, platform, note, added_by, added_at) VALUES (?, ?, ?, ?, ?, ?)",
+        [groupId, url, platform, cleanNote, by, now()],
+      );
+    });
     const id = Number(lastInsertRowid);
     const preview = startMetadataFetch(id, url, platform);
     // Wait (briefly) for the preview, so the notification can show the link's title.
@@ -352,6 +406,11 @@ export function createApp(config: Config, opts: AppOptions = {}) {
     return id;
   }
 
+  /** Again inside a write, once the body is in: they may have left its chat while it uploaded. */
+  function stillSees(id: number, me: string) {
+    if (!isVisible(id, me)) throw new NotFound("That link was deleted.");
+  }
+
   const sender = (id: number) => (db.query("SELECT added_by FROM links WHERE id = ?").get(id) as { added_by: string }).added_by;
 
   /** A report snapshot: what was reported as it was, since it can be edited or deleted later. */
@@ -361,7 +420,7 @@ export function createApp(config: Config, opts: AppOptions = {}) {
     if (given[0] === "link_id") {
       const id = data.link_id;
       const row = Number.isSafeInteger(id) ? db.query("SELECT * FROM links WHERE id = ?").get(id) as LinkRow | null : null;
-      if (!row) throw new NotFound("That link was deleted.");
+      if (!row || !inGroup(row.group_id, me)) throw new NotFound("That link was deleted.");
       if (row.added_by === me) throw new BadRequest("That's your own link. Delete it instead.");
       const from = db.query("SELECT name, email FROM users WHERE id = ?").get(row.added_by) as { name: string; email: string | null } | null;
       return {
@@ -381,6 +440,29 @@ export function createApp(config: Config, opts: AppOptions = {}) {
       };
     }
     throw new NotFound("That comment was deleted."); // comments arrive with #6
+  }
+
+  function groupName(name: unknown): string {
+    const clean = clipText(name, MAX_GROUP_NAME).replace(/\s+/g, " ");
+    accounts.screen(clean, "name");
+    return clean;
+  }
+
+  /**
+   * People to add to a chat that already has `have`: user ids of members of Links (not legacy or
+   * deleted people). Unknown ids are an error, so the app doesn't think it added someone it didn't.
+   */
+  function newMembers(ids: unknown, me: string, have: string[]): string[] {
+    if (ids === undefined || ids === null) ids = [];
+    if (!Array.isArray(ids) || !ids.every((id) => typeof id === "string")) throw new BadRequest("Pick the people to add.");
+    const add = [...new Set(ids as string[])].filter((id) => id !== me && !have.includes(id));
+    for (const id of add) {
+      if (!accounts.isMember(id)) throw new BadRequest("Someone you picked isn't in Links anymore.");
+    }
+    if (Math.max(have.length, 1) + add.length > MAX_GROUP_MEMBERS) {
+      throw new BadRequest(`A chat can have up to ${MAX_GROUP_MEMBERS} people.`);
+    }
+    return add;
   }
 
   type Handler<R extends Request> = (req: R, me: string) => Response | Promise<Response>;
@@ -521,7 +603,69 @@ export function createApp(config: Config, opts: AppOptions = {}) {
     "/support": new Response(supportPage(config.supportEmail), { headers: { "Content-Type": "text/html; charset=utf-8" } }),
     "/privacy": new Response(privacyPage(config.supportEmail, config.sessionDays), { headers: { "Content-Type": "text/html; charset=utf-8" } }),
 
-    "/api/state": { GET: route((_req, me) => json(getState(me))) },
+    "/api/state": {
+      GET: route((req, me) => {
+        const groupId = new URL(req.url).searchParams.get("group_id");
+        return json(getState(me, groupId === null ? undefined : groupOf(groupId, me)));
+      }),
+    },
+
+    // Group chats (#12). Anyone in a chat can rename it and add people who are in Links; nobody
+    // removes anyone else. Leaving keeps the links you sent there; the last one out deletes it.
+    "/api/groups": {
+      POST: route(async (req, me) => {
+        const data = await readJson(req);
+        const name = groupName(data.name);
+        const members = newMembers(data.members, me, []);
+        const id = asUser(me, () => {
+          const at = now();
+          const id = Number(db.run("INSERT INTO groups (name, created_by, created_at) VALUES (?, ?, ?)", [name, me, at]).lastInsertRowid);
+          for (const user of [me, ...members]) {
+            db.run("INSERT INTO group_members (group_id, user_id, joined_at) VALUES (?, ?, ?)", [id, user, at]);
+          }
+          return id;
+        });
+        return json({ group: getGroup(id) }, 201);
+      }),
+    },
+    "/api/groups/:id": {
+      PATCH: route<WithId>(async (req, me) => {
+        const id = groupOf(req.params.id, me);
+        const name = groupName((await readJson(req)).name);
+        // Again once the body is in: they may have left while it uploaded.
+        asUser(me, () => db.run("UPDATE groups SET name = ? WHERE id = ?", [name, groupOf(id, me)]));
+        return json({ group: getGroup(id) });
+      }),
+      // Leave the chat.
+      DELETE: route<WithId>((req, me) => {
+        const id = groupOf(req.params.id, me);
+        const orphaned = db.transaction(() => {
+          db.run("DELETE FROM group_members WHERE group_id = ? AND user_id = ?", [id, me]);
+          return deleteEmptyGroups(db);
+        })();
+        for (const link of orphaned) rmSync(join(config.dataDir, "thumbs", String(link)), { force: true });
+        push.badges([me]); // the chat's links leave their To Watch; nobody else's change
+        return json({ ok: true });
+      }),
+    },
+    "/api/groups/:id/members": {
+      POST: route<WithId>(async (req, me) => {
+        const id = groupOf(req.params.id, me);
+        const data = await readJson(req);
+        const added = asUser(me, () => {
+          groupOf(id, me); // still in it now the body is in
+          const have = toGroup(db.query("SELECT * FROM groups WHERE id = ?").get(id) as GroupRow).members;
+          const added = newMembers(data.members, me, have);
+          const at = now();
+          for (const user of added) {
+            db.run("INSERT OR IGNORE INTO group_members (group_id, user_id, joined_at) VALUES (?, ?, ?)", [id, user, at]);
+          }
+          return added;
+        });
+        push.badges(added); // the chat's links land in their To Watch
+        return json({ group: getGroup(id) });
+      }),
+    },
 
     // Invites (#5): anyone who's in can let a friend in. The link (with its token) is only in the
     // POST's reply; the server keeps its hash. Only POST /api/auth/token uses an invite up.
@@ -605,7 +749,7 @@ export function createApp(config: Config, opts: AppOptions = {}) {
     "/api/links": {
       POST: route(async (req, me) => {
         const data = await readJson(req);
-        const { link, duplicate } = await addLink(data.url ?? data.text, data.note, me);
+        const { link, duplicate } = await addLink(data.url ?? data.text, data.note, data.group_id, me);
         return json({ link, duplicate }, duplicate ? 200 : 201);
       }),
     },
@@ -616,7 +760,10 @@ export function createApp(config: Config, opts: AppOptions = {}) {
         const note = clipText((await readJson(req)).note, 500);
         if (sender(id) !== me) throw new AuthError("Only the person who sent a link can change its note.", 403);
         accounts.screen(note, "note");
-        db.run("UPDATE links SET note = ? WHERE id = ?", [note, id]);
+        asUser(me, () => {
+          stillSees(id, me);
+          db.run("UPDATE links SET note = ? WHERE id = ?", [note, id]);
+        });
         return json({ link: getLink(id, me) });
       }),
       DELETE: route<WithId>((req, me) => {
@@ -644,6 +791,7 @@ export function createApp(config: Config, opts: AppOptions = {}) {
         const id = linkId(req, me);
         const seen = (await readJson(req)).seen ?? true;
         asUser(me, () => {
+          stillSees(id, me);
           if (seen) {
             db.run("INSERT OR IGNORE INTO seen (link_id, person, seen_at) VALUES (?, ?, ?)", [id, me, now()]);
           } else {
@@ -659,6 +807,7 @@ export function createApp(config: Config, opts: AppOptions = {}) {
         const id = linkId(req, me);
         const emoji = (await readJson(req)).emoji;
         const changed = asUser(me, () => {
+          stillSees(id, me);
           if (typeof emoji === "string" && EMOJIS.has(emoji)) {
             const before = db.query("SELECT emoji FROM reactions WHERE link_id = ? AND person = ?").get(id, me) as { emoji: string } | null;
             db.run("INSERT OR REPLACE INTO reactions (link_id, person, emoji) VALUES (?, ?, ?)", [id, me, emoji]);

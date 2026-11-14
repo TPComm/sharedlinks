@@ -165,7 +165,7 @@ describe("pushes", () => {
           alert: { title: "Sam", body: "sent a link: Cats & Dogs\nlook!" }, badge: 1, sound: "default",
           "thread-id": "links-inbox", category: "NEW_LINK", "mutable-content": 1,
         },
-        link_id: data.link.id, sender_id: "user_01SAM",
+        group_id: 1, link_id: data.link.id, sender_id: "user_01SAM",
       });
     }
     // A duplicate sends nothing.
@@ -173,6 +173,26 @@ describe("pushes", () => {
     await call("/api/links", { token: alex, body: { url: `${fakeOrigin.url.origin}/video?n=1` } });
     await settle();
     expect(sent).toEqual([]);
+  });
+
+  test("a link in a chat alerts only its members, threaded by chat and titled with its name", async () => {
+    const alexId = (await call("/api/state", { token: alex })).data.me;
+    const chat = (await call("/api/groups", { token: sam, body: { name: "Movie night", members: [alexId] } })).data.group;
+    await call("/api/links", { token: sam, body: { url: `${fakeOrigin.url.origin}/plain?n=chat`, group_id: chat.id } });
+    await settle();
+    expect(sent.map((s) => s.token)).toEqual([ALEX]);
+    expect(sent[0]!.body).toMatchObject({
+      aps: { alert: { title: "Sam in Movie night" }, "thread-id": `links-group-${chat.id}` }, group_id: chat.id,
+    });
+    // Kim isn't in it, so Kim's badge doesn't count it; Alex's does.
+    const db = app.db;
+    const unseen = (id: string) => (db.query("SELECT COUNT(*) AS n FROM links WHERE added_by != ?1 AND NOT EXISTS (SELECT 1 FROM seen WHERE link_id = links.id AND person = ?1) AND group_id != ?2").get(id, chat.id) as { n: number }).n;
+    expect(app.push.toWatch("user_01KIM")).toBe(unseen("user_01KIM"));
+    expect(app.push.toWatch(alexId)).toBe(unseen(alexId) + 1);
+    sent = [];
+    await call(`/api/groups/${chat.id}`, { method: "DELETE", token: alex });
+    await call(`/api/groups/${chat.id}`, { method: "DELETE", token: sam });
+    await settle();
   });
 
   test("without a preview in time, the platform noun; nothing for a link deleted before it goes", async () => {
@@ -261,7 +281,7 @@ describe("pushes", () => {
 
   test("claiming a pre-sign-in person updates your badge", async () => {
     app.db.run("INSERT INTO users (id, name, created_at) VALUES ('legacy:Kim', 'Kim', 1)");
-    app.db.run("INSERT INTO links (url, platform, added_by, added_at) VALUES ('https://a.test/kim', 'web', 'legacy:Kim', 1)");
+    app.db.run("INSERT INTO links (group_id, url, platform, added_by, added_at) VALUES (1, 'https://a.test/kim', 'web', 'legacy:Kim', 1)");
     expect((await call("/api/me/claim", { token: kim, body: { id: "legacy:Kim" } })).status).toBe(200);
     await settle();
     expect(sent.find((s) => s.token === KIM)?.body).toEqual({ aps: { badge: expect.any(Number) } });

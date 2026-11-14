@@ -301,8 +301,8 @@ describe("Instagram embed fallback", () => {
     const consoleError = spyOn(console, "error").mockImplementation(() => {});
     try {
       const id = Number(db.run(
-        `INSERT INTO links (url, platform, title, author, thumb_type, thumb_w, thumb_h, thumb_v, meta, added_by, added_at)
-         VALUES (?, 'instagram', 'beach day', '@samlee', 'image/png', 1, 1, 1, 'done', 'u', 1)`, [REEL]).lastInsertRowid);
+        `INSERT INTO links (group_id, url, platform, title, author, thumb_type, thumb_w, thumb_h, thumb_v, meta, added_by, added_at)
+         VALUES (1, ?, 'instagram', 'beach day', '@samlee', 'image/png', 1, 1, 1, 'done', 'u', 1)`, [REEL]).lastInsertRowid);
       const file = join(tmp.dir, "thumbs", String(id));
       await Bun.write(file, PNG);
       const LOGO = "https://static.cdninstagram.com/rsrc.php/v4/yD/r/R0fBIMurK8v.png";
@@ -328,8 +328,8 @@ describe("Instagram embed fallback", () => {
     let db = openDatabase(tmp.dir);
     try {
       const id = Number(db.run(
-        `INSERT INTO links (url, platform, title, author, thumb_type, thumb_w, thumb_h, thumb_v, preview_v, meta, added_by, added_at)
-         VALUES (?, 'instagram', 'beach day', 'Instagram', 'image/gif', 1, 1, 2, ?, 'done', 'u', 1)`, [REEL, PREVIEW_VERSION]).lastInsertRowid);
+        `INSERT INTO links (group_id, url, platform, title, author, thumb_type, thumb_w, thumb_h, thumb_v, preview_v, meta, added_by, added_at)
+         VALUES (1, ?, 'instagram', 'beach day', 'Instagram', 'image/gif', 1, 1, 2, ?, 'done', 'u', 1)`, [REEL, PREVIEW_VERSION]).lastInsertRowid);
       const file = join(tmp.dir, "thumbs", String(id));
       await Bun.write(file, Uint8Array.from([0x47, 0x49, 0x46, 0x38, 0x39, 0x61, 1, 0, 1, 0])); // the logo
       db.run("PRAGMA user_version = 5");
@@ -463,7 +463,7 @@ describe("fetchMetadata (local stub)", () => {
 
   async function run(path: string) {
     const url = stub.origin + path;
-    const id = Number(db.run("INSERT INTO links (url, platform, added_by, added_at) VALUES (?, 'web', 'u', 1)", [url]).lastInsertRowid);
+    const id = Number(db.run("INSERT INTO links (group_id, url, platform, added_by, added_at) VALUES (1, ?, 'web', 'u', 1)", [url]).lastInsertRowid);
     await fetchMetadata(db, tmp.dir, id, url, "web", local);
     const row = db.query("SELECT title, author, thumb_type, meta FROM links WHERE id = ?").get(id);
     const file = join(tmp.dir, "thumbs", String(id));
