@@ -8,6 +8,7 @@ import { REPORT_REASONS } from "./moderation.ts";
 import { fetchMetadata, PREVIEW_VERSION } from "./previews.ts";
 // Embedded in the compiled binary (bun build --compile), for invite pages and their link previews.
 import iconPath from "../../assets/icon/previews/B/default-256.png" with { type: "file" };
+import { BUILD_COMMIT } from "./version.ts";
 
 export const EMOJIS = new Set(["❤️", "😂", "🔥", "😮", "😭", "👎"]);
 
@@ -306,6 +307,8 @@ export function createApp(config: Config) {
   const routes = {
     "/": new Response("Links API. Open the Links app to use it.\n", { headers: { "Content-Type": "text/plain; charset=utf-8" } }),
     "/healthz": new Response("ok\n"),
+    // What's deployed: the nightly check compares `commit` with origin/main.
+    "/version": Response.json({ commit: BUILD_COMMIT }),
 
     // -- sign-in (AuthKit authorization code + PKCE)
     // 1. The app opens /auth/authorize in ASWebAuthenticationSession with its PKCE challenge.

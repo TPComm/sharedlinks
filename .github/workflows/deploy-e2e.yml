@@ -25,6 +25,9 @@ jobs:
     # A throwaway VM with systemd and passwordless sudo, which setup.sh needs (containers lack systemd).
     runs-on: ubuntu-24.04
     timeout-minutes: 20
+    env:
+      # A PR's checkout is a detached merge commit, so skip deploy.sh's clean-main check.
+      DEPLOY_ANY_CHECKOUT: "1"
     defaults:
       run:
         # An explicit shell: bash adds -o pipefail, so `script | tee log` fails when the script does.
