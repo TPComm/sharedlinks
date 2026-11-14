@@ -7,11 +7,13 @@ in their spare time. Thank you for reporting problems privately.
 
 Use GitHub's private vulnerability reporting: click **Report a vulnerability** on this
 repository's Security tab, or go straight to
-https://github.com/TPComm/sharedlinks/security/advisories/new. Only you and the maintainers can see
-the report.
+https://github.com/TPComm/sharedlinks/security/advisories/new. The report isn't public: only you,
+the maintainers and the GitHub Apps on this repository that can read security advisories
+(currently Devin, by Cognition) can see it.
 
 Please don't describe the problem in a public issue, pull request or discussion. If you can't use
-the form, open an issue that only asks how to reach us privately.
+the form or don't have a GitHub account, email support@tpcomm.co to ask for a private channel, and
+leave the details out of that first email.
 
 Tell us what's affected (the server, the iOS app or the `deploy/` scripts), how to reproduce it,
 and what an attacker could do with it.
@@ -31,7 +33,7 @@ We only fix the latest of each:
 
 - The server: the latest `main`, and the build running at https://links.tpcomm.co
   (`curl https://links.tpcomm.co/version` shows its commit)
-- The iOS app: the current App Store and TestFlight build
+- The iOS app: the latest TestFlight build, and the current App Store build once it's released
 - The `deploy/` scripts: the latest `main`
 
 Older commits and app builds don't get fixes. If you run your own server from this code, update to
@@ -39,19 +41,21 @@ the latest `main`.
 
 ## Scope
 
-In scope: the code in this repository and the production server at links.tpcomm.co.
+In scope: the code in this repository, the production server at links.tpcomm.co, and how we've set
+up sign-in in WorkOS (allowed redirects and sign-in methods).
 
 Report these to their owners instead:
 
-- The sign-in pages at auth.tpcomm.co, which WorkOS hosts:
-  https://workos.com/security/responsible-disclosure
-- Cloudflare, including the human check before sign-in: https://hackerone.com/cloudflare
+- Bugs in WorkOS's own software, including the sign-in pages it hosts at auth.tpcomm.co and the
+  Cloudflare human check on them: https://workos.com/security/responsible-disclosure (a flaw in
+  Cloudflare Turnstile itself goes to https://hackerone.com/cloudflare)
 - iOS, TestFlight and the App Store: https://security.apple.com
 - Bun, Caddy, SQLite and the other projects we build on: their own security policies
 - Servers other people run from this code: whoever runs them, unless the bug is in our code
 
-Not in scope: denial of service, load or volume testing, spam, social engineering, and scanner
-output that doesn't show a real impact.
+Not in scope: flooding or load-testing the server, social engineering, getting around the word
+list, and scanner output that doesn't show a real impact. A single request, or a web page someone
+adds as a link, that crashes, hangs or fills up the server is in scope.
 
 ## Rules for testing
 
@@ -63,4 +67,4 @@ output that doesn't show a real impact.
 - Production only lets in people on its guest list, so test against a local copy instead:
   `cd server && bun install && bun run dev` starts one at http://localhost:8000, and
   `bun run mint-session you@example.com "Your Name"` prints a session token for it without
-  WorkOS. Debug builds of the iOS app talk to that local server (see the README).
+  WorkOS. Debug builds of the iOS app in the Simulator talk to that local server (see the README).
