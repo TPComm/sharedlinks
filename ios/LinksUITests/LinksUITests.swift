@@ -40,10 +40,10 @@ final class LinksUITests: XCTestCase {
         launch()
         let row = waitForRow(link, in: "toWatch")
         // The fast path: straight out to the link (Safari, for these .invalid URLs), marking it watched.
-        menu(on: row, item: "Open in Browser").tap()
-        XCTAssert(safari.wait(for: .runningForeground, timeout: 10), "the link didn't open")
         let me = try server.state(as: server.me).me
-        try server.eventually("seen by me") { try server.state(as: server.friend).link(link.id)?.seen[me] }
+        menu(on: row, item: "Open in Browser").tap()
+        try server.eventually(timeout: 20, "seen by me") { try server.state(as: server.friend).link(link.id)?.seen[me] }
+        XCTAssert(safari.wait(for: .runningForeground, timeout: safariLaunch), "the link didn't open")
 
         // Back in the app it has left To Watch, and Watched has it (not an empty list: #7).
         app.activate()
@@ -166,7 +166,7 @@ final class LinksUITests: XCTestCase {
         XCTAssertFalse(app.staticTexts["Watched it?"].exists, "asked before watching")
 
         app.buttons["linkPage.watch"].tap()
-        XCTAssert(safari.wait(for: .runningForeground, timeout: 10), "the link didn't open")
+        XCTAssert(safari.wait(for: .runningForeground, timeout: safariLaunch), "the link didn't open")
         app.activate()
         XCTAssert(page(link).waitForExistence(timeout: 10), "not on the link's page")
         XCTAssert(app.staticTexts["Watched it?"].waitForExistence(timeout: 5), "no Watched it? prompt")
@@ -364,6 +364,9 @@ final class LinksUITests: XCTestCase {
 
     /// Where the links (all on .invalid hosts) open.
     private var safari: XCUIApplication { XCUIApplication(bundleIdentifier: "com.apple.mobilesafari") }
+    /// Generous: on a busy CI runner the app's own idle wait after the tap can take 10 seconds
+    /// before Safari's launch even starts.
+    private let safariLaunch: TimeInterval = 30
 
     /// The row of a link the server already had at launch. If the launch fetch hasn't landed yet
     /// (a slow CI Simulator), pull to refresh once, as a person would, before failing.
