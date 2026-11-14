@@ -3,10 +3,12 @@ name: iOS
 on:
   pull_request:
     # The app icon lives outside ios/ (assets/icon/SharedLinks.icon), so changes there count too.
-    # The UI tests run the app against server/, so server changes count as well.
-    paths: ["ios/**", "assets/icon/**", "server/**", ".github/workflows/ios.yml"]
+    # A PR that only touches server/ skips this macOS job (~10x Linux minutes): server.yml and
+    # deploy-e2e.yml check it on Linux, and the push to main below still runs the UI tests on it.
+    paths: ["ios/**", "assets/icon/**", ".github/workflows/ios.yml"]
   push:
     branches: [main]
+    # The UI tests run the app against server/, so on main server changes count as well.
     paths: ["ios/**", "assets/icon/**", "server/**", ".github/workflows/ios.yml"]
 
 concurrency:
