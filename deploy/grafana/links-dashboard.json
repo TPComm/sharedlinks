@@ -1415,7 +1415,7 @@
             "type": "loki",
             "uid": "${loki}"
           },
-          "expr": "topk(25, sum by (method, path, status) (count_over_time({job=\"links\", host=\"$host\", systemd_unit=\"links.service\"} |~ \"^[A-Z]+ /\\\\S* \\\\d{3}$\" | regexp \"^(?P<method>[A-Z]+) (?P<path>\\\\S*) (?P<status>\\\\d{3})$\" | label_format path=`{{ regexReplaceAll \"^/api/(links|groups|invites|blocks|devices)/[^/]+\" (regexReplaceAll \"^/(l|invite|g)/[^/]+\" .path \"/${1}/:id\") \"/api/${1}/:id\" }}` [$__range])))",
+          "expr": "topk(25, sum by (method, path, status) (count_over_time({job=\"links\", host=\"$host\", systemd_unit=\"links.service\"} |~ \"^[A-Z]+ /\\\\S* \\\\d{3}$\" | regexp \"^(?P<method>[A-Z]+) (?P<path>\\\\S*) (?P<status>\\\\d{3})$\" | label_format path=`{{ regexReplaceAll \"^/api/(links|groups|invites|blocks|devices)/[^/]+\" (regexReplaceAll \"^/(l|invite|g)/[^/]+\" (regexReplaceAll \"^/thumbs/.*\" .path \"/thumbs/:id\") \"/${1}/:id\") \"/api/${1}/:id\" }}` [$__range])))",
           "queryType": "instant"
         }
       ],
