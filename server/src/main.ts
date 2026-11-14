@@ -4,7 +4,7 @@
  *
  *   links-server                                    start the server (http://localhost:8000)
  *   links-server mint-session you@example.com [Name]   print a session token (admin / Simulator)
- *   links-server delete-user you@example.com         delete an account (its links stay, from "Deleted user")
+ *   links-server delete-user you@example.com         delete an account and the links it sent
  *   links-server backup [dir]                        snapshot the database (keeps the newest 14)
  *   links-server reports                             list open reports (what was reported, by whom)
  *   links-server reports resolve <id> [--remove]     mark one handled; --remove deletes the link for everyone
@@ -50,7 +50,7 @@ if (command === "mint-session") {
   const users = accounts.usersWithEmail(email);
   for (const user of users) {
     const { links, workos } = await accounts.deleteUser(user.id);
-    console.log(`deleted ${user.name} (${user.id}); ${links} sent link${links === 1 ? "" : "s"} kept as "Deleted user"; WorkOS user: ${workos}`);
+    console.log(`deleted ${user.name} (${user.id}); ${links} sent link${links === 1 ? "" : "s"} deleted; WorkOS user: ${workos}`);
   }
   db.close();
   if (!users.length) {

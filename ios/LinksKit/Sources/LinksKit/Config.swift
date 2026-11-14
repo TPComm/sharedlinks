@@ -16,6 +16,11 @@ public enum LinksConfig {
         return URL(string: raw.trimmingCharacters(in: .whitespaces)) ?? URL(string: "http://localhost:8000")!
     }
 
+    /// The server's privacy policy page (App Store guideline 5.1.1(i)).
+    public static var privacyPolicyURL: URL {
+        serverURL.appending(path: "privacy")
+    }
+
     /// Where people reach whoever runs the server (App Store guideline 1.2), from LINKS_SUPPORT_URL:
     /// a mailto: or https: URL. Nil if it isn't set.
     public static var supportURL: URL? {
