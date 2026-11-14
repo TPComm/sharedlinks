@@ -88,6 +88,18 @@ export function createApp(config: Config) {
     return link;
   }
 
+  /**
+   * A write on `me`'s behalf, if their account still exists. A request can outlive it: DELETE /api/me
+   * (or `links-server delete-user`) can land while it awaits its body or a short link, and rows
+   * written after that would stay under the deleted id instead of "deleted".
+   */
+  function asUser<T>(me: string, write: () => T): T {
+    return db.transaction(() => {
+      if (!db.query("SELECT 1 FROM users WHERE id = ?").get(me)) throw new AuthError("Sign in to continue.");
+      return write();
+    }).immediate();
+  }
+
   async function addLink(text: unknown, note: unknown, by: string) {
     const raw = extractUrl(text);
     if (!raw) throw new BadRequest("That doesn't look like a link.");
@@ -95,10 +107,10 @@ export function createApp(config: Config) {
     if (!new URL(url).hostname) throw new BadRequest("That doesn't look like a link.");
     const existing = db.query("SELECT id FROM links WHERE url = ?").get(url) as { id: number } | null;
     if (existing) return { link: getLink(existing.id)!, duplicate: true };
-    const { lastInsertRowid } = db.run(
+    const { lastInsertRowid } = asUser(by, () => db.run(
       "INSERT INTO links (url, platform, note, added_by, added_at) VALUES (?, ?, ?, ?, ?)",
       [url, platform, clipText(note, 500), by, now()],
-    );
+    ));
     const id = Number(lastInsertRowid);
     startMetadataFetch(id, url, platform);
     return { link: getLink(id)!, duplicate: false };
@@ -177,8 +189,11 @@ export function createApp(config: Config) {
     "/api/me": {
       GET: route((_req, me) => json(accounts.mePayload(me))),
       PATCH: route(async (req, me) => {
-        accounts.rename(me, (await readJson(req)).name);
-        return json(accounts.mePayload(me));
+        const { name } = await readJson(req);
+        return json(asUser(me, () => {
+          accounts.rename(me, name);
+          return accounts.mePayload(me);
+        }));
       }),
       // Delete the account. The links it sent stay, from "Deleted user" (see Accounts.deleteUser).
       DELETE: route(async (_req, me) => {
@@ -188,8 +203,11 @@ export function createApp(config: Config) {
     },
     "/api/me/claim": {
       POST: route(async (req, me) => {
-        accounts.claimLegacy(me, String((await readJson(req)).id ?? ""));
-        return json(accounts.mePayload(me));
+        const id = String((await readJson(req)).id ?? "");
+        return json(asUser(me, () => {
+          accounts.claimLegacy(me, id);
+          return accounts.mePayload(me);
+        }));
       }),
     },
 
@@ -218,11 +236,14 @@ export function createApp(config: Config) {
     "/api/links/:id/seen": {
       POST: route<WithId>(async (req, me) => {
         const id = linkId(req);
-        if ((await readJson(req)).seen ?? true) {
-          db.run("INSERT OR IGNORE INTO seen (link_id, person, seen_at) VALUES (?, ?, ?)", [id, me, now()]);
-        } else {
-          db.run("DELETE FROM seen WHERE link_id = ? AND person = ?", [id, me]);
-        }
+        const seen = (await readJson(req)).seen ?? true;
+        asUser(me, () => {
+          if (seen) {
+            db.run("INSERT OR IGNORE INTO seen (link_id, person, seen_at) VALUES (?, ?, ?)", [id, me, now()]);
+          } else {
+            db.run("DELETE FROM seen WHERE link_id = ? AND person = ?", [id, me]);
+          }
+        });
         return json({ link: getLink(id) });
       }),
     },
@@ -230,11 +251,13 @@ export function createApp(config: Config) {
       POST: route<WithId>(async (req, me) => {
         const id = linkId(req);
         const emoji = (await readJson(req)).emoji;
-        if (typeof emoji === "string" && EMOJIS.has(emoji)) {
-          db.run("INSERT OR REPLACE INTO reactions (link_id, person, emoji) VALUES (?, ?, ?)", [id, me, emoji]);
-        } else {
-          db.run("DELETE FROM reactions WHERE link_id = ? AND person = ?", [id, me]);
-        }
+        asUser(me, () => {
+          if (typeof emoji === "string" && EMOJIS.has(emoji)) {
+            db.run("INSERT OR REPLACE INTO reactions (link_id, person, emoji) VALUES (?, ?, ?)", [id, me, emoji]);
+          } else {
+            db.run("DELETE FROM reactions WHERE link_id = ? AND person = ?", [id, me]);
+          }
+        });
         return json({ link: getLink(id) });
       }),
     },
