@@ -112,6 +112,14 @@ struct AccountMenu: View {
                     }
                 }
             }
+            Section {
+                Button("How to Share to Links", systemImage: "square.and.arrow.up") {
+                    model.startTour(at: .shareSheet)
+                }
+                Button("Show Tour Again", systemImage: "sparkles") {
+                    model.startTour()
+                }
+            }
             Button("Sign Out", systemImage: "rectangle.portrait.and.arrow.right", role: .destructive) {
                 Task { await model.signOut() }
             }

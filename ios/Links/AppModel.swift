@@ -1,6 +1,7 @@
 import AuthenticationServices
 import LinksKit
 import SwiftUI
+import TipKit
 import UserNotifications
 import WidgetKit
 
@@ -26,6 +27,10 @@ final class AppModel {
     var showAddSheet = false
     var addPrefill = ""
     var showClaimSheet = false
+    var showTour = false
+    /// The page the tour opens on: the first, or the share-sheet page from "How to Share to Links".
+    private(set) var tourStart: TourPage = .welcome
+    private(set) var tourCompleted = Onboarding.shared.hasCompletedTour
 
     private var fastPollUntil = Date.distantPast
     /// Changes on every sign-in/out, so work that started under an old session can tell.
@@ -41,7 +46,30 @@ final class AppModel {
     private(set) var account: LinkUser? = SessionStore.currentUser
     var me: LinkUser? { account ?? inbox.meUser }
 
+    /// UI tests launch with LINKS_UI_TESTS=1: no tour, tips or badge prompt to get in their way.
+    static let isUITesting: Bool = {
+        #if DEBUG
+        ProcessInfo.processInfo.environment["LINKS_UI_TESTS"] == "1"
+        #else
+        false
+        #endif
+    }()
+
+    /// LINKS_RESET_ONBOARDING=1 starts from a first launch: the tour, the share-sheet step and the
+    /// tips all show again (the tour's UI test).
+    static let resetsOnboarding: Bool = {
+        #if DEBUG
+        ProcessInfo.processInfo.environment["LINKS_RESET_ONBOARDING"] == "1"
+        #else
+        false
+        #endif
+    }()
+
     init() {
+        if Self.resetsOnboarding {
+            Onboarding.shared.reset()
+            tourCompleted = false
+        }
         #if DEBUG
         // Simulator/dev shortcut: launch with LINKS_DEV_TOKEN=<token from `server mint-session`>.
         if let devToken = ProcessInfo.processInfo.environment["LINKS_DEV_TOKEN"], !devToken.isEmpty,
@@ -97,6 +125,7 @@ final class AppModel {
 
     private func endSession() {
         sessionID = UUID()
+        showTour = false
         SessionStore.clear()
         InboxSnapshot.clear()
         ThumbnailCache.clear()
@@ -217,6 +246,7 @@ final class AppModel {
         guard isSignedIn else { return }
         inbox = state
         InboxSnapshot.save(state)
+        ShareSuggestions.seedIfNeeded(in: state)
         ThumbnailStore.prune(keeping: Set(state.links.map(\.id)))
         UNUserNotificationCenter.current().setBadgeCount(state.toWatch.count)
         // Any change can matter to some widget (To Watch, Sent receipts, a preview title arriving).
@@ -238,12 +268,35 @@ final class AppModel {
 
     /// The app icon badge shows the To Watch count. iOS only asks once; later calls are no-ops.
     func requestBadgePermission() {
-        #if DEBUG
         // No system prompt in UI tests: while it's up the app is inactive and doesn't fetch, and a
         // fresh CI Simulator shows it whenever it likes (ios/scripts/ui-tests.sh).
-        if ProcessInfo.processInfo.environment["LINKS_UI_TESTS"] == "1" { return }
-        #endif
+        // Nor over the tour: its last page offers it, and finishTour asks if that wasn't used.
+        guard !Self.isUITesting, tourCompleted else { return }
         Task { _ = try? await UNUserNotificationCenter.current().requestAuthorization(options: [.badge]) }
+    }
+
+    // MARK: Tour
+
+    /// Gesture tips wait until nothing covers the inbox, so a popover never lands under a sheet.
+    var canShowTips: Bool { tourCompleted && !showTour && !showClaimSheet && !showAddSheet }
+
+    /// Shows the tour once, after sign-in and after the claim sheet (if any) has closed.
+    func showTourIfNeeded() {
+        guard isSignedIn, !tourCompleted, !showTour, !showClaimSheet, !showAddSheet, !Self.isUITesting else { return }
+        startTour()
+    }
+
+    func startTour(at page: TourPage = .welcome) {
+        tourStart = page
+        showTour = true
+    }
+
+    /// Done or skipped: either way it doesn't come back by itself.
+    func finishTour() {
+        Onboarding.shared.completeTour()
+        tourCompleted = true
+        showTour = false
+        requestBadgePermission()
     }
 
     // MARK: Actions
@@ -292,6 +345,7 @@ final class AppModel {
     }
 
     func react(_ link: SharedLink, _ emoji: String) async {
+        ReactTip().invalidate(reason: .actionPerformed)
         let me = inbox.me
         let next = link.reactions[me] == emoji ? nil : emoji
         var optimistic = link

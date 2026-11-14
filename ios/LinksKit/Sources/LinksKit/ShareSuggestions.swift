@@ -41,9 +41,22 @@ public enum ShareSuggestions {
         interaction.donate(completion: nil)
     }
 
+    static let seededKey = "links.shareSuggestions.seeded"
+
+    /// Donates the inbox once, as soon as someone else is in it, rather than waiting for the first
+    /// send (#9): the share sheet can then start suggesting it sooner. iOS decides when a donated
+    /// conversation appears; this only starts the clock.
+    public static func seedIfNeeded(in state: InboxState) {
+        let defaults = LinksConfig.sharedDefaults
+        guard !state.otherPeople.isEmpty, !defaults.bool(forKey: seededKey) else { return }
+        defaults.set(true, forKey: seededKey)
+        donateSend(in: state)
+    }
+
     /// Forget donations, e.g. on sign-out.
     public static func deleteAll() {
         INInteraction.deleteAll(completion: nil)
+        LinksConfig.sharedDefaults.removeObject(forKey: seededKey)
     }
 
     static func person(for user: LinkUser, isMe: Bool) -> INPerson {

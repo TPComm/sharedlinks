@@ -175,8 +175,8 @@ private struct Drift: ViewModifier {
     }
 }
 
-/// A wash of the icon's green from the top, fading into the normal background.
-private struct SignInBackground: View {
+/// A wash of the icon's green from the top, fading into the normal background. (The tour too.)
+struct SignInBackground: View {
     var body: some View {
         ZStack {
             Color(.systemBackground)
