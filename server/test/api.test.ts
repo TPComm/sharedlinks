@@ -47,6 +47,9 @@ const fakeWorkOS = Bun.serve({
           sol: { id: "user_01SOL", email: "Sol@Else.test", email_verified: true, first_name: "Sol" },
           kit: { id: "user_01KIT", email: "kit@else.test", email_verified: true, first_name: "Kit" },
           pip: { id: "user_01PIP", email: "pip@else.test", email_verified: true, first_name: "Pip" },
+          lee: { id: "user_01LEE", email: "lee@else.test", email_verified: true, first_name: "Lee" },
+          max: { id: "user_01MAX", email: "max@else.test", email_verified: true, first_name: "Max" },
+          ida: { id: "user_01IDA", email: "ida@else.test", email_verified: true, first_name: "Ida" },
           unverifiedGuest: { id: "user_01UNVGUEST", email: "unv@else.test", email_verified: false },
         };
         const user = users[body.code];
@@ -188,7 +191,7 @@ describe("auth", () => {
     expect(ok.status).toBe(200);
     expect(ok.data.token).toMatch(/^[A-Za-z0-9_-]{43}$/);
     expect(ok.data.user).toEqual({ id: "user_01FRIEND", name: "Riley", avatar: "https://example.com/r.png", email: "friend@example.com" });
-    expect(ok.data.claimable.map((u: any) => u.name)).toEqual(["Sam", "Alex"]);
+    expect(ok.data.claimable).toEqual([]); // only legacy people with your name
     expect(workosRequests.at(-1)).toMatchObject({ client_id: "client_TEST", grant_type: "authorization_code", code: "good" });
     expect(workosRequests.at(-1)!.client_secret).toBeUndefined();
 
@@ -325,7 +328,7 @@ describe("links", () => {
     const db = new Database(join(dataDir, "links.db"), { readonly: true });
     const { sql } = db.query("SELECT sql FROM sqlite_master WHERE name = 'links'").get() as { sql: string };
     expect(sql).toContain("AUTOINCREMENT");
-    expect((db.query("PRAGMA user_version").get() as any).user_version).toBe(8);
+    expect((db.query("PRAGMA user_version").get() as any).user_version).toBe(9);
     db.close();
     const { data } = await call("/api/state", { token });
     expect(data.links.map((l: any) => l.url)).toContain("https://de.wikipedia.org/wiki/M%C3%BCnchen");
@@ -438,10 +441,15 @@ describe("links", () => {
   });
 
   test("claiming a legacy person moves their history", async () => {
+    expect((await call("/api/me/claim", { token, body: { id: "legacy:Sam" } })).status).toBe(400); // Riley isn't Sam
+    const asSam = await call("/api/me", { method: "PATCH", token, body: { name: "sam" } });
+    expect(asSam.status).toBe(200);
+    expect((await call("/api/me", { token })).data.claimable.map((u: any) => u.id)).toEqual(["legacy:Sam"]);
+    expect((await call("/api/me/claim", { token, body: { id: "legacy:Alex" } })).status).toBe(400);
     const r = await call("/api/me/claim", { token, body: { id: "legacy:Sam" } });
     expect(r.status).toBe(200);
     expect(r.data.user.name).toBe("Sam");
-    expect(r.data.claimable.map((u: any) => u.id)).toEqual(["legacy:Alex"]);
+    expect(r.data.claimable).toEqual([]);
     expect((await call("/api/me/claim", { token, body: { id: "legacy:Sam" } })).status).toBe(400);
     const { data } = await call("/api/state", { token });
     expect(data.links.find((l: any) => l.id === 1).added_by).toBe(friendId);
@@ -600,11 +608,13 @@ describe("reports, blocks and the word list", () => {
     const id = "legacy:100%";
     const db = new Database(join(dataDir, "links.db"));
     db.run("INSERT INTO users (id, name, created_at) VALUES (?, '100%', 1)", [id]);
+    db.run("INSERT INTO group_members (group_id, user_id, joined_at) VALUES (1, ?, 1)", [id]); // as v8 put legacy people
     try {
       expect((await call("/api/blocks", { token: bea.token, body: { user_id: id } })).data).toEqual({ blocked: [id] });
       expect((await call(`/api/blocks/${encodeURIComponent(id)}`, { method: "DELETE", token: bea.token })).data).toEqual({ blocked: [] });
     } finally {
       db.run("DELETE FROM blocks WHERE blocked = ?", [id]);
+      db.run("DELETE FROM group_members WHERE user_id = ?", [id]);
       db.run("DELETE FROM users WHERE id = ?", [id]);
       db.close();
     }
@@ -795,6 +805,82 @@ describe("group chats", () => {
     expect((await call("/api/groups", { token: ann, body: { members: people } })).status).toBe(400);
   });
 
+  test("people see only who they share a chat with; an invite brings them into the inviter's chat", async () => {
+    const chat = (await call("/api/groups", { token: ann, body: { name: "Invited", members: [boId] } })).data.group;
+    const sent = await call("/api/links", { token: bo, body: { url: `${origin}/plain?n=before-lee`, group_id: chat.id } });
+    expect((await call("/api/invites", { token: cy, body: { group_id: chat.id } })).status).toBe(404); // not cy's chat
+    const made = await call("/api/invites", { token: ann, body: { group_id: chat.id } });
+    expect(made.status).toBe(201);
+    expect(made.data.invite.group_id).toBe(chat.id);
+    const lee = await signIn("lee", VERIFIER, made.data.invite.url.split("/invite/")[1]);
+    expect(lee.status).toBe(200);
+
+    // Lee is only in Ann's chat, not the default one, and sees only its people.
+    const view = await state(lee.data.token);
+    expect(view.groups.map((g: any) => g.id)).toEqual([chat.id]);
+    expect(view.users.map((u: any) => u.id).sort()).toEqual([annId, boId, "user_01LEE"].sort());
+    expect(view.links.map((l: any) => l.id)).toEqual([sent.data.link.id]);
+    const cyView = await state(cy);
+    expect(cyView.users.map((u: any) => u.id)).not.toContain("user_01LEE");
+    expect(cyView.groups.find((g: any) => g.default).members).not.toContain("user_01LEE");
+
+    // Someone Lee can't see can't be added to a chat or reported by Lee.
+    expect((await call("/api/groups", { token: lee.data.token, body: { members: [cyId] } })).data.error)
+      .toBe("Someone you picked isn't in Links anymore.");
+    expect((await call("/api/reports", { token: lee.data.token, body: { user_id: cyId, reason: "spam" } })).status).toBe(404);
+    expect((await call("/api/blocks", { token: lee.data.token, body: { user_id: cyId } })).status).toBe(404);
+    expect((await state(lee.data.token)).users.map((u: any) => u.id)).not.toContain(cyId);
+    // Legacy people's history is in the default chat, which Lee isn't in.
+    expect((await call("/api/me", { token: lee.data.token })).data.claimable).toEqual([]);
+    expect((await call("/api/me/claim", { token: lee.data.token, body: { id: "legacy:Sam" } })).status).toBe(400);
+
+    // Someone who left is still named on what they sent there.
+    expect((await call(`/api/groups/${chat.id}`, { method: "DELETE", token: bo })).status).toBe(200);
+    expect((await state(lee.data.token)).users.map((u: any) => u.id)).toContain(boId);
+  });
+
+  test("an invite that names no chat starts one with just the inviter", async () => {
+    const made = await call("/api/invites", { token: cy, body: {} });
+    expect(made.data.invite.group_id).toBeNull();
+    const kit = await signIn("kit", VERIFIER, made.data.invite.url.split("/invite/")[1]);
+    expect(kit.status).toBe(200);
+    const view = await state(kit.data.token);
+    expect(view.groups).toHaveLength(1);
+    expect(view.groups[0]).toMatchObject({ default: false, name: "", created_by: cyId });
+    expect(view.groups[0].members.sort()).toEqual([cyId, "user_01KIT"].sort());
+    expect(view.users.map((u: any) => u.id).sort()).toEqual([cyId, "user_01KIT"].sort());
+    expect((await state(cy)).groups.map((g: any) => g.id)).toContain(view.groups[0].id);
+  });
+
+  test("an invite whose chat is gone, or that its sender left, starts a chat with just the two of them", async () => {
+    const gone = (await call("/api/groups", { token: ann, body: { name: "Gone" } })).data.group;
+    const left = (await call("/api/groups", { token: ann, body: { name: "Left", members: [boId] } })).data.group;
+    const toGone = await call("/api/invites", { token: ann, body: { group_id: gone.id } });
+    const toLeft = await call("/api/invites", { token: ann, body: { group_id: left.id } });
+    await call(`/api/groups/${gone.id}`, { method: "DELETE", token: ann });
+    await call(`/api/groups/${left.id}`, { method: "DELETE", token: ann });
+    for (const [code, made] of [["max", toGone], ["ida", toLeft]] as const) {
+      const them = await signIn(code, VERIFIER, made.data.invite.url.split("/invite/")[1]);
+      const view = await state(them.data.token);
+      expect(view.groups).toHaveLength(1);
+      expect(view.groups[0].id).not.toBe(left.id);
+      expect(view.groups[0].members.sort()).toEqual([annId, them.data.user.id].sort());
+    }
+  });
+
+  test("someone from before invites who wasn't let in joins only their friend's chat", async () => {
+    const raw = new Database(join(dataDir, "links.db"));
+    raw.run("INSERT INTO users (id, email, name, created_at, member) VALUES ('user_01STRANGER', 'stranger@evil.test', 'S', 1, 0)");
+    raw.run("INSERT INTO group_members (group_id, user_id, joined_at) VALUES (1, 'user_01STRANGER', 1)"); // as v8 did
+    raw.close();
+    await call("/api/invites", { token: cy, body: { email: "stranger@evil.test" } });
+    const them = await signIn("stranger");
+    expect(them.status).toBe(200);
+    const view = await state(them.data.token);
+    expect(view.groups.map((g: any) => g.default)).toEqual([false]);
+    expect(view.groups[0].members.sort()).toEqual([cyId, "user_01STRANGER"].sort());
+  });
+
   test("an app from before groups sends to the default chat, or the only chat left", async () => {
     const dee = mint("dee@groups.test", "Dee");
     const everyone = (await state(dee)).groups[0];
@@ -943,7 +1029,8 @@ describe("deleting an account", () => {
     const jane = await signIn("domain");
     const friend = await signIn("good");
     const [janeId, token] = [jane.data.user.id, jane.data.token];
-    const link = (await call("/api/links", { token: friend.data.token, body: { url: `${origin}/plain?n=inflight` } })).data.link;
+    const shared = (await call("/api/state", { token })).data.groups.find((g: any) => g.members.includes(friend.data.user.id));
+    const link = (await call("/api/links", { token: friend.data.token, body: { url: `${origin}/plain?n=inflight`, group_id: shared.id } })).data.link;
 
     // Each request sends its headers (and passes the session check), then waits for its body.
     const slow = (method: string, path: string, body: unknown) => {

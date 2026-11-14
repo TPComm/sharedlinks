@@ -151,7 +151,7 @@ describe("sessions", () => {
 
 describe("claimLegacy", () => {
   function setup() {
-    addUser("user_A", "a@x.com", "Riley", 5);
+    addUser("user_A", "a@x.com", "sam rivers", 5);
     addUser("user_B", "b@x.com", "Bo", 6);
     addUser("legacy:Sam", null, "Sam", 1);
     addUser("legacy:Alex", null, "Alex", 2);
@@ -159,6 +159,7 @@ describe("claimLegacy", () => {
       INSERT INTO links (group_id, id, url, platform, added_by, added_at) VALUES
         (1, 1, 'https://a.com/1', 'web', 'legacy:Sam', 1), (1, 2, 'https://a.com/2', 'web', 'legacy:Alex', 1),
         (1, 3, 'https://a.com/3', 'web', 'user_A', 1);
+      INSERT INTO group_members (group_id, user_id, joined_at) VALUES (1, 'user_A', 1), (1, 'user_B', 1);
       INSERT INTO seen VALUES (1, 'legacy:Sam', 5), (2, 'legacy:Sam', 6), (2, 'user_A', 7), (2, 'legacy:Alex', 8);
       INSERT INTO reactions VALUES (1, 'legacy:Sam', '🔥'), (3, 'legacy:Sam', '😂'), (3, 'user_A', '❤️'), (1, 'legacy:Alex', '😮');
     `);
@@ -213,7 +214,7 @@ describe("claimLegacy", () => {
   test("refuses a second claim, a real account, or nobody", () => {
     const a = setup();
     a.claimLegacy("user_A", "legacy:Sam");
-    for (const id of ["legacy:Sam", "user_B", "legacy:Nobody", ""]) {
+    for (const id of ["legacy:Sam", "legacy:Alex", "user_B", "legacy:Nobody", ""]) {
       expect(() => a.claimLegacy("user_A", id)).toThrow(BadRequest);
     }
     expect(rows("SELECT id, name FROM users WHERE id = 'user_B'")).toEqual([{ id: "user_B", name: "Bo" }]);
@@ -223,11 +224,16 @@ describe("claimLegacy", () => {
   test("mePayload: the account with its email, and who's left to claim, oldest first", () => {
     const a = setup();
     expect(a.mePayload("user_A")).toEqual({
-      user: { id: "user_A", name: "Riley", avatar: null, email: "a@x.com" },
-      claimable: [{ id: "legacy:Sam", name: "Sam", avatar: null }, { id: "legacy:Alex", name: "Alex", avatar: null }],
+      user: { id: "user_A", name: "sam rivers", avatar: null, email: "a@x.com" },
+      claimable: [{ id: "legacy:Sam", name: "Sam", avatar: null }],
     });
+    expect(a.mePayload("user_B").claimable).toEqual([]);
+    a.rename("user_B", "ALEX");
+    expect(a.mePayload("user_B").claimable).toEqual([{ id: "legacy:Alex", name: "Alex", avatar: null }]);
+    db.run("DELETE FROM group_members WHERE user_id = 'user_B'");
+    expect(a.mePayload("user_B").claimable).toEqual([]);
     a.claimLegacy("user_A", "legacy:Sam");
-    expect(a.mePayload("user_A").claimable).toEqual([{ id: "legacy:Alex", name: "Alex", avatar: null }]);
+    expect(a.mePayload("user_A").claimable).toEqual([]);
   });
 });
 

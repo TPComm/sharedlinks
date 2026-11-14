@@ -48,12 +48,12 @@ const addLink = (db: Database, url: string) =>
   Number(db.run("INSERT INTO links (group_id, url, platform, added_by, added_at) VALUES (1, ?, 'web', 'u', 1)", [url]).lastInsertRowid);
 
 describe("openDatabase", () => {
-  test("creates a v8 database (and its folders) in an empty directory", () => {
+  test("creates a v9 database (and its folders) in an empty directory", () => {
     const dir = join(tmp.dir, "nested", "data");
     const db = openDatabase(dir);
     expect(existsSync(join(dir, "thumbs"))).toBe(true);
     expect(existsSync(join(dir, "links.db"))).toBe(true);
-    expect(pragma(db, "user_version")).toBe(8);
+    expect(pragma(db, "user_version")).toBe(9);
     expect(pragma(db, "foreign_keys")).toBe(1);
     expect(pragma(db, "journal_mode")).toBe("wal");
     expect(db.query("SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name").all().map((r: any) => r.name))
@@ -87,13 +87,13 @@ describe("openDatabase", () => {
     db.close();
   });
 
-  test("reopening a v8 database changes nothing (re-spelling only runs on upgrade)", () => {
+  test("reopening a v9 database changes nothing (re-spelling only runs on upgrade)", () => {
     let db = openDatabase(tmp.dir);
     addLink(db, "https://youtube.com/watch?v=1&si=x"); // not today's spelling, on purpose
     db.close();
     db = openDatabase(tmp.dir);
     expect(urls(db)).toEqual([[1, "https://youtube.com/watch?v=1&si=x"]]);
-    expect(pragma(db, "user_version")).toBe(8);
+    expect(pragma(db, "user_version")).toBe(9);
     db.close();
   });
 });
@@ -132,7 +132,7 @@ describe("migrations", () => {
       [2, "https://de.wikipedia.org/wiki/M%C3%BCnchen"],
       [3, POST],
     ]);
-    expect(pragma(db, "user_version")).toBe(8);
+    expect(pragma(db, "user_version")).toBe(9);
     db.close();
   });
 
@@ -163,7 +163,7 @@ describe("migrations", () => {
     expect(db.query("SELECT user_id FROM sessions").all()).toEqual([{ user_id: "user_A" }]);
     expect(pragma(db, "foreign_keys")).toBe(1);
     expect(db.query("PRAGMA foreign_key_check").all()).toEqual([]);
-    expect(pragma(db, "user_version")).toBe(8);
+    expect(pragma(db, "user_version")).toBe(9);
 
     // The rebuilt table is still the one seen/reactions cascade from.
     db.run("DELETE FROM links WHERE id = 5");
@@ -214,7 +214,7 @@ describe("migrations", () => {
       [6, "ftp://example.com/x"],
       [7, "https://www.youtube.com/watch?v=1"],
     ]);
-    expect(pragma(db, "user_version")).toBe(8);
+    expect(pragma(db, "user_version")).toBe(9);
     expect(addLink(db, "https://example.com/new")).toBe(21); // sqlite_sequence kept: no rebuild
     db.close();
   });
@@ -236,7 +236,7 @@ describe("migrations", () => {
       [3, "https://youtu.be/abc?t=10"],
       [4, "https://blog.example.com/?s=pasta"],
     ]);
-    expect(pragma(db, "user_version")).toBe(8);
+    expect(pragma(db, "user_version")).toBe(9);
     db.close();
   });
 
@@ -254,7 +254,7 @@ describe("migrations", () => {
         { id: 1, title: "A", meta: "done", description: null, site_name: null, thumb_w: null, thumb_h: null, preview_v: 0, thumb_v: 0 },
         { id: 2, title: null, meta: "failed", description: null, site_name: null, thumb_w: null, thumb_h: null, preview_v: 0, thumb_v: 0 },
       ]);
-    expect(pragma(db, "user_version")).toBe(8);
+    expect(pragma(db, "user_version")).toBe(9);
     db.close();
     // Reopening runs nothing again.
     openDatabase(tmp.dir).close();
@@ -279,7 +279,7 @@ describe("migrations", () => {
         { id: 3, title: "About Instagram", author: "Instagram", thumb_type: "image/png", thumb_w: 10, thumb_h: 10, thumb_v: 1, preview_v: 1 },
       ]);
     expect([1, 2, 3].map((id) => existsSync(join(tmp.dir, "thumbs", String(id))))).toEqual([false, true, true]);
-    expect(pragma(db, "user_version")).toBe(8);
+    expect(pragma(db, "user_version")).toBe(9);
     db.close();
   });
 
@@ -304,7 +304,7 @@ describe("migrations", () => {
       v6();
       const db = openDatabase(tmp.dir);
       expect(members(db)).toEqual(["local_e", "user_a", "user_b", "user_c", "user_d"]);
-      expect(pragma(db, "user_version")).toBe(8);
+      expect(pragma(db, "user_version")).toBe(9);
       db.close();
     });
 
@@ -317,5 +317,43 @@ describe("migrations", () => {
       expect(members(db)).toEqual(["user_a", "user_b"]);
       db.close();
     });
+  });
+});
+
+describe("v9: people who came in on a friend's invite move to a chat with that friend", () => {
+  test("the default chat keeps people from before invites and admin invites; links stay where they were", () => {
+    const db = openDatabase(tmp.dir);
+    db.exec(`
+      INSERT INTO users (id, email, name, created_at, member) VALUES
+        ('old', NULL, 'Old', 1, 1), ('alice', NULL, 'Alice', 1, 1), ('admin_in', NULL, 'A', 2, 1),
+        ('bob', NULL, 'Bob', 3, 1), ('cara', NULL, 'Cara', 4, 1), ('dan', NULL, 'Dan', 5, 1), ('out', NULL, 'Out', 6, 0);
+      INSERT INTO group_members (group_id, user_id, joined_at)
+        SELECT 1, id, created_at FROM users WHERE member = 1;
+      INSERT INTO invites (token_hash, invited_by, created_at, expires_at, used_by, used_at) VALUES
+        ('h1', NULL, 1, 99, 'admin_in', 2), ('h2', 'alice', 1, 99, 'bob', 3), ('h3', 'bob', 1, 99, 'cara', 4),
+        ('h4', 'alice', 1, 99, 'dan', 5), ('h5', 'alice', 1, 99, NULL, NULL);
+      INSERT INTO links (url, platform, meta, added_by, added_at, group_id) VALUES ('https://x.com/a/status/1', 'x', 'done', 'bob', 3, 1);
+      PRAGMA user_version = 8;
+    `);
+    db.close();
+    const after = openDatabase(tmp.dir);
+    expect(pragma(after, "user_version")).toBe(9);
+    const membersOf = (id: number) => (after.query("SELECT user_id FROM group_members WHERE group_id = ? ORDER BY user_id")
+      .all(id) as { user_id: string }[]).map((m) => m.user_id);
+    expect(membersOf(1)).toEqual(["admin_in", "alice", "old"]);
+    const chats = (after.query("SELECT id, name, created_by, created_at, is_default FROM groups WHERE is_default = 0 ORDER BY id")
+      .all() as { id: number; name: string; created_by: string; created_at: number; is_default: number }[]);
+    expect(chats.map((c) => [c.name, c.created_by, c.created_at, membersOf(c.id)])).toEqual([
+      ["", "alice", 3, ["alice", "bob"]],
+      ["", "bob", 4, ["bob", "cara"]],
+      ["", "alice", 5, ["alice", "dan"]],
+    ]);
+    expect(after.query("SELECT added_by, group_id FROM links").all()).toEqual([{ added_by: "bob", group_id: 1 }]);
+    expect((after.query("SELECT group_id FROM invites").all() as { group_id: null }[]).every((i) => i.group_id === null)).toBe(true);
+    after.close();
+    // Opening it again moves nobody.
+    const again = openDatabase(tmp.dir);
+    expect((again.query("SELECT COUNT(*) AS n FROM groups").get() as { n: number }).n).toBe(4);
+    again.close();
   });
 });

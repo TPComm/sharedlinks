@@ -30,11 +30,12 @@ function randomToken(): string {
 export const INVITE_DAYS = 7;
 /** Pending invites one person can have at a time. */
 export const MAX_PENDING_INVITES = 20;
+export const MAX_GROUP_MEMBERS = 50;
 export const INVITE_TOKEN_RE = /^[A-Za-z0-9_-]{43}$/;
 
 /** What the app sees of an invite: never the token, which only the response that made it carries. */
 export const publicInvite = (i: InviteRow) => ({
-  id: i.id, email: i.email, created_at: i.created_at, expires_at: i.expires_at,
+  id: i.id, email: i.email, group_id: i.group_id, created_at: i.created_at, expires_at: i.expires_at,
 });
 
 /** "jane.doe" -> "Jane Doe" */
@@ -58,7 +59,7 @@ export class Accounts {
   // -- invites (#5)
 
   /** `userId` null: an admin's invite from `links-server invite`, which no one's 20 count includes. */
-  createInvite(userId: string | null, email: unknown): { invite: ReturnType<typeof publicInvite>; token: string } {
+  createInvite(userId: string | null, email: unknown, groupId: number | null = null): { invite: ReturnType<typeof publicInvite>; token: string } {
     let bound: string | null = null;
     if (email !== undefined && email !== null && String(email).trim() !== "") {
       bound = String(email).trim().toLowerCase();
@@ -69,9 +70,9 @@ export class Accounts {
       .get(userId, t) as { n: number }).n;
     if (pending >= MAX_PENDING_INVITES) throw new BadRequest("You have a lot of invites waiting. Cancel some first.");
     const token = randomToken();
-    const row = this.db.query(`INSERT INTO invites (token_hash, email, invited_by, created_at, expires_at)
-        VALUES (?, ?, ?, ?, ?) RETURNING *`)
-      .get(sha256(token), bound, userId, t, t + INVITE_DAYS * 86400) as InviteRow;
+    const row = this.db.query(`INSERT INTO invites (token_hash, email, invited_by, created_at, expires_at, group_id)
+        VALUES (?, ?, ?, ?, ?, ?) RETURNING *`)
+      .get(sha256(token), bound, userId, t, t + INVITE_DAYS * 86400, groupId) as InviteRow;
     return { invite: publicInvite(row), token };
   }
 
@@ -116,9 +117,20 @@ export class Accounts {
 
   mePayload(userId: string) {
     const user = this.db.query("SELECT * FROM users WHERE id = ?").get(userId) as UserRow;
-    const claimable = (this.db.query("SELECT * FROM users WHERE id LIKE ? ORDER BY created_at")
-      .all(`${LEGACY}%`) as UserRow[]).map(publicUser);
-    return { user: { ...publicUser(user), email: user.email }, claimable };
+    return { user: { ...publicUser(user), email: user.email }, claimable: this.claimable(user).map(publicUser) };
+  }
+
+  /**
+   * The legacy people this account may be: those with its name, or its first name, in any case
+   * (renaming yourself finds one under another name). Their history is in the default chat, so
+   * only its members get any.
+   */
+  private claimable(user: UserRow): UserRow[] {
+    if (!this.inDefault(user.id)) return [];
+    const name = user.name.trim().toLowerCase();
+    const names = new Set([name, name.split(/\s+/)[0]]);
+    return (this.db.query("SELECT * FROM users WHERE id LIKE ? ORDER BY created_at").all(`${LEGACY}%`) as UserRow[])
+      .filter((p) => names.has(p.name.trim().toLowerCase()));
   }
 
   /** Create the account on first sign-in. Afterwards, keep the name they chose. */
@@ -195,8 +207,8 @@ export class Accounts {
    */
   claimLegacy(userId: string, legacyId: string) {
     this.db.transaction(() => {
-      const legacy = this.db.query("SELECT name FROM users WHERE id = ? AND id LIKE ?")
-        .get(legacyId, `${LEGACY}%`) as { name: string } | null;
+      const me = this.db.query("SELECT * FROM users WHERE id = ?").get(userId) as UserRow;
+      const legacy = this.claimable(me).find((p) => p.id === legacyId);
       if (!legacy) throw new BadRequest("That person was already claimed.");
       this.db.run("UPDATE links SET added_by = ? WHERE added_by = ?", [userId, legacyId]);
       this.db.run("UPDATE OR IGNORE group_members SET user_id = ? WHERE user_id = ?", [userId, legacyId]);
@@ -319,18 +331,43 @@ export class Accounts {
         throw new AuthError("Links is invite-only. Ask a friend who uses it to invite you, then tap their invite link.", 403);
       }
       this.upsertUser(user.id, email, name, avatar);
-      this.admit(user.id);
+      this.admit(user.id, invite);
       this.db.run("UPDATE invites SET used_by = ?, used_at = ? WHERE id = ?", [user.id, now(), invite.id]);
       console.log(`invite ${invite.id} from ${invite.invited_by ?? "admin"} used by ${user.id}`);
     }).immediate();
     return { token: this.newSession(user.id), ...this.mePayload(user.id) };
   }
 
-  /** Let someone in: a member, in the default chat like everyone before groups. */
-  private admit(userId: string) {
+  /**
+   * Let someone in (#75: they see only people they share a chat with). A friend's invite puts them in
+   * the friend's chat it names, or in a new chat of just the two of them if it names none (or that
+   * chat is gone, full, or the friend left it). An admin's invite or session puts them in the default chat.
+   */
+  private admit(userId: string, invite?: InviteRow) {
     this.db.run("UPDATE users SET member = 1 WHERE id = ?", [userId]);
-    this.db.run("INSERT OR IGNORE INTO group_members (group_id, user_id, joined_at) VALUES (?, ?, ?)",
-      [defaultGroup(this.db), userId, now()]);
+    // An account from before invites that wasn't let in was still put in the default chat by v8.
+    this.db.run("DELETE FROM group_members WHERE user_id = ?", [userId]);
+    const at = now();
+    const inviter = invite?.invited_by ?? null;
+    let group = defaultGroup(this.db);
+    if (inviter) {
+      const named = invite!.group_id;
+      const fits = named !== null
+        && !!this.db.query("SELECT 1 FROM group_members WHERE group_id = ? AND user_id = ?").get(named, inviter)
+        && (this.db.query("SELECT COUNT(*) AS n FROM group_members WHERE group_id = ?").get(named) as { n: number }).n < MAX_GROUP_MEMBERS;
+      if (fits) {
+        group = named!;
+      } else {
+        group = (this.db.query("INSERT INTO groups (name, created_by, created_at) VALUES ('', ?, ?) RETURNING id")
+          .get(inviter, at) as { id: number }).id;
+        this.db.run("INSERT INTO group_members (group_id, user_id, joined_at) VALUES (?, ?, ?)", [group, inviter, at]);
+      }
+    }
+    this.db.run("INSERT OR IGNORE INTO group_members (group_id, user_id, joined_at) VALUES (?, ?, ?)", [group, userId, at]);
+  }
+
+  private inDefault(userId: string): boolean {
+    return !!this.db.query("SELECT 1 FROM group_members WHERE group_id = ? AND user_id = ?").get(defaultGroup(this.db), userId);
   }
 
   /** Signed-in people (not legacy ones) with this email, for the admin commands. */
