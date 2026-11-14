@@ -7,7 +7,8 @@ import { startServer } from "../src/app.ts";
 import { configFromEnv } from "../src/config.ts";
 import { canonical, expandShortLink, extractUrl, platformOf } from "../src/links.ts";
 import { BlockedAddressError, isPrivateAddress, safeFetch } from "../src/net.ts";
-import { decodeEntities, ogTags, previewFromTags } from "../src/previews.ts";
+import { decodeEntities, ogTags, PREVIEW_VERSION, previewFromTags } from "../src/previews.ts";
+import { openDatabase } from "../src/db.ts";
 
 // 1x1 PNG
 const PNG = Uint8Array.from(atob("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="), (c) => c.charCodeAt(0));
@@ -18,6 +19,8 @@ let api: string;
 let origin: string;
 let stop: () => void;
 let idle: () => Promise<void>;
+let baseConfig: ReturnType<typeof configFromEnv>;
+let flakyUp = false;
 const workosRequests: Record<string, any>[] = [];
 
 /** A stand-in for api.workos.com. Codes: good / stranger / unverified. */
@@ -50,9 +53,12 @@ const fakeOrigin = Bun.serve({
   port: 0,
   routes: {
     "/video": new Response(
-      `<html><head><title>Fallback</title><meta property="og:title" content="Cats &amp; Dogs"><meta property="og:site_name" content="PetTube"><meta property="og:image" content="/thumb.png"></head></html>`,
+      `<html><head><title>Fallback</title><meta property="og:title" content="Cats &amp; Dogs"><meta property="og:site_name" content="PetTube"><meta property="og:description" content="Two pets"><meta property="og:image" content="/thumb.png"></head></html>`,
       { headers: { "Content-Type": "text/html" } }),
     "/plain": new Response("<html><head><title> Just a &quot;page&quot; </title></head></html>", { headers: { "Content-Type": "text/html" } }),
+    // Fails until flakyUp, then has a title.
+    "/flaky": () => (flakyUp ? new Response("<title>Back up</title>", { headers: { "Content-Type": "text/html" } })
+                             : new Response("down", { status: 503 })),
     "/thumb.png": new Response(PNG, { headers: { "Content-Type": "image/png" } }),
     // Stand-ins for TikTok short links: a live code, and a dead one (TikTok sends those home).
     "/t/live": Response.redirect(`https://www.tiktok.com/@/video/7506136711311772958?_r=1&_d=abc&u_code=def&share_item_id=7506136711311772958&utm_campaign=client_share&utm_source=short_fallback`, 302),
@@ -88,7 +94,9 @@ beforeAll(() => {
     allowedEmails: ["friend@example.com", "@team.test"],
     allowPrivateNetwork: true,
     logRequests: false,
+    previewBackfillMs: 0,
   };
+  baseConfig = config;
   const { app, server } = startServer(config);
   api = server.url.origin;
   origin = fakeOrigin.url.origin;
@@ -184,7 +192,7 @@ describe("links", () => {
     const db = new Database(join(dataDir, "links.db"), { readonly: true });
     const { sql } = db.query("SELECT sql FROM sqlite_master WHERE name = 'links'").get() as { sql: string };
     expect(sql).toContain("AUTOINCREMENT");
-    expect((db.query("PRAGMA user_version").get() as any).user_version).toBe(4);
+    expect((db.query("PRAGMA user_version").get() as any).user_version).toBe(5);
     db.close();
     const { data } = await call("/api/state", { token });
     expect(data.links.map((l: any) => l.url)).toContain("https://de.wikipedia.org/wiki/M%C3%BCnchen");
@@ -231,7 +239,10 @@ describe("links", () => {
     await idle();
     const { data } = await call("/api/state", { token });
     const link = data.links.find((l: any) => l.id === add.data.link.id);
-    expect(link).toMatchObject({ title: "Cats & Dogs", author: "PetTube", meta: "done", thumb: `/thumbs/${link.id}` });
+    expect(link).toMatchObject({
+      title: "Cats & Dogs", author: "PetTube", meta: "done", thumb: `/thumbs/${link.id}`,
+      description: "Two pets", site_name: "PetTube", thumb_w: 1, thumb_h: 1,
+    });
 
     const thumb = await fetch(api + link.thumb, { headers: { Authorization: `Bearer ${token}` } });
     expect(thumb.status).toBe(200);
@@ -249,6 +260,21 @@ describe("links", () => {
     expect(plainLink).toMatchObject({ title: 'Just a "page"', thumb: null, meta: "done" });
 
     expect((await call("/api/links", { token, body: { url: "no link here" } })).status).toBe(400);
+  });
+
+  test("refresh re-fetches a failed preview", async () => {
+    const add = await call("/api/links", { token, body: { url: `${origin}/flaky` } });
+    await idle();
+    const id = add.data.link.id;
+    expect((await call("/api/state", { token })).data.links.find((l: any) => l.id === id)).toMatchObject({ meta: "failed", title: null });
+    flakyUp = true;
+    const r = await call(`/api/links/${id}/refresh`, { token, body: {} });
+    expect(r.status).toBe(200);
+    expect(r.data.link).toMatchObject({ id, meta: "pending" });
+    await idle();
+    expect((await call("/api/state", { token })).data.links.find((l: any) => l.id === id)).toMatchObject({ meta: "done", title: "Back up" });
+    expect((await call("/api/links/99999/refresh", { token, body: {} })).status).toBe(404);
+    expect((await call(`/api/links/${id}/refresh`, { body: {} })).status).toBe(401);
   });
 
   test("seen, reactions, notes, delete", async () => {
@@ -448,7 +474,7 @@ describe("helpers", () => {
 
   test("per-site preview clean-up", () => {
     expect(previewFromTags("tiktok", { "og:title": "TikTok · Scout, Suki & Stella", "og:image": "https://cdn/x.jpg" }))
-      .toEqual({ title: null, author: "Scout, Suki & Stella", image: "https://cdn/x.jpg" });
+      .toMatchObject({ title: null, author: "Scout, Suki & Stella", image: "https://cdn/x.jpg" });
     expect(previewFromTags("tiktok", { "og:title": "TikTok · Sam", "og:description": "the ending 😂" }))
       .toMatchObject({ title: "the ending 😂", author: "Sam" });
     expect(previewFromTags("instagram", {
@@ -464,4 +490,36 @@ describe("helpers", () => {
     const tags = ogTags(`<meta content='X' property="og:title"><meta name="description" content="a"><meta property="og:title" content="second">`);
     expect(tags).toEqual({ "og:title": "X", description: "a" });
   });
+});
+
+test("previews older than PREVIEW_VERSION are backfilled one at a time", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "links-backfill-"));
+  try {
+    const db = openDatabase(dir);
+    const add = db.query("INSERT INTO links (url, platform, title, meta, added_by, added_at) VALUES (?, 'web', ?, ?, 'u', ?)");
+    add.run(`${origin}/video?id=1`, "Old title", "done", 1);
+    add.run(`${origin}/plain`, null, "failed", 2);
+    db.close();
+    const { app, server } = startServer({ ...baseConfig, dataDir: dir, previewBackfillMs: 5 });
+    try {
+      const rows = () => {
+        const d = new Database(join(dir, "links.db"), { readonly: true });
+        try {
+          return d.query("SELECT title, description, meta, preview_v FROM links ORDER BY id").all() as any[];
+        } finally {
+          d.close();
+        }
+      };
+      for (let i = 0; i < 200 && rows().some((r) => r.preview_v < PREVIEW_VERSION); i++) await Bun.sleep(10);
+      await app.idle();
+      expect(rows()).toEqual([
+        { title: "Cats & Dogs", description: "Two pets", meta: "done", preview_v: PREVIEW_VERSION },
+        { title: 'Just a "page"', description: null, meta: "done", preview_v: PREVIEW_VERSION },
+      ]);
+    } finally {
+      server.stop(true);
+    }
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });

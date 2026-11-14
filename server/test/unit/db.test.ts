@@ -48,12 +48,12 @@ const addLink = (db: Database, url: string) =>
   Number(db.run("INSERT INTO links (url, platform, added_by, added_at) VALUES (?, 'web', 'u', 1)", [url]).lastInsertRowid);
 
 describe("openDatabase", () => {
-  test("creates a v4 database (and its folders) in an empty directory", () => {
+  test("creates a v5 database (and its folders) in an empty directory", () => {
     const dir = join(tmp.dir, "nested", "data");
     const db = openDatabase(dir);
     expect(existsSync(join(dir, "thumbs"))).toBe(true);
     expect(existsSync(join(dir, "links.db"))).toBe(true);
-    expect(pragma(db, "user_version")).toBe(4);
+    expect(pragma(db, "user_version")).toBe(5);
     expect(pragma(db, "foreign_keys")).toBe(1);
     expect(pragma(db, "journal_mode")).toBe("wal");
     expect(db.query("SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name").all().map((r: any) => r.name))
@@ -87,13 +87,13 @@ describe("openDatabase", () => {
     db.close();
   });
 
-  test("reopening a v4 database changes nothing (re-spelling only runs on upgrade)", () => {
+  test("reopening a v5 database changes nothing (re-spelling only runs on upgrade)", () => {
     let db = openDatabase(tmp.dir);
     addLink(db, "https://youtube.com/watch?v=1&si=x"); // not today's spelling, on purpose
     db.close();
     db = openDatabase(tmp.dir);
     expect(urls(db)).toEqual([[1, "https://youtube.com/watch?v=1&si=x"]]);
-    expect(pragma(db, "user_version")).toBe(4);
+    expect(pragma(db, "user_version")).toBe(5);
     db.close();
   });
 });
@@ -132,7 +132,7 @@ describe("migrations", () => {
       [2, "https://de.wikipedia.org/wiki/M%C3%BCnchen"],
       [3, POST],
     ]);
-    expect(pragma(db, "user_version")).toBe(4);
+    expect(pragma(db, "user_version")).toBe(5);
     db.close();
   });
 
@@ -152,7 +152,7 @@ describe("migrations", () => {
     const db = openDatabase(tmp.dir);
     expect(linksSql(db)).toContain("AUTOINCREMENT");
     expect(db.query("SELECT 1 FROM sqlite_master WHERE name = 'links_v2'").get()).toBeNull();
-    expect(db.query("SELECT * FROM links ORDER BY id").all()).toEqual([
+    expect(db.query("SELECT id, url, platform, title, author, thumb_type, meta, note, added_by, added_at FROM links ORDER BY id").all()).toEqual([
       { id: 1, url: "https://example.com/1", platform: "web", title: "One", author: "Ann", thumb_type: "image/png", meta: "done", note: "a note", added_by: "user_A", added_at: 10 },
       { id: 2, url: "https://example.com/2", platform: "web", title: null, author: null, thumb_type: null, meta: "pending", note: "", added_by: "legacy:Sam", added_at: 11 },
       { id: 5, url: "https://example.com/5", platform: "web", title: null, author: null, thumb_type: null, meta: "failed", note: "", added_by: "user_A", added_at: 12 },
@@ -163,7 +163,7 @@ describe("migrations", () => {
     expect(db.query("SELECT user_id FROM sessions").all()).toEqual([{ user_id: "user_A" }]);
     expect(pragma(db, "foreign_keys")).toBe(1);
     expect(db.query("PRAGMA foreign_key_check").all()).toEqual([]);
-    expect(pragma(db, "user_version")).toBe(4);
+    expect(pragma(db, "user_version")).toBe(5);
 
     // The rebuilt table is still the one seen/reactions cascade from.
     db.run("DELETE FROM links WHERE id = 5");
@@ -214,7 +214,7 @@ describe("migrations", () => {
       [6, "ftp://example.com/x"],
       [7, "https://www.youtube.com/watch?v=1"],
     ]);
-    expect(pragma(db, "user_version")).toBe(4);
+    expect(pragma(db, "user_version")).toBe(5);
     expect(addLink(db, "https://example.com/new")).toBe(21); // sqlite_sequence kept: no rebuild
     db.close();
   });
@@ -236,7 +236,27 @@ describe("migrations", () => {
       [3, "https://youtu.be/abc?t=10"],
       [4, "https://blog.example.com/?s=pasta"],
     ]);
-    expect(pragma(db, "user_version")).toBe(4);
+    expect(pragma(db, "user_version")).toBe(5);
     db.close();
+  });
+
+  test("v4: links gain the rich preview columns, left empty for the backfill", () => {
+    seed(`
+      ${LINKS_V2} ${SEEN_REACTIONS} ${USERS_SESSIONS}
+      INSERT INTO links (id, url, platform, title, thumb_type, meta, added_by, added_at) VALUES
+        (1, 'https://example.com/a', 'web', 'A', 'image/png', 'done', 'u', 1),
+        (2, 'https://www.instagram.com/reel/abc/', 'instagram', NULL, NULL, 'failed', 'u', 2);
+      PRAGMA user_version = 4;
+    `);
+    const db = openDatabase(tmp.dir);
+    expect(db.query("SELECT id, title, meta, description, site_name, thumb_w, thumb_h, preview_v FROM links ORDER BY id").all())
+      .toEqual([
+        { id: 1, title: "A", meta: "done", description: null, site_name: null, thumb_w: null, thumb_h: null, preview_v: 0 },
+        { id: 2, title: null, meta: "failed", description: null, site_name: null, thumb_w: null, thumb_h: null, preview_v: 0 },
+      ]);
+    expect(pragma(db, "user_version")).toBe(5);
+    db.close();
+    // Reopening runs nothing again.
+    openDatabase(tmp.dir).close();
   });
 });

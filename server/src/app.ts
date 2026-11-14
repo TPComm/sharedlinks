@@ -5,7 +5,7 @@ import { Accounts, AuthError, publicUser } from "./accounts.ts";
 import type { Config } from "./config.ts";
 import { now, openDatabase, type LinkRow, type UserRow } from "./db.ts";
 import { BadRequest, canonical, clipText, extractUrl } from "./links.ts";
-import { fetchMetadata } from "./previews.ts";
+import { fetchMetadata, PREVIEW_VERSION } from "./previews.ts";
 
 export const EMOJIS = new Set(["❤️", "😂", "🔥", "😮", "😭", "👎"]);
 
@@ -52,6 +52,24 @@ export function createApp(config: Config) {
     startMetadataFetch(row.id, row.url, row.platform);
   }
 
+  // Links whose preview predates PREVIEW_VERSION (or failed before) are re-fetched one at a time, gently.
+  function backfillNext() {
+    const row = db.query("SELECT id, url, platform FROM links WHERE preview_v < ? AND meta != 'pending' ORDER BY added_at DESC LIMIT 1")
+      .get(PREVIEW_VERSION) as LinkRow | null;
+    if (!row) return;
+    const task = fetchMetadata(db, config.dataDir, row.id, row.url, row.platform, fetchOpts)
+      .catch((e) => {
+        console.error(`backfill ${row.id}: ${e}`);
+        db.run("UPDATE links SET preview_v = ? WHERE id = ?", [PREVIEW_VERSION, row.id]);
+      })
+      .finally(() => {
+        pending.delete(task);
+        setTimeout(backfillNext, config.previewBackfillMs).unref();
+      });
+    pending.add(task);
+  }
+  if (config.previewBackfillMs > 0) setTimeout(backfillNext, config.previewBackfillMs).unref();
+
   function getState(me: string | null) {
     const links = new Map<number, ReturnType<typeof toLink>>();
     for (const r of db.query("SELECT * FROM links ORDER BY added_at DESC").all() as LinkRow[]) links.set(r.id, toLink(r));
@@ -70,7 +88,8 @@ export function createApp(config: Config) {
   function toLink(r: LinkRow) {
     return {
       id: r.id, url: r.url, platform: r.platform, title: r.title, author: r.author, note: r.note,
-      thumb: r.thumb_type ? `/thumbs/${r.id}` : null, meta: r.meta, added_by: r.added_by, added_at: r.added_at,
+      description: r.description, site_name: r.site_name,
+      thumb: r.thumb_type ? `/thumbs/${r.id}` : null, thumb_w: r.thumb_w, thumb_h: r.thumb_h, meta: r.meta, added_by: r.added_by, added_at: r.added_at,
       seen: {} as Record<string, number>, reactions: {} as Record<string, string>,
     };
   }
@@ -213,6 +232,17 @@ export function createApp(config: Config) {
         db.run("DELETE FROM links WHERE id = ?", [id]);
         rmSync(join(config.dataDir, "thumbs", String(id)), { force: true });
         return json({ ok: true });
+      }),
+    },
+    "/api/links/:id/refresh": {
+      POST: route<WithId>((req) => {
+        const id = linkId(req);
+        const row = db.query("SELECT * FROM links WHERE id = ?").get(id) as LinkRow;
+        if (row.meta !== "pending") {
+          db.run("UPDATE links SET meta = 'pending' WHERE id = ?", [id]);
+          startMetadataFetch(id, row.url, row.platform);
+        }
+        return json({ link: getLink(id) });
       }),
     },
     "/api/links/:id/seen": {

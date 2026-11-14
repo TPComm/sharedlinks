@@ -1,14 +1,26 @@
 import type { Database } from "bun:sqlite";
-import { rmSync } from "node:fs";
+import { renameSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { BOT_UA, BROWSER_UA, contentType, readLimited, safeFetch, type FetchOptions } from "./net.ts";
 import { clip } from "./links.ts";
+import type { LinkRow } from "./db.ts";
 
 export interface Preview {
   title?: string | null;
   author?: string | null;
   image?: string | null;
+  description?: string | null;
+  siteName?: string | null;
+  imageWidth?: number | null;
+  imageHeight?: number | null;
 }
+
+/** Bump to have the server re-fetch every link's preview (rate-limited) on its next start. */
+export const PREVIEW_VERSION = 1;
+
+const SITE_NAMES: Record<string, string> = {
+  instagram: "Instagram", tiktok: "TikTok", youtube: "YouTube", facebook: "Facebook", reddit: "Reddit", x: "X",
+};
 
 // Named entities that show up in real titles and descriptions (case-sensitive, as in HTML).
 // A Map, so "&constructor;" on a hostile page doesn't find Object.prototype.constructor.
@@ -85,20 +97,89 @@ export async function fetchPreview(url: string, platform: string, opts: FetchOpt
   if (endpoint) {
     try {
       const d = JSON.parse(await getText(endpoint + encodeURIComponent(url), opts));
-      if (d.title || d.thumbnail_url) return { title: d.title, author: d.author_name, image: d.thumbnail_url };
+      if (d.title || d.thumbnail_url) {
+        return {
+          title: d.title, author: d.author_name, image: d.thumbnail_url, siteName: d.provider_name,
+          imageWidth: dimension(d.thumbnail_width), imageHeight: dimension(d.thumbnail_height),
+        };
+      }
       // TikTok's oEmbed now often returns only the embed iframe; fall back to the page's tags.
     } catch (e) {
       if (platform === "youtube") throw e;
     }
   }
   const ua = BOT_ONLY.has(platform) ? BOT_UA : BROWSER_UA;
-  return previewFromTags(platform, ogTags(await getText(url, { ...opts, userAgent: ua })));
+  if (platform !== "instagram") return previewFromTags(platform, ogTags(await getText(url, { ...opts, userAgent: ua })));
+  // Instagram often answers bots from server IPs with a bare login page: use the public embed page then.
+  let page: Preview = {};
+  let error: unknown = null;
+  try {
+    page = previewFromTags(platform, ogTags(await getText(url, { ...opts, userAgent: ua })));
+    if (page.title && page.image) return page;
+  } catch (e) {
+    error = e;
+  }
+  const embed = instagramEmbedUrl(url);
+  if (embed) {
+    try {
+      const e = instagramFromEmbed(await getText(embed, { ...opts, userAgent: BROWSER_UA }));
+      if (e.title || e.image) return { ...page, ...stripEmpty(e) };
+    } catch (e) {
+      error ??= e;
+    }
+  }
+  if (error && !page.title && !page.image) throw error;
+  return page;
+}
+
+const stripEmpty = (p: Preview): Preview =>
+  Object.fromEntries(Object.entries(p).filter(([, v]) => v != null && v !== "")) as Preview;
+
+function dimension(v: unknown): number | null {
+  const n = typeof v === "string" ? Number(v.trim()) : v;
+  return typeof n === "number" && Number.isInteger(n) && n > 0 && n <= 100_000 ? n : null;
+}
+
+/** https://www.instagram.com/reel/<code>/embed/captioned/ for a post or reel, else null. */
+export function instagramEmbedUrl(url: string): string | null {
+  const m = new URL(url).pathname.match(/^\/(?:[\w.]+\/)?(reels?|p|tv)\/([\w-]+)/);
+  return m ? `https://www.instagram.com/${m[1] === "reels" ? "reel" : m[1]}/${m[2]}/embed/captioned/` : null;
+}
+
+const stripTags = (html: string) =>
+  decodeEntities(html.replace(/<br\s*\/?>/gi, "\n").replace(/<[^<>]*>/g, ""))
+    .split("\n").map((line) => line.replace(/\s+/g, " ").trim()).join("\n").replace(/\n{3,}/g, "\n\n").trim();
+
+/** Instagram's embed page: the media image, the @handle and the caption. */
+export function instagramFromEmbed(html: string): Preview {
+  const page = html.slice(0, 2_000_000);
+  let image: string | null = null;
+  for (const [tag] of page.matchAll(/<img\b[^<>]*>/gi)) {
+    if (!/class\s*=\s*["'][^"']*\bEmbeddedMediaImage\b/i.test(tag)) continue;
+    const src = tag.match(/(?<![\w-])src\s*=\s*(?:"([^"]*)"|'([^']*)')/i);
+    if (src) image = decodeEntities(src[1] ?? src[2] ?? "");
+    break;
+  }
+  const user = page.match(/class\s*=\s*["'][^"']*\bUsernameText\b[^"']*["'][^<>]*>([^<]*)</i);
+  const handle = user ? decodeEntities(user[1]!).trim().replace(/^@/, "") : "";
+  let title: string | null = null;
+  const start = page.search(/<div\b[^<>]*class\s*=\s*["']Caption["'][^<>]*>/i);
+  if (start !== -1) {
+    let body = page.slice(start, start + 20_000);
+    const end = body.search(/<div\b[^<>]*class\s*=\s*["'][^"']*\bCaptionComments\b/i);
+    if (end !== -1) body = body.slice(0, end);
+    // The caption starts with the poster's handle as a link: drop it.
+    body = body.replace(/<a\b[^<>]*class\s*=\s*["'][^"']*\bCaptionUsername\b[^<>]*>[^<]*<\/a>/i, "");
+    title = stripTags(body) || null;
+  }
+  return { title, author: handle ? `@${handle}` : null, image, siteName: "Instagram" };
 }
 
 /** Turn a page's Open Graph tags into a preview, with per-site clean-up. */
 export function previewFromTags(platform: string, og: Record<string, string>): Preview {
   let title: string | null = og["og:title"] || og["twitter:title"] || og.title || null;
-  const desc = og["og:description"] || og.description || "";
+  const desc = og["og:description"] || og["twitter:description"] || og.description || "";
+  let description: string | null = desc.trim() || null;
   let author: string | null = null;
   if (platform === "instagram") {
     // og:title looks like: Name on Instagram: "caption"
@@ -112,6 +193,14 @@ export function previewFromTags(platform: string, og: Record<string, string>): P
     } else if (title?.trim().toLowerCase() === "instagram") {
       title = null;
     }
+    // Keep only the engagement counts: the caption is the title, the handle the author.
+    const counts = desc.match(/^\s*([^-]*?\b(?:likes?|comments?|views?|plays?)\b[^-]*?)\s+-\s/i);
+    description = counts ? counts[1]!.trim() : null;
+    if (!title && !handle && !counts) {
+      // A login wall, not the post.
+      author = null;
+      description = null;
+    }
   } else if (platform === "tiktok") {
     // og:title looks like: TikTok · Creator Name   (the caption, when there is one, is og:description)
     const m = (title ?? "").match(/^TikTok\s*[·|\-–]\s*(.+)$/);
@@ -122,10 +211,60 @@ export function previewFromTags(platform: string, og: Record<string, string>): P
       title = null;
     }
   }
-  return { title, author: author || og["og:site_name"] || null, image: og["og:image"] || og["twitter:image"] || null };
+  if (description && description === title?.trim()) description = null;
+  const image = og["og:image"] || og["og:image:url"] || og["og:image:secure_url"] || og["twitter:image"] || null;
+  const fromOg = image && (og["og:image"] || og["og:image:url"] || og["og:image:secure_url"]);
+  return {
+    title,
+    author: author || og["og:site_name"] || null,
+    image,
+    description,
+    siteName: og["og:site_name"] || SITE_NAMES[platform] || null,
+    imageWidth: fromOg ? dimension(og["og:image:width"]) : null,
+    imageHeight: fromOg ? dimension(og["og:image:height"]) : null,
+  };
 }
 
-/** Fetch a link's title, creator and thumbnail in the background, then store them. */
+/** Pixel size of a PNG, GIF, JPEG or WebP, read from its header. */
+export function imageSize(b: Uint8Array): { width: number; height: number } | null {
+  const v = new DataView(b.buffer, b.byteOffset, b.byteLength);
+  const ok = (w: number, h: number) => (w > 0 && h > 0 ? { width: w, height: h } : null);
+  const ascii = (at: number, s: string) => [...s].every((c, i) => b[at + i] === c.charCodeAt(0));
+  if (b.length >= 24 && b[0] === 0x89 && ascii(1, "PNG") && ascii(12, "IHDR")) return ok(v.getUint32(16), v.getUint32(20));
+  if (b.length >= 10 && ascii(0, "GIF8")) return ok(v.getUint16(6, true), v.getUint16(8, true));
+  if (b.length >= 30 && ascii(0, "RIFF") && ascii(8, "WEBP")) {
+    const u24 = (at: number) => b[at]! | (b[at + 1]! << 8) | (b[at + 2]! << 16);
+    if (ascii(12, "VP8X")) return ok(1 + u24(24), 1 + u24(27));
+    if (ascii(12, "VP8 ")) return ok(v.getUint16(26, true) & 0x3fff, v.getUint16(28, true) & 0x3fff);
+    if (ascii(12, "VP8L")) {
+      const bits = v.getUint32(21, true);
+      return ok((bits & 0x3fff) + 1, ((bits >> 14) & 0x3fff) + 1);
+    }
+    return null;
+  }
+  if (b.length >= 4 && b[0] === 0xff && b[1] === 0xd8) {
+    let i = 2;
+    while (i + 9 < b.length) {
+      if (b[i] !== 0xff) return null;
+      const marker = b[i + 1]!;
+      if (marker === 0xff) { i++; continue; }
+      if (marker === 0xd8 || marker === 0x01 || (marker >= 0xd0 && marker <= 0xd7)) { i += 2; continue; }
+      const len = v.getUint16(i + 2);
+      // Start-of-frame markers (not DHT, JPG or DAC) carry the size.
+      if (marker >= 0xc0 && marker <= 0xcf && marker !== 0xc4 && marker !== 0xc8 && marker !== 0xcc) {
+        return ok(v.getUint16(i + 7), v.getUint16(i + 5));
+      }
+      if (len < 2) return null;
+      i += 2 + len;
+    }
+  }
+  return null;
+}
+
+/**
+ * Fetch a link's title, creator, description and thumbnail in the background, then store them.
+ * A re-fetch that comes back with less keeps what the link already had.
+ */
 export async function fetchMetadata(db: Database, dataDir: string, linkId: number, url: string, platform: string,
                                     opts: FetchOptions = {}) {
   let meta: Preview = {};
@@ -134,14 +273,17 @@ export async function fetchMetadata(db: Database, dataDir: string, linkId: numbe
   } catch (e) {
     console.error(`preview failed for ${url}: ${e}`);
   }
-  let thumbType: string | null = null;
+  const thumbPath = join(dataDir, "thumbs", String(linkId));
+  let thumb: { type: string; width: number | null; height: number | null } | null = null;
   if (meta.image) {
     try {
       const res = await safeFetch(new URL(meta.image, url), opts);
       const type = contentType(res);
       if (res.ok && type.startsWith("image/")) {
-        await Bun.write(join(dataDir, "thumbs", String(linkId)), await readLimited(res, 6_000_000));
-        thumbType = type;
+        const bytes = await readLimited(res, 6_000_000);
+        const size = imageSize(bytes);
+        await Bun.write(`${thumbPath}.part`, bytes);
+        thumb = { type, width: size?.width ?? meta.imageWidth ?? null, height: size?.height ?? meta.imageHeight ?? null };
       } else {
         await res.body?.cancel();
       }
@@ -149,10 +291,22 @@ export async function fetchMetadata(db: Database, dataDir: string, linkId: numbe
       console.error(`thumbnail failed for ${url}: ${e}`);
     }
   }
-  const title = clip(meta.title, 300) || null;
-  const author = clip(meta.author, 80) || null;
-  const { changes } = db.run("UPDATE links SET title = ?, author = ?, thumb_type = ?, meta = ? WHERE id = ?",
-    [title, author, thumbType, title || thumbType ? "done" : "failed", linkId]);
+  const old = db.query("SELECT * FROM links WHERE id = ?").get(linkId) as LinkRow | null;
+  if (!old) {
+    rmSync(`${thumbPath}.part`, { force: true });
+    return;
+  }
+  if (thumb) renameSync(`${thumbPath}.part`, thumbPath);
+  const title = clip(meta.title, 300) || old.title || null;
+  const author = clip(meta.author, 80) || old.author || null;
+  const description = clip(meta.description, 1000) || old.description || null;
+  const siteName = clip(meta.siteName, 80) || old.site_name || null;
+  const thumbType = thumb?.type ?? old.thumb_type;
+  const [w, h] = thumb ? [thumb.width, thumb.height] : [old.thumb_w, old.thumb_h];
+  const { changes } = db.run(
+    `UPDATE links SET title = ?, author = ?, description = ?, site_name = ?, thumb_type = ?, thumb_w = ?, thumb_h = ?,
+       meta = ?, preview_v = ? WHERE id = ?`,
+    [title, author, description, siteName, thumbType, w, h, title || thumbType ? "done" : "failed", PREVIEW_VERSION, linkId]);
   // Deleted while we were fetching: don't leave its thumbnail behind.
-  if (!changes && thumbType) rmSync(join(dataDir, "thumbs", String(linkId)), { force: true });
+  if (!changes && thumb) rmSync(thumbPath, { force: true });
 }

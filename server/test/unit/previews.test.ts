@@ -4,7 +4,10 @@ import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { openDatabase } from "../../src/db.ts";
 import { BOT_UA, BROWSER_UA } from "../../src/net.ts";
-import { decodeEntities, fetchMetadata, fetchPreview, ogTags, previewFromTags } from "../../src/previews.ts";
+import {
+  decodeEntities, fetchMetadata, fetchPreview, imageSize, instagramEmbedUrl, instagramFromEmbed, ogTags, PREVIEW_VERSION,
+  previewFromTags,
+} from "../../src/previews.ts";
 import { fakeFetch, PNG, stubServer, tempDir } from "./helpers.ts";
 
 const local = { allowPrivateNetwork: true };
@@ -107,7 +110,176 @@ describe("previewFromTags", () => {
     ["instagram", { "og:title": " Instagram ", "og:site_name": "Instagram" }, { title: null, author: "Instagram", image: null }],
     ["instagram", { "og:title": "Something else" }, { title: "Something else", author: null, image: null }],
   ] as [string, Record<string, string>, object][])("%s %p", (platform, og, want) => {
-    expect(previewFromTags(platform, og)).toEqual(want);
+    expect(previewFromTags(platform, og)).toMatchObject(want);
+  });
+});
+
+describe("rich preview fields", () => {
+  test("description, site name and the og:image size", () => {
+    expect(previewFromTags("web", {
+      "og:title": "Rates rise", "og:description": " The bank moved again. ", "og:site_name": "The Paper",
+      "og:image": "https://cdn/a.jpg", "og:image:width": "1200", "og:image:height": " 630 ",
+    })).toEqual({
+      title: "Rates rise", author: "The Paper", image: "https://cdn/a.jpg", description: "The bank moved again.",
+      siteName: "The Paper", imageWidth: 1200, imageHeight: 630,
+    });
+  });
+
+  test.each([
+    [{ "twitter:description": "tw" }, "tw"],
+    [{ description: "plain" }, "plain"],
+    [{ "og:title": "Same", "og:description": "Same" }, null], // no point repeating the title
+    [{}, null],
+  ])("description from %p", (og, want) => {
+    expect(previewFromTags("web", og as Record<string, string>).description).toBe(want);
+  });
+
+  test.each([
+    [{ "og:image": "a.jpg", "og:image:width": "0", "og:image:height": "10" }, null, 10],
+    [{ "og:image": "a.jpg", "og:image:width": "wide", "og:image:height": "1.5" }, null, null],
+    [{ "og:image": "a.jpg", "og:image:width": "999999" }, null, null],
+    [{ "twitter:image": "t.jpg", "og:image:width": "100", "og:image:height": "100" }, null, null], // size is og:image's
+    [{ "og:image:url": "u.jpg", "og:image:width": "100", "og:image:height": "200" }, 100, 200],
+  ])("image size from %p", (og, w, h) => {
+    const p = previewFromTags("web", og as Record<string, string>);
+    expect([p.imageWidth, p.imageHeight]).toEqual([w, h]);
+  });
+
+  test("site name falls back to the platform's name", () => {
+    expect(previewFromTags("youtube", {}).siteName).toBe("YouTube");
+    expect(previewFromTags("tiktok", {}).siteName).toBe("TikTok");
+    expect(previewFromTags("web", {}).siteName).toBeNull();
+  });
+
+  test("Instagram: caption, @handle and only the engagement counts as the description", () => {
+    expect(previewFromTags("instagram", {
+      "og:title": 'Sam Lee on Instagram: "beach day 🌊"',
+      "og:description": '12K likes, 40 comments - samlee on May 1, 2025: "beach day 🌊"',
+      "og:image": "https://cdn/reel.jpg", "og:image:width": "640", "og:image:height": "1136",
+    })).toEqual({
+      title: "beach day 🌊", author: "@samlee", image: "https://cdn/reel.jpg", description: "12K likes, 40 comments",
+      siteName: "Instagram", imageWidth: 640, imageHeight: 1136,
+    });
+  });
+
+  test("Instagram login wall: nothing usable", () => {
+    expect(previewFromTags("instagram", { "og:title": "Instagram", "og:description": "Create an account or log in to Instagram." }))
+      .toMatchObject({ title: null, author: null, description: null });
+  });
+});
+
+describe("imageSize", () => {
+  const bytes = (...parts: (number[] | string)[]) =>
+    Uint8Array.from(parts.flatMap((p) => (typeof p === "string" ? [...p].map((c) => c.charCodeAt(0)) : p)));
+  const u16be = (n: number) => [n >> 8, n & 255];
+  const u16le = (n: number) => [n & 255, n >> 8];
+  const u24le = (n: number) => [n & 255, (n >> 8) & 255, n >> 16];
+  const u32le = (n: number) => [n & 255, (n >> 8) & 255, (n >> 16) & 255, n >>> 24];
+
+  test.each([
+    ["PNG", PNG, { width: 1, height: 1 }],
+    ["GIF", bytes("GIF89a", u16le(320), u16le(240)), { width: 320, height: 240 }],
+    ["JPEG (size after APP0)", bytes([0xff, 0xd8, 0xff, 0xe0], u16be(4), [0, 0],
+      [0xff, 0xc0], u16be(17), [8], u16be(1920), u16be(1080), new Array(12).fill(0)), { width: 1080, height: 1920 }],
+    ["progressive JPEG", bytes([0xff, 0xd8, 0xff, 0xc4], u16be(2), [0xff, 0xc2], u16be(17), [8], u16be(100), u16be(50),
+      new Array(12).fill(0)), { width: 50, height: 100 }],
+    ["WebP VP8X", bytes("RIFF", [0, 0, 0, 0], "WEBPVP8X", [0, 0, 0, 0, 0, 0, 0, 0], u24le(639), u24le(1135)), { width: 640, height: 1136 }],
+    ["WebP VP8", bytes("RIFF", [0, 0, 0, 0], "WEBPVP8 ", new Array(10).fill(0), u16le(400), u16le(300)), { width: 400, height: 300 }],
+    ["WebP VP8L", bytes("RIFF", [0, 0, 0, 0], "WEBPVP8L", [0, 0, 0, 0, 0x2f], u32le(99 | (199 << 14)), new Array(6).fill(0)), { width: 100, height: 200 }],
+  ])("%s", (_, b, want) => {
+    expect(imageSize(b as Uint8Array)).toEqual(want);
+  });
+
+  test.each([
+    ["empty", new Uint8Array()],
+    ["HTML", bytes("<html><head></head></html>")],
+    ["truncated PNG", PNG.slice(0, 20)],
+    ["JPEG without a frame", bytes([0xff, 0xd8, 0xff, 0xe0], u16be(4), [0, 0, 0xff, 0xd9, 0, 0, 0, 0, 0, 0, 0, 0])],
+    ["JPEG with a zero-length segment", bytes([0xff, 0xd8, 0xff, 0xe1, 0, 0], new Array(12).fill(0))],
+  ])("%s: null", (_, b) => {
+    expect(imageSize(b)).toBeNull();
+  });
+});
+
+describe("Instagram embed fallback", () => {
+  test.each([
+    ["https://www.instagram.com/reel/DCx_1-a/", "https://www.instagram.com/reel/DCx_1-a/embed/captioned/"],
+    ["https://www.instagram.com/reels/DCx/", "https://www.instagram.com/reel/DCx/embed/captioned/"],
+    ["https://www.instagram.com/p/Cab/?img_index=2", "https://www.instagram.com/p/Cab/embed/captioned/"],
+    ["https://www.instagram.com/samlee/reel/DCx/", "https://www.instagram.com/reel/DCx/embed/captioned/"],
+    ["https://www.instagram.com/samlee/", null],
+  ])("%s -> %p", (url, want) => {
+    expect(instagramEmbedUrl(url)).toBe(want);
+  });
+
+  const EMBED = `<html><body><div class="Embed">
+    <a class="Header"><span class="UsernameText">samlee</span></a>
+    <img class="EmbeddedMediaImage" alt="x" src="https://cdn/reel.jpg?a=1&amp;b=2">
+    <div class="Caption"><a class="CaptionUsername" href="/samlee/">samlee</a><br>beach day &amp; sun 🌊<br><br>
+      <a href="/explore/tags/summer/">#summer</a>
+      <div class="CaptionComments"><a>View all 40 comments</a></div></div></div></body></html>`;
+
+  test("parses the image, the @handle and the caption", () => {
+    expect(instagramFromEmbed(EMBED)).toEqual({
+      title: "beach day & sun 🌊\n\n#summer", author: "@samlee", image: "https://cdn/reel.jpg?a=1&b=2", siteName: "Instagram",
+    });
+  });
+
+  test("a broken-media page gives nothing", () => {
+    expect(instagramFromEmbed(`<div class="EmbedBrokenMedia">x</div>`)).toEqual({
+      title: null, author: null, image: null, siteName: "Instagram",
+    });
+  });
+
+  test("hostile pages parse in linear time", () => {
+    const start = performance.now();
+    instagramFromEmbed(`<div class="Caption">${"<a class='CaptionUsername' ".repeat(50_000)}`);
+    instagramFromEmbed(`<img class="EmbeddedMediaImage" ${"src='x' ".repeat(100_000)}`);
+    instagramFromEmbed(`class="UsernameText"${" ".repeat(500_000)}`);
+    expect(performance.now() - start).toBeLessThan(1000);
+  });
+
+  let fake: ReturnType<typeof fakeFetch> | undefined;
+  afterEach(() => fake?.restore());
+  const REEL = "https://www.instagram.com/reel/DCx/";
+  const EMBED_URL = "https://www.instagram.com/reel/DCx/embed/captioned/";
+  const html = (body: string, status = 200) => new Response(body, { status, headers: { "Content-Type": "text/html" } });
+
+  test("a full Open Graph page is used without the embed", async () => {
+    fake = fakeFetch(() => page(`<meta property="og:title" content='Sam on Instagram: "hi"'><meta property="og:image" content="https://cdn/i.jpg">`));
+    expect(await fetchPreview(REEL, "instagram", local)).toMatchObject({ title: "hi", image: "https://cdn/i.jpg" });
+    expect(fake.calls.map((c) => c.url)).toEqual([REEL]);
+    expect(fake.calls[0]!.headers.get("user-agent")).toBe(BOT_UA);
+  });
+
+  test("a login wall falls back to the embed page, fetched as a browser", async () => {
+    fake = fakeFetch((url) => (url === EMBED_URL ? html(EMBED) : page(`<title>Instagram</title><meta property="og:title" content="Instagram">`)));
+    expect(await fetchPreview(REEL, "instagram", local)).toMatchObject({
+      title: "beach day & sun 🌊\n\n#summer", author: "@samlee", image: "https://cdn/reel.jpg?a=1&b=2", siteName: "Instagram",
+    });
+    expect(fake.calls.map((c) => c.url)).toEqual([REEL, EMBED_URL]);
+    expect(fake.calls[1]!.headers.get("user-agent")).toBe(BROWSER_UA);
+  });
+
+  test("the page's counts and image size survive an embed that fills in the rest", async () => {
+    fake = fakeFetch((url) => (url === EMBED_URL ? html(EMBED) : page(
+      `<meta property="og:description" content="5 likes, 1 comment - samlee on May 1, 2025: &quot;x&quot;">`)));
+    expect(await fetchPreview(REEL, "instagram", local)).toMatchObject({ description: "5 likes, 1 comment", author: "@samlee", title: "beach day & sun 🌊\n\n#summer" });
+  });
+
+  test("a failed page fetch still tries the embed", async () => {
+    fake = fakeFetch((url) => (url === EMBED_URL ? html(EMBED) : html("", 429)));
+    expect((await fetchPreview(REEL, "instagram", local)).author).toBe("@samlee");
+  });
+
+  test("both failing is an error", async () => {
+    fake = fakeFetch(() => html("", 429));
+    await expect(fetchPreview(REEL, "instagram", local)).rejects.toThrow("HTTP 429");
+  });
+
+  test("an empty embed keeps whatever the page had", async () => {
+    fake = fakeFetch((url) => (url === EMBED_URL ? html("<div class='EmbedBrokenMedia'></div>") : page(`<meta property="og:title" content="Only a title">`)));
+    expect(await fetchPreview(REEL, "instagram", local)).toMatchObject({ title: "Only a title", image: null });
   });
 });
 
@@ -121,7 +293,7 @@ describe("fetchPreview (fake fetch)", () => {
 
   test("YouTube uses oEmbed", async () => {
     fake = fakeFetch(() => Response.json({ title: "A video", author_name: "Chan", thumbnail_url: "https://i.ytimg.com/x.jpg" }));
-    expect(await fetchPreview(YOUTUBE, "youtube", local)).toEqual({ title: "A video", author: "Chan", image: "https://i.ytimg.com/x.jpg" });
+    expect(await fetchPreview(YOUTUBE, "youtube", local)).toMatchObject({ title: "A video", author: "Chan", image: "https://i.ytimg.com/x.jpg" });
     expect(fake.calls.map((c) => c.url)).toEqual([`https://www.youtube.com/oembed?format=json&url=${encodeURIComponent(YOUTUBE)}`]);
   });
 
@@ -133,7 +305,7 @@ describe("fetchPreview (fake fetch)", () => {
 
   test("TikTok oEmbed with a title is used as is", async () => {
     fake = fakeFetch(() => Response.json({ title: "cap", author_name: "Sam", thumbnail_url: "https://cdn/t.jpg", html: "<x>" }));
-    expect(await fetchPreview(TIKTOK, "tiktok", local)).toEqual({ title: "cap", author: "Sam", image: "https://cdn/t.jpg" });
+    expect(await fetchPreview(TIKTOK, "tiktok", local)).toMatchObject({ title: "cap", author: "Sam", image: "https://cdn/t.jpg" });
     expect(fake.calls.map((c) => c.url)).toEqual([`https://www.tiktok.com/oembed?url=${encodeURIComponent(TIKTOK)}`]);
   });
 
@@ -143,13 +315,12 @@ describe("fetchPreview (fake fetch)", () => {
     ["invalid JSON", () => new Response("<html>")],
   ])("TikTok oEmbed with %s falls back to the page's tags, fetched as a link-preview bot", async (_, oembed) => {
     fake = fakeFetch((url) => (url.includes("/oembed?") ? oembed() : tiktokPage()));
-    expect(await fetchPreview(TIKTOK, "tiktok", local)).toEqual({ title: "the ending", author: "Scout & Suki", image: "https://cdn.example/t.jpg" });
+    expect(await fetchPreview(TIKTOK, "tiktok", local)).toMatchObject({ title: "the ending", author: "Scout & Suki", image: "https://cdn.example/t.jpg" });
     expect(fake.calls.map((c) => c.url)).toEqual([`https://www.tiktok.com/oembed?url=${encodeURIComponent(TIKTOK)}`, TIKTOK]);
     expect(fake.calls[1]!.headers.get("user-agent")).toBe(BOT_UA);
   });
 
   test.each([
-    ["instagram", "https://www.instagram.com/reel/ABC", BOT_UA],
     ["facebook", "https://www.facebook.com/watch?v=1", BOT_UA],
     ["web", "https://example.com/a", BROWSER_UA],
     ["x", "https://x.com/a/status/1", BROWSER_UA],
@@ -181,6 +352,11 @@ describe("fetchMetadata (local stub)", () => {
     "/missing-thumb": () => page(`<title>T</title><meta property="og:image" content="/nope.png">`),
     "/big-thumb": () => page(`<title>T</title><meta property="og:image" content="/big.jpg">`),
     "/no-title-thumb": () => page(`<meta property="og:image" content="/thumb.png">`),
+    "/rich": () => page(`<meta property="og:title" content="Reel"><meta property="og:description" content="About it">` +
+      `<meta property="og:site_name" content="Site"><meta property="og:image" content="/thumb.png">` +
+      `<meta property="og:image:width" content="640"><meta property="og:image:height" content="1136">`),
+    "/og-size": () => page(`<title>T</title><meta property="og:image" content="/big.jpg">` +
+      `<meta property="og:image:width" content="640"><meta property="og:image:height" content="1136">`),
     "/empty": () => page(""),
     "/error": () => page("<title>T</title>", 500),
     "/deleted": () => page(`<title>T</title><meta property="og:image" content="/thumb-delete.png">`),
@@ -252,11 +428,37 @@ describe("fetchMetadata (local stub)", () => {
     expect(row).toEqual({ title: null, author: null, thumb_type: null, meta: "failed" });
   });
 
+  const rich = (id: number) =>
+    db.query("SELECT description, site_name, thumb_w, thumb_h, preview_v FROM links WHERE id = ?").get(id);
+
+  test("stores the description, site name and the decoded thumbnail size over og:image:width/height", async () => {
+    const { id, row } = await run("/rich");
+    expect(row).toMatchObject({ title: "Reel", thumb_type: "image/png", meta: "done" });
+    expect(rich(id)).toEqual({ description: "About it", site_name: "Site", thumb_w: 1, thumb_h: 1, preview_v: PREVIEW_VERSION });
+  });
+
+  test("an undecodable thumbnail keeps the og:image size", async () => {
+    const { id } = await run("/og-size");
+    expect(rich(id)).toMatchObject({ thumb_w: 640, thumb_h: 1136 });
+  });
+
+  test("a re-fetch that finds less keeps what the link had", async () => {
+    const { id, file } = await run("/rich");
+    const url = `${stub.origin}/error`;
+    db.run("UPDATE links SET url = ?, preview_v = 0 WHERE id = ?", [url, id]);
+    await fetchMetadata(db, tmp.dir, id, url, "web", local);
+    expect(db.query("SELECT title, thumb_type, meta FROM links WHERE id = ?").get(id))
+      .toEqual({ title: "Reel", thumb_type: "image/png", meta: "done" });
+    expect(rich(id)).toEqual({ description: "About it", site_name: "Site", thumb_w: 1, thumb_h: 1, preview_v: PREVIEW_VERSION });
+    expect(new Uint8Array(readFileSync(file))).toEqual(PNG);
+  });
+
   test("a link deleted mid-fetch leaves no thumbnail behind", async () => {
     deleteOnThumb = 1; // a fresh database's first link
     const { id, row, file } = await run("/deleted");
     expect(id).toBe(deleteOnThumb);
     expect(row).toBeNull();
     expect(existsSync(file)).toBe(false);
+    expect(existsSync(`${file}.part`)).toBe(false);
   });
 });
