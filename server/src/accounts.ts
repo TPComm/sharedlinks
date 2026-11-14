@@ -50,33 +50,22 @@ export class Accounts {
     this.screen = screener(config.dataDir);
   }
 
-  emailAllowed(email: string | null | undefined): boolean {
-    const list = this.config.allowedEmails;
-    if (!list.length) return true;
-    const e = (email ?? "").toLowerCase();
-    return list.some((a) => e === a || (a.startsWith("@") && e.endsWith(a)));
-  }
-
-  /**
-   * Allowed in: on the guest list, or let in by an invite (users.member). Checked at sign-in and on
-   * every request, so taking someone off ALLOWED_EMAILS still ends their sessions unless they joined
-   * by invite (then `links-server delete-user` removes them).
-   */
-  mayEnter(userId: string, email: string | null | undefined): boolean {
-    if (this.emailAllowed(email)) return true;
+  /** In: let in by an invite, or signed up before invites (users.member). Checked at sign-in and on every request. */
+  isMember(userId: string): boolean {
     return !!this.db.query("SELECT 1 FROM users WHERE id = ? AND member = 1").get(userId);
   }
 
   // -- invites (#5)
 
-  createInvite(userId: string, email: unknown): { invite: ReturnType<typeof publicInvite>; token: string } {
+  /** `userId` null: an admin's invite from `links-server invite`, which no one's 20 count includes. */
+  createInvite(userId: string | null, email: unknown): { invite: ReturnType<typeof publicInvite>; token: string } {
     let bound: string | null = null;
     if (email !== undefined && email !== null && String(email).trim() !== "") {
       bound = String(email).trim().toLowerCase();
       if (bound.length > 254 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(bound)) throw new BadRequest("That doesn't look like an email address.");
     }
     const t = now();
-    const pending = (this.db.query("SELECT COUNT(*) AS n FROM invites WHERE invited_by = ? AND used_at IS NULL AND expires_at > ?")
+    const pending = userId === null ? 0 : (this.db.query("SELECT COUNT(*) AS n FROM invites WHERE invited_by = ? AND used_at IS NULL AND expires_at > ?")
       .get(userId, t) as { n: number }).n;
     if (pending >= MAX_PENDING_INVITES) throw new BadRequest("You have a lot of invites waiting. Cancel some first.");
     const token = randomToken();
@@ -97,12 +86,15 @@ export class Accounts {
     return this.db.run("DELETE FROM invites WHERE id = ? AND invited_by = ? AND used_at IS NULL", [id, userId]).changes > 0;
   }
 
-  /** A link's invite if it still works (unused, not expired, not revoked), for the /invite page. Never uses it up. */
-  pendingInvite(token: string): (InviteRow & { inviter: string }) | null {
+  /**
+   * A link's invite if it still works (unused, not expired, not revoked), for the /invite page. Never
+   * uses it up. `inviter` is null for an admin's invite.
+   */
+  pendingInvite(token: string): (InviteRow & { inviter: string | null }) | null {
     if (!INVITE_TOKEN_RE.test(token)) return null;
-    return this.db.query(`SELECT i.*, u.name AS inviter FROM invites i JOIN users u ON u.id = i.invited_by
+    return this.db.query(`SELECT i.*, u.name AS inviter FROM invites i LEFT JOIN users u ON u.id = i.invited_by
         WHERE i.token_hash = ? AND i.used_at IS NULL AND i.expires_at > ?`)
-      .get(sha256(token), now()) as (InviteRow & { inviter: string }) | null;
+      .get(sha256(token), now()) as (InviteRow & { inviter: string | null }) | null;
   }
 
   /**
@@ -168,15 +160,15 @@ export class Accounts {
     if (!token) return null;
     const digest = sha256(token);
     const row = this.db.query(
-      "SELECT s.user_id, s.last_used, u.email FROM sessions s JOIN users u ON u.id = s.user_id WHERE s.token_hash = ?",
-    ).get(digest) as { user_id: string; last_used: number; email: string | null } | null;
+      "SELECT s.user_id, s.last_used, u.member FROM sessions s JOIN users u ON u.id = s.user_id WHERE s.token_hash = ?",
+    ).get(digest) as { user_id: string; last_used: number; member: number } | null;
     if (!row) return null;
     const t = now();
     if (t - row.last_used > this.config.sessionDays * 86400) {
       this.db.run("DELETE FROM sessions WHERE token_hash = ?", [digest]);
       return null;
     }
-    if (!this.mayEnter(row.user_id, row.email)) return null;
+    if (!row.member) return null; // no way to read anything without being let in
     if (t - row.last_used > 3600) this.db.run("UPDATE sessions SET last_used = ? WHERE token_hash = ?", [t, digest]);
     return row.user_id;
   }
@@ -293,22 +285,23 @@ export class Accounts {
     const name = [user.first_name, titleCase((email.split("@")[0] ?? "").replace(/\./g, " "))]
       .find((n) => n && this.allowsName(n)) ?? "Someone";
     const avatar = user.profile_picture_url || null;
-    const listed = this.emailAllowed(email) && (!this.config.allowedEmails.length || !!user.email_verified);
     // One transaction: two phones redeeming the same invite can't both get in on it.
     this.db.transaction(() => {
-      if (listed || this.db.query("SELECT 1 FROM users WHERE id = ? AND member = 1").get(user.id)) {
+      if (this.isMember(user.id)) {
         this.upsertUser(user.id, email, name, avatar);
         return;
       }
       const invite = this.findInvite(inviteToken, email, !!user.email_verified);
       if (!invite) {
-        if (this.emailAllowed(email)) throw new AuthError("Verify your email address, then sign in again.", 403);
-        throw new AuthError(`${email} isn't on the guest list for this Links. Got an invite? Tap its link again.`, 403);
+        if (!user.email_verified && email && this.findInvite("", email, true)) {
+          throw new AuthError("Verify your email address, then sign in again.", 403);
+        }
+        throw new AuthError("Links is invite-only. Ask a friend who uses it to invite you, then tap their invite link.", 403);
       }
       this.upsertUser(user.id, email, name, avatar);
       this.db.run("UPDATE users SET member = 1 WHERE id = ?", [user.id]);
       this.db.run("UPDATE invites SET used_by = ?, used_at = ? WHERE id = ?", [user.id, now(), invite.id]);
-      console.log(`invite ${invite.id} from ${invite.invited_by} used by ${user.id}`);
+      console.log(`invite ${invite.id} from ${invite.invited_by ?? "admin"} used by ${user.id}`);
     }).immediate();
     return { token: this.newSession(user.id), ...this.mePayload(user.id) };
   }
@@ -325,6 +318,7 @@ export class Accounts {
       .get(email, `${LEGACY}%`) as { id: string } | null;
     const id = row?.id ?? `local_${Buffer.from(crypto.getRandomValues(new Uint8Array(8))).toString("hex")}`;
     this.upsertUser(id, email, name || titleCase(email.split("@")[0] ?? "Someone"), null);
+    this.db.run("UPDATE users SET member = 1 WHERE id = ?", [id]); // the admin minting it vouches for them
     return this.newSession(id);
   }
 }

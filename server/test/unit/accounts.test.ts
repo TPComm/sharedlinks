@@ -27,34 +27,10 @@ afterEach(() => {
 
 const accounts = (over: Partial<Config> = {}) => new Accounts(db, { ...configFromEnv({}), ...over });
 const at = (seconds: number) => setSystemTime(new Date(seconds * 1000));
-const addUser = (id: string, email: string | null = null, name = "N", createdAt = 1) =>
-  db.run("INSERT INTO users (id, email, name, created_at) VALUES (?, ?, ?, ?)", [id, email, name, createdAt]);
+const addUser = (id: string, email: string | null = null, name = "N", createdAt = 1, member = 1) =>
+  db.run("INSERT INTO users (id, email, name, created_at, member) VALUES (?, ?, ?, ?, ?)", [id, email, name, createdAt, member]);
 const rows = (sql: string) => db.query(sql).all();
 const count = (table: string) => (db.query(`SELECT COUNT(*) AS n FROM ${table}`).get() as { n: number }).n;
-
-describe("emailAllowed", () => {
-  test.each([
-    ["friend@example.com", true],
-    ["FRIEND@Example.COM", true],
-    ["jane@team.test", true],
-    ["JANE@TEAM.TEST", true],
-    ["evilfriend@example.com", false],
-    ["friend@example.com.evil", false],
-    ["friend@example.co", false],
-    ["jane@evilteam.test", false],
-    ["jane@sub.team.test", false],
-    ["team.test", false],
-    ["", false],
-    [null, false],
-    [undefined, false],
-  ])("%p -> %p", (email, want) => {
-    expect(accounts({ allowedEmails: ["friend@example.com", "@team.test"] }).emailAllowed(email)).toBe(want);
-  });
-
-  test("an empty list lets everyone in", () => {
-    for (const email of ["anyone@anywhere.test", "", null]) expect(accounts().emailAllowed(email)).toBe(true);
-  });
-});
 
 describe("names", () => {
   test.each([
@@ -152,12 +128,14 @@ describe("sessions", () => {
     expect(a.sessionUser(token)).toBe("u1");
   });
 
-  test("a session stops working while its email is off the guest list", () => {
-    addUser("u1", "Friend@Example.com");
-    const token = accounts().newSession("u1");
-    expect(accounts({ allowedEmails: ["friend@example.com"] }).sessionUser(token)).toBe("u1");
-    expect(accounts({ allowedEmails: ["other@example.com"] }).sessionUser(token)).toBeNull();
-    expect(accounts({ allowedEmails: ["@example.com"] }).sessionUser(token)).toBe("u1"); // not deleted
+  test("a session only works for a member", () => {
+    addUser("u1", "friend@example.com", "N", 1, 0);
+    const a = accounts();
+    const token = a.newSession("u1");
+    expect(a.sessionUser(token)).toBeNull();
+    expect(count("sessions")).toBe(1); // not deleted: they're back in once they're a member
+    db.run("UPDATE users SET member = 1 WHERE id = 'u1'");
+    expect(a.sessionUser(token)).toBe("u1");
   });
 
   test("endSession ends only that session", () => {
@@ -259,6 +237,12 @@ describe("mintSession", () => {
     const a = accounts();
     expect(a.sessionUser(a.mintSession("friend@example.COM", "Ignored"))).toBe("user_A");
     expect(rows("SELECT name FROM users WHERE id = 'user_A'")).toEqual([{ name: "Riley" }]);
+  });
+
+  test("makes them a member: the admin minting it vouches for them", () => {
+    addUser("user_A", "friend@example.com", "Riley", 1, 0);
+    const a = accounts();
+    expect(a.sessionUser(a.mintSession("friend@example.com"))).toBe("user_A");
   });
 
   test("creates a local account named after the email or the given name", () => {
@@ -473,8 +457,10 @@ describe("signIn (WorkOS stub)", () => {
     workos.stop();
   });
 
-  const signer = (over: Partial<Config> = {}) => accounts({
-    workosClientId: "client_1", workosApi: workos.origin, allowedEmails: ["friend@example.com", "@team.test"], ...over,
+  const signer = (over: Partial<Config> = {}) => accounts({ workosClientId: "client_1", workosApi: workos.origin, ...over });
+  // Invites are the only way in: good, team and upper have one sent to their email (by an admin).
+  beforeEach(() => {
+    for (const email of ["friend@example.com", "jane.doe@team.test", "bob.smith@team.test"]) signer().createInvite(null, email);
   });
   const authError = async (p: Promise<unknown>) => {
     const e = await p.then(() => null, (e) => e);
@@ -513,38 +499,47 @@ describe("signIn (WorkOS stub)", () => {
     expect(count("sessions")).toBe(0);
   });
 
-  test("guest list and email verification", async () => {
+  test("invite-only: no invite, no account and no session", async () => {
     let e = await authError(signer().signIn("stranger", VERIFIER, ""));
-    expect([e.status, e.message]).toEqual([403, "stranger@evil.test isn't on the guest list for this Links. Got an invite? Tap its link again."]);
-    e = await authError(signer().signIn("unverified", VERIFIER, ""));
-    expect([e.status, e.message]).toEqual([403, "Verify your email address, then sign in again."]);
+    expect([e.status, e.message]).toEqual([403, "Links is invite-only. Ask a friend who uses it to invite you, then tap their invite link."]);
+    e = await authError(signer().signIn("stranger", VERIFIER, "", "x".repeat(43)));
+    expect(e.status).toBe(403);
     e = await authError(signer().signIn("noemail", VERIFIER, ""));
     expect(e.status).toBe(403);
     expect([count("users"), count("sessions")]).toEqual([0, 0]);
-    // Without a guest list: anyone AuthKit lets in, verified or not.
-    expect((await signer({ allowedEmails: [] }).signIn("unverified", VERIFIER, "")).user.id).toBe("user_05");
   });
 
-  test("an invite lets someone off the guest list in, once, and they stay a member", async () => {
+  test("an invite lets someone in, once, and they stay a member", async () => {
     const a = signer();
-    a.upsertUser("host", "friend@example.com", "Riley", null);
+    a.upsertUser("host", "host@example.com", "Riley", null);
+    db.run("UPDATE users SET member = 1 WHERE id = 'host'");
     const { invite, token } = a.createInvite("host", undefined);
-    const e = await authError(a.signIn("stranger", VERIFIER, "", "x".repeat(43)));
-    expect(e.status).toBe(403);
     const res = await a.signIn("stranger", VERIFIER, "", token);
-    expect(a.sessionUser(res.token)).toBe("user_04"); // not refused by the guest list on the next request
+    expect(a.sessionUser(res.token)).toBe("user_04");
+    expect(rows("SELECT used_by FROM invites WHERE used_at IS NOT NULL ORDER BY id")).toEqual([{ used_by: "user_04" }]);
     expect(a.pendingInvites("host")).toEqual([]);
     expect(a.revokeInvite("host", invite.id)).toBe(false); // used, so not revocable
-    expect((await a.signIn("stranger", VERIFIER, "")).user.id).toBe("user_04");
-    // An unverified email doesn't count for an invite sent to it.
-    a.createInvite("host", "friend2@team.test");
+    expect((await a.signIn("stranger", VERIFIER, "")).user.id).toBe("user_04"); // no link needed now
+    // The used link doesn't let anyone else in.
+    expect((await authError(a.signIn("noemail", VERIFIER, "", token))).status).toBe(403);
+  });
+
+  test("an invite sent to an email needs that email verified", async () => {
+    const a = signer();
+    const { token } = a.createInvite(null, "friend2@team.test");
     expect((await authError(a.signIn("unverified", VERIFIER, ""))).message).toBe("Verify your email address, then sign in again.");
-    expect(a.pendingInvites("host").length).toBe(1);
-    // Members stay in after the guest list changes; everyone else's sessions end.
-    const listed = await a.signIn("good", VERIFIER, "");
-    const narrower = signer({ allowedEmails: ["someone@else.test"] });
-    expect(narrower.sessionUser(res.token)).toBe("user_04");
-    expect(narrower.sessionUser(listed.token)).toBeNull();
+    expect((await authError(a.signIn("unverified", VERIFIER, "", token))).message).toBe("Verify your email address, then sign in again.");
+    // Nor does an invite bound to one email let in someone else, even with its link.
+    expect((await authError(a.signIn("stranger", VERIFIER, "", token))).status).toBe(403);
+    expect(count("users")).toBe(0);
+  });
+
+  test("an admin's invite (links-server invite) has no inviter and lets in whoever uses it", async () => {
+    const a = signer();
+    const { token } = a.createInvite(null, null);
+    expect(a.pendingInvite(token)).toMatchObject({ invited_by: null, inviter: null });
+    expect((await a.signIn("stranger", VERIFIER, "", token)).user.id).toBe("user_04");
+    expect(a.pendingInvite(token)).toBeNull();
   });
 
   test("invite limits: a bad email, too many pending", () => {
@@ -560,7 +555,8 @@ describe("signIn (WorkOS stub)", () => {
   });
 
   test("with no name or email, 'Someone'", async () => {
-    expect((await signer({ allowedEmails: [] }).signIn("noemail", VERIFIER, "")).user).toMatchObject({ name: "Someone", email: "" });
+    const { token } = signer().createInvite(null, null);
+    expect((await signer().signIn("noemail", VERIFIER, "", token)).user).toMatchObject({ name: "Someone", email: "" });
   });
 
   test("signing in again keeps the name chosen in the app", async () => {

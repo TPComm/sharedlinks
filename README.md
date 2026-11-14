@@ -42,22 +42,22 @@ itself off, and TipKit tips then point out the gestures once each.
    also add `http://localhost:8000/auth/callback`.
 3. Copy the **Client ID** (and optionally an **API key**; the code exchange also works with PKCE
    alone).
-4. Decide who can get in: set `ALLOWED_EMAILS` on the server (`you@x.com,friend@y.com`, or
-   `@yourdomain.com` for a whole domain). Without it, anyone who can sign in to your AuthKit
-   can see everything. You can also turn off sign-ups in the WorkOS dashboard.
-   After that, anyone who's in can let a friend in from the app (**People → Invite a Friend**):
-   the invite link works once, for 7 days, and an invite sent to an email address also lets that
-   (verified) address in without the link. People who join by invite stay in whatever
-   `ALLOWED_EMAILS` says. Set `APP_STORE_ID` (the app's numeric App Store ID) to show a Smart
-   App Banner on invite pages.
+4. Links is invite-only: signing in to your AuthKit isn't enough, someone has to let you in.
+   Let yourself in first: on the server, `links-server invite you@x.com` prints an invite, and
+   signing in with that (verified) email uses it. After that, anyone who's in can let a friend in
+   from the app (**People → Invite a Friend**): the invite link works once, for 7 days, and an
+   invite sent to an email address also lets that (verified) address in without the link. Set
+   `APP_STORE_ID` (the app's numeric App Store ID) to show a Smart App Banner on invite pages.
+   Servers from before invites had an `ALLOWED_EMAILS` guest list instead: the first start of
+   this version keeps everyone already signed up who's still on it (everyone already signed up,
+   if it isn't set), and after that it's never read, so take it out of the env file.
 
-**Sign in with Apple and the guest list.** Someone who picks *Hide My Email* signs in with a relay
+**Sign in with Apple and email invites.** Someone who picks *Hide My Email* signs in with a relay
 address (`…@privaterelay.appleid.com`, and `…@private.icloud.com` for new ones from late 2026), not
-the email on your guest list, so the server turns them away ("isn't on the guest list"). Send them
-an invite link without an email address (**People → Invite a Friend**), which lets in whatever
-verified address they sign in with, or ask them to choose *Share My Email*. Never
-add the relay domains to `ALLOWED_EMAILS`: that would let in anyone with an Apple Account who hides
-their email.
+the email you invited, so that invite doesn't match them without its link. Have them tap the
+invite link before signing in, send them an invite without an email address (**People → Invite a
+Friend**), which lets in whatever verified address they sign in with, or ask them to choose *Share
+My Email*.
 
 Deleting an account (`DELETE /api/me` with `WORKOS_API_KEY` set) deletes the WorkOS user too.
 WorkOS's docs don't say whether that also revokes the person's Sign in with Apple tokens, and
@@ -69,7 +69,7 @@ in their Apple Account settings.
 How it fits together: the app opens `/auth/authorize` in `ASWebAuthenticationSession` with a PKCE
 challenge; the server forwards to AuthKit; AuthKit redirects back to `/auth/callback`, which hands
 the code to the app's `sharedlinks://` URL; the app sends the code and its PKCE verifier to
-`/api/auth/token`; the server exchanges them with WorkOS, checks the guest list, and returns a
+`/api/auth/token`; the server exchanges them with WorkOS, checks they're in (or have an invite), and returns a
 long-lived Links session token. The token lives in the keychain under the App Group, so the Share
 Extension and widgets use the same session (no refresh-token races between processes).
 
@@ -128,14 +128,15 @@ passwordless sudo (the scripts run their remote steps without a terminal). Then,
 
 ```bash
 read -rs 'WORKOS_API_KEY?WorkOS API key (Enter to skip): ' && export WORKOS_API_KEY   # zsh: not saved to shell history
-WORKOS_CLIENT_ID=client_... ALLOWED_EMAILS=you@x.com,friend@y.com \
+WORKOS_CLIENT_ID=client_... \
   deploy/setup.sh root@203.0.113.7 links.example.com
 ```
 
 That adds swap on small boxes, installs Caddy and automatic security updates, creates a locked-down
 `links` service and a daily database backup (`/var/lib/links/backups`, newest 14), opens only
 SSH/80/443, then builds the right binary for the VPS's CPU on your Mac and deploys it. Finally set
-`LINKS_SERVER_URL_Release = https:/$()/links.example.com` in `ios/Config.xcconfig`.
+`LINKS_SERVER_URL_Release = https:/$()/links.example.com` in `ios/Config.xcconfig`, and let yourself
+in: `sudo -u links sh -c 'set -a && . /etc/links/links.env && DATA_DIR=/var/lib/links /opt/links/links-server invite you@x.com'`.
 
 **Updates:** `deploy/deploy.sh root@203.0.113.7` tests, builds, uploads, swaps and health-checks.
 It only ships a clean `main` that matches `origin/main`, and compiles the commit in: `curl
@@ -154,8 +155,7 @@ runtime is inside the binary, so run `bun upgrade && deploy/deploy.sh …` about
 - `links-server reports` (as the `links` user: `sudo -u links env DATA_DIR=/var/lib/links /opt/links/links-server reports`)
   lists open reports, each with a copy of what was reported then. `links-server reports resolve <id>`
   marks one handled; `--remove` also deletes the link and its thumbnail for everyone. To remove a
-  person, `links-server delete-user <email>` and take them out of `ALLOWED_EMAILS` (people who
-  joined by invite aren't on it).
+  person, `links-server delete-user <email>`: they're out, and only a new invite lets them back in.
 - Blocking is one-way and only for the blocker: they stop seeing the blocked person's links,
   watched marks and reactions. Notes can only be changed by the link's sender.
 - Notes and display names with a word on the list in `server/src/moderation.ts` are refused. Add

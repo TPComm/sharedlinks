@@ -64,7 +64,7 @@ adds as a link, that crashes, hangs or fills up the server is in scope.
   your report.
 - Don't load test or run high-volume scans against links.tpcomm.co. It's one small server that
   real people use.
-- Production only lets in people on its guest list, so test against a local copy instead:
+- Production is invite-only, so test against a local copy instead:
   `cd server && bun install && bun run dev` starts one at http://localhost:8000, and
   `bun run mint-session you@example.com "Your Name"` prints a session token for it without
   WorkOS. Debug builds of the iOS app in the Simulator talk to that local server (see the README).

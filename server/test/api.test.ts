@@ -41,10 +41,11 @@ const fakeWorkOS = Bun.serve({
           unverified: { id: "user_01UNVERIFIED", email: "friend2@team.test", email_verified: false },
           rude: { id: "user_01RUDE", email: "rude.person@team.test", email_verified: true, first_name: "Zonk" },
           blocker: { id: "user_01BLOCKER", email: "blocker@team.test", email_verified: true, first_name: "Bea" },
-          // Not on the guest list: they get in by invite.
+          // No invite yet: they get in with one from someone who's in.
           nova: { id: "user_01NOVA", email: "nova@else.test", email_verified: true, first_name: "Nova" },
           sol: { id: "user_01SOL", email: "Sol@Else.test", email_verified: true, first_name: "Sol" },
           kit: { id: "user_01KIT", email: "kit@else.test", email_verified: true, first_name: "Kit" },
+          pip: { id: "user_01PIP", email: "pip@else.test", email_verified: true, first_name: "Pip" },
           unverifiedGuest: { id: "user_01UNVGUEST", email: "unv@else.test", email_verified: false },
         };
         const user = users[body.code];
@@ -100,13 +101,16 @@ beforeAll(() => {
     publicUrl: "https://links.example.com",
     workosClientId: "client_TEST",
     workosApi: fakeWorkOS.url.origin,
-    allowedEmails: ["friend@example.com", "@team.test"],
     allowPrivateNetwork: true,
     logRequests: false,
     previewBackfillMs: 0,
   };
   baseConfig = config;
   const { app, server } = startServer(config);
+  // Invites are the only way in: these people were sent one (by the admin, `links-server invite`).
+  for (const email of ["friend@example.com", "jane.doe@team.test", "rude.person@team.test", "blocker@team.test", "friend2@team.test"]) {
+    app.accounts.createInvite(null, email);
+  }
   api = server.url.origin;
   origin = fakeOrigin.url.origin;
   idle = app.idle;
@@ -168,8 +172,10 @@ describe("auth", () => {
     expect(res.headers.get("location")).toBe("sharedlinks://auth/callback?code=abc&state=xyz");
   });
 
-  test("code exchange: guest list, verification, PKCE", async () => {
-    expect((await signIn("stranger")).status).toBe(403);
+  test("code exchange: invite-only, verification, PKCE", async () => {
+    const stranger = await signIn("stranger");
+    expect(stranger.status).toBe(403);
+    expect(stranger.data.token).toBeUndefined();
     expect((await signIn("unverified")).data.error).toContain("Verify");
     const bad = await signIn("good", "w".repeat(43));
     expect(bad.status).toBe(400); // not 401, which the app would read as "signed out"
@@ -219,7 +225,7 @@ describe("invites", () => {
     }
     expect((await call("/icon.png")).headers.get("content-type")).toBe("image/png");
 
-    expect((await signIn("nova")).data.error).toBe("nova@else.test isn't on the guest list for this Links. Got an invite? Tap its link again.");
+    expect((await signIn("nova")).data.error).toBe("Links is invite-only. Ask a friend who uses it to invite you, then tap their invite link.");
     const nova = await signIn("nova", VERIFIER, token);
     expect(nova.status).toBe(200);
     novaToken = nova.data.token;
@@ -249,6 +255,36 @@ describe("invites", () => {
 
     await call("/api/invites", { token: me, body: { email: "unv@else.test" } });
     expect((await signIn("unverifiedGuest")).status).toBe(403);
+  });
+
+  test("someone who isn't a member can't read or write anything, even with a session", async () => {
+    const db = new Database(join(dataDir, "links.db"));
+    db.run("INSERT INTO users (id, email, name, created_at) VALUES ('user_01OUTSIDER', 'out@else.test', 'Outsider', 1)");
+    const outsider = "o".repeat(43);
+    db.run("INSERT INTO sessions VALUES (?, 'user_01OUTSIDER', ?, ?)",
+      [new Bun.CryptoHasher("sha256").update(outsider).digest("hex"), Date.now() / 1000, Date.now() / 1000]);
+    const linkId = (db.query("SELECT id FROM links ORDER BY id LIMIT 1").get() as { id: number }).id;
+    db.close();
+    for (const [method, path, body] of [
+      ["GET", "/api/state"], ["GET", "/api/me"], ["GET", "/api/invites"], ["POST", "/api/invites", {}],
+      ["POST", "/api/links", { url: `${origin}/plain?n=outsider` }], ["POST", `/api/links/${linkId}/seen`, { seen: true }],
+      ["GET", `/thumbs/${linkId}`], ["POST", "/api/blocks", { user_id: "user_01FRIEND" }], ["POST", "/api/reports", { link_id: linkId, reason: "spam" }],
+    ] as [string, string, object?][]) {
+      expect((await call(path, { method, token: outsider, body })).status, `${method} ${path}`).toBe(401);
+    }
+  });
+
+  test("an admin's invite (links-server invite) has a page with no inviter, and lets its holder in", async () => {
+    const db = new Database(join(dataDir, "links.db"));
+    const token = "a".repeat(43);
+    db.run("INSERT INTO invites (token_hash, invited_by, created_at, expires_at) VALUES (?, NULL, ?, ?)",
+      [new Bun.CryptoHasher("sha256").update(token).digest("hex"), Date.now() / 1000, Date.now() / 1000 + 86400]);
+    db.close();
+    const page = await call(`/invite/${token}`);
+    expect(page.status).toBe(200);
+    expect(page.data).toContain("<title>You&#39;re invited to Links</title>");
+    expect(page.data).toContain("If the invite was sent to your email address");
+    expect((await signIn("pip", VERIFIER, token)).status).toBe(200);
   });
 
   test("revoked and expired invites stop working", async () => {
@@ -665,8 +701,10 @@ describe("deleting an account", () => {
     expect(Object.keys(theirs.seen)).toEqual([friendId]);
     expect(theirs.reactions).toEqual({ [friendId]: "❤️" });
 
-    // Still on the guest list, so she can sign up again (same WorkOS id, same email), but as a new,
-    // empty account: her old links don't come back.
+    // Deleting ends her membership: back in only with a new invite (same WorkOS id, same email), as
+    // a new, empty account. Her old links don't come back.
+    expect((await signIn("domain")).status).toBe(403);
+    await call("/api/invites", { token: friendToken, body: { email: "jane.doe@team.test" } });
     const again = await signIn("domain");
     expect(again.status).toBe(200);
     expect(again.data.user).toMatchObject({ id: janeId, name: "Jane Doe", email: "jane.doe@team.test" });

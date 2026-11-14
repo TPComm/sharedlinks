@@ -282,4 +282,40 @@ describe("migrations", () => {
     expect(pragma(db, "user_version")).toBe(7);
     db.close();
   });
+
+  describe("v7: invites; everyone already signed up stays in", () => {
+    const v6 = () => {
+      const db = openDatabase(tmp.dir);
+      db.exec(`
+        DROP TABLE invites;
+        ALTER TABLE users DROP COLUMN member;
+        INSERT INTO users (id, email, name, created_at) VALUES
+          ('user_a', 'Friend@Example.com', 'A', 1), ('user_b', 'jo@team.test', 'B', 1),
+          ('user_c', 'gone@else.test', 'C', 1), ('user_d', NULL, 'D', 1), ('local_e', 'e@else.test', 'E', 1),
+          ('legacy:Sam', NULL, 'Sam', 1), ('deleted', NULL, 'Deleted', 1);
+        PRAGMA user_version = 6;
+      `);
+      db.close();
+    };
+    const members = (db: Database) =>
+      (db.query("SELECT id FROM users WHERE member = 1 ORDER BY id").all() as { id: string }[]).map((r) => r.id);
+
+    test("with no ALLOWED_EMAILS, every signed-up account (not legacy or deleted people) is a member", () => {
+      v6();
+      const db = openDatabase(tmp.dir);
+      expect(members(db)).toEqual(["local_e", "user_a", "user_b", "user_c", "user_d"]);
+      expect(pragma(db, "user_version")).toBe(7);
+      db.close();
+    });
+
+    test("with ALLOWED_EMAILS still set, only those on it: someone taken off it stays out", () => {
+      v6();
+      let db = openDatabase(tmp.dir, ["friend@example.com", "@team.test"]);
+      expect(members(db)).toEqual(["user_a", "user_b"]);
+      db.close();
+      db = openDatabase(tmp.dir); // read once: the list going later changes nothing
+      expect(members(db)).toEqual(["user_a", "user_b"]);
+      db.close();
+    });
+  });
 });

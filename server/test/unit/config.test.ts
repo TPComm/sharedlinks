@@ -14,7 +14,7 @@ describe("configFromEnv", () => {
       workosClientId: "",
       workosApiKey: "",
       workosApi: "https://api.workos.com",
-      allowedEmails: [],
+      legacyAllowedEmails: [],
       allowPrivateNetwork: false,
       logRequests: true,
       supportEmail: "support@tpcomm.co",
@@ -60,7 +60,7 @@ describe("configFromEnv", () => {
     ["", []],
     [" , , ", []],
   ])("ALLOWED_EMAILS %p -> %p", (value, want) => {
-    expect(configFromEnv({ ALLOWED_EMAILS: value }).allowedEmails).toEqual(want);
+    expect(configFromEnv({ ALLOWED_EMAILS: value }).legacyAllowedEmails).toEqual(want);
   });
 
   test.each([

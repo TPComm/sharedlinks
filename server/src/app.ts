@@ -52,21 +52,21 @@ function supportPage(email: string): string {
  * What an invite link shows in a browser and in Messages' preview: who sent it and how to get in,
  * nothing from the inbox. Loading it never uses the invite up; only signing in does.
  */
-function invitePage(config: Config, token: string, inviter: string | null): string {
+function invitePage(config: Config, token: string, invite: { inviter: string | null } | null): string {
   const appLink = `${config.appScheme}://invite/${token}`;
   const store = config.appStoreId ? `https://apps.apple.com/app/id${encodeURIComponent(config.appStoreId)}` : "";
-  const title = inviter ? `${inviter} invited you to Links` : "This invite doesn't work anymore";
-  const description = inviter
+  const title = !invite ? "This invite doesn't work anymore" : invite.inviter ? `${invite.inviter} invited you to Links` : "You're invited to Links";
+  const description = invite
     ? "Send each other reels and TikToks, and see who's watched them."
     : "It was already used, cancelled, or it expired. Ask for a new one.";
-  const banner = inviter && config.appStoreId
+  const banner = invite && config.appStoreId
     ? `<meta name="apple-itunes-app" content="app-id=${escapeHtml(config.appStoreId)}, app-argument=${escapeHtml(`${config.publicUrl}/invite/${token}`)}">`
     : "";
-  const steps = inviter
+  const steps = invite
     ? `<ol><li>${store ? `<a href="${escapeHtml(store)}">Get Links</a>` : "Install Links"} on your iPhone.</li>
 <li>Come back here and tap <b>Open in Links</b>, then sign in.</li></ol>
 <p><a class="button" href="${escapeHtml(appLink)}">Open in Links</a></p>
-<p class="small">If ${escapeHtml(inviter)} sent the invite to your email address, signing in with it works even without this link.</p>`
+<p class="small">${invite?.inviter ? `If ${escapeHtml(invite.inviter)} sent the invite to your email address` : "If the invite was sent to your email address"}, signing in with it works even without this link.</p>`
     : "";
   return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="robots" content="noindex">
@@ -97,7 +97,7 @@ function privacyPage(email: string, sessionDays: number): string {
 
 <h2>What Links keeps, and why</h2>
 <ul>
-<li><b>Your account:</b> your email address, display name and profile photo address. They come from WorkOS, our sign-in provider, when you first sign in, and you can change your name in the app. They sign you in, check you're on this server's guest list, and show your friends who sent what.</li>
+<li><b>Your account:</b> your email address, display name and profile photo address. They come from WorkOS, our sign-in provider, when you first sign in, and you can change your name in the app. They sign you in, match invites sent to you, and show your friends who sent what.</li>
 <li><b>What you do in Links:</b> the links you send and their notes, which links you've watched, your reactions, the reports you make and the people you block. For each link the server also fetches its title, author and thumbnail from the link's page.</li>
 <li><b>Invites you send:</b> the email address you invite, if you type one, when the invite expires, and who used it. They let your friend in; cancelling an invite deletes it.</li>
 <li><b>Signed-in devices:</b> a scrambled (hashed) copy of each device's sign-in token, with when it was created and last used.</li>
@@ -141,7 +141,7 @@ function bearer(req: Request): string | null {
 }
 
 export function createApp(config: Config) {
-  const db = openDatabase(config.dataDir);
+  const db = openDatabase(config.dataDir, config.legacyAllowedEmails);
   const accounts = new Accounts(db, config);
   const fetchOpts = { allowPrivateNetwork: config.allowPrivateNetwork };
   const pending = new Set<Promise<void>>();
@@ -445,7 +445,7 @@ export function createApp(config: Config) {
         const { token } = req.params;
         if (!INVITE_TOKEN_RE.test(token)) return new Response("Not found\n", { status: 404 });
         const invite = accounts.pendingInvite(token);
-        return new Response(invitePage(config, token, invite?.inviter ?? null), {
+        return new Response(invitePage(config, token, invite), {
           status: invite ? 200 : 404,
           headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" },
         });

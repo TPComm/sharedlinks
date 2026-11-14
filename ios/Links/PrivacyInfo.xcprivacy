@@ -13,7 +13,7 @@
 	<array/>
 	<key>NSPrivacyCollectedDataTypes</key>
 	<array>
-		<!-- From the WorkOS sign-in: shown on the account sheet and checked against the guest list. -->
+		<!-- From the WorkOS sign-in: shown on the account sheet and checked against invites sent to it. -->
 		<dict>
 			<key>NSPrivacyCollectedDataType</key>
 			<string>NSPrivacyCollectedDataTypeEmailAddress</string>
