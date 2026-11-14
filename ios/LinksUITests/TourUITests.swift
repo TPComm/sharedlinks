@@ -27,17 +27,17 @@ final class TourUITests: XCTestCase {
         XCTAssert(waitForPage("Add Links to Your Share Sheet"))
         app.buttons["tour.tryIt"].tap()
         let sheet = app.collectionViews["activityCollectionView"]
-        XCTAssert(sheet.waitForExistence(timeout: 15), "no share sheet")
+        XCTAssert(sheet.waitForExistence(timeout: 30), "no share sheet")
         if !sheet.cells["Links"].waitForExistence(timeout: 10) {
             // Not in the row of apps on this device: it's behind More, as the steps say.
             sheet.cells["More"].tap()
         }
         app.cells["Links"].firstMatch.tap()
         let practiceDone = app.buttons["share.practiceDone"]
-        XCTAssert(practiceDone.waitForExistence(timeout: 15), "the Share Extension didn't open in practice mode")
+        XCTAssert(practiceDone.waitForExistence(timeout: 30), "the Share Extension didn't open in practice mode")
         practiceDone.tap()
         // The extension told the app (App Group defaults), and the step ticked itself off.
-        XCTAssert(waitForPage("Links Is in Your Share Sheet", timeout: 10), "the step didn't notice")
+        XCTAssert(waitForPage("Links Is in Your Share Sheet"), "the step didn't notice")
         app.buttons["tour.continue"].tap()
 
         XCTAssert(waitForPage("Your Inbox, Sorted"))
@@ -49,11 +49,11 @@ final class TourUITests: XCTestCase {
         allowBadgeIfAsked()
 
         // The inbox, with the gesture tips on the friend's link, one after another.
-        XCTAssert(app.tabBars.buttons["To Watch"].waitForExistence(timeout: 10))
+        XCTAssert(app.tabBars.buttons["To Watch"].waitForExistence(timeout: 20))
         for tip in ["React to a Link", "Swipe Right to Mark Watched", "Touch and Hold for More"] {
-            XCTAssert(app.staticTexts[tip].waitForExistence(timeout: 15), "no \"\(tip)\" tip")
+            XCTAssert(app.staticTexts[tip].waitForExistence(timeout: 20), "no \"\(tip)\" tip")
             closeTip()
-            XCTAssert(app.staticTexts[tip].waitForNonExistence(timeout: 5), "\"\(tip)\" stayed")
+            XCTAssert(app.staticTexts[tip].waitForNonExistence(timeout: 20), "\"\(tip)\" stayed")
         }
 
         // Once is enough: neither the tour nor the tips come back on the next launch.
@@ -68,14 +68,14 @@ final class TourUITests: XCTestCase {
         app.buttons["Show Tour Again"].tap()
         XCTAssert(waitForPage("Welcome to Links"), "Show Tour Again didn't")
         app.buttons["tour.skip"].tap()
-        XCTAssert(app.staticTexts["Welcome to Links"].waitForNonExistence(timeout: 5), "Skip didn't close the tour")
+        XCTAssert(app.staticTexts["Welcome to Links"].waitForNonExistence(timeout: 20), "Skip didn't close the tour")
 
         // Straight to the share-sheet step, which remembers it's done.
         app.buttons["account"].tap()
         app.buttons["How to Share to Links"].tap()
-        XCTAssert(waitForPage("Links Is in Your Share Sheet", timeout: 10), "How to Share to Links didn't")
+        XCTAssert(waitForPage("Links Is in Your Share Sheet"), "How to Share to Links didn't")
         app.buttons["tour.skip"].tap()
-        XCTAssert(app.staticTexts["Links Is in Your Share Sheet"].waitForNonExistence(timeout: 5))
+        XCTAssert(app.staticTexts["Links Is in Your Share Sheet"].waitForNonExistence(timeout: 20))
     }
 
     // MARK: Helpers
@@ -90,8 +90,9 @@ final class TourUITests: XCTestCase {
     }
 
     /// The pages either side of the current one are laid out too, so a page counts once its title
-    /// can be tapped.
-    private func waitForPage(_ title: String, timeout: TimeInterval = 5) -> Bool {
+    /// can be tapped. CI's Simulator can take 10s or more per tap and page turn, so waits are long;
+    /// they cost nothing when the page is already there.
+    private func waitForPage(_ title: String, timeout: TimeInterval = 20) -> Bool {
         let shown = XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == true AND isHittable == true"),
                                               object: app.staticTexts[title])
         return XCTWaiter.wait(for: [shown], timeout: timeout) == .completed
@@ -106,7 +107,7 @@ final class TourUITests: XCTestCase {
     /// A popover tip's close button.
     private func closeTip() {
         let close = app.popovers.buttons["Close"].firstMatch
-        XCTAssert(close.waitForExistence(timeout: 5), "no close button on the tip")
+        XCTAssert(close.waitForExistence(timeout: 20), "no close button on the tip")
         close.tap()
     }
 }

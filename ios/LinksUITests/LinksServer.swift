@@ -99,7 +99,8 @@ struct LinksServer: Sendable {
     private func request(_ method: String, _ path: String, json: [String: Any]?, as token: String) -> URLRequest {
         var request = URLRequest(url: url.appending(path: path))
         request.httpMethod = method
-        request.timeoutInterval = 10
+        // A busy CI runner can stall a request to the local server for well over 10s.
+        request.timeoutInterval = 30
         request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         if let json {
             request.setValue("application/json", forHTTPHeaderField: "Content-Type")
