@@ -4,6 +4,7 @@
  *
  *   links-server                                    start the server (http://localhost:8000)
  *   links-server mint-session you@example.com [Name]   print a session token (admin / Simulator)
+ *   links-server invite [friend@example.com]         print an invite link (the first one on a new server)
  *   links-server delete-user you@example.com         delete an account and the links it sent
  *   links-server backup [dir]                        snapshot the database (keeps the newest 14)
  *   links-server reports                             list open reports (what was reported, by whom)
@@ -13,8 +14,8 @@
  * In development, `bun src/main.ts ...` does the same as the compiled `links-server`.
  *
  * Env: WORKOS_CLIENT_ID (required for sign-in), WORKOS_API_KEY (optional with PKCE),
- *      PUBLIC_URL, ALLOWED_EMAILS, SUPPORT_EMAIL, APPLE_APP_IDS, APP_STORE_ID, APP_SCHEME, PORT, HOST,
- *      DATA_DIR, SESSION_DAYS
+ *      PUBLIC_URL, SUPPORT_EMAIL, APPLE_APP_IDS, APP_STORE_ID, APP_SCHEME, PORT, HOST, DATA_DIR,
+ *      SESSION_DAYS
  */
 import { mkdirSync, readdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
@@ -35,9 +36,31 @@ if (command === "mint-session") {
     console.error("usage: links-server mint-session <email> [name]");
     process.exit(1);
   }
-  const db = openDatabase(config.dataDir);
+  const db = openDatabase(config.dataDir, config.legacyAllowedEmails);
   console.log(new Accounts(db, config).mintSession(email, name.join(" ") || undefined));
   db.close();
+} else if (command === "invite") {
+  // Invites are the only way in, so this is how the first person (and anyone else, by email) gets one.
+  const [email, ...extra] = rest;
+  if (extra.length) {
+    console.error("usage: links-server invite [email]");
+    process.exit(1);
+  }
+  const db = openDatabase(config.dataDir, config.legacyAllowedEmails);
+  try {
+    const { invite, token } = new Accounts(db, config).createInvite(null, email);
+    const days = Math.round((invite.expires_at - invite.created_at) / 86400);
+    console.log(`${config.publicUrl}/invite/${token}`);
+    console.error(invite.email
+      ? `works for ${days} days; signing in with ${invite.email} (verified) uses it even without the link`
+      : `works for ${days} days, once, for whoever signs in with it`);
+  } catch (e) {
+    if (!(e instanceof BadRequest)) throw e;
+    console.error(e.message);
+    process.exit(1);
+  } finally {
+    db.close();
+  }
 } else if (command === "delete-user") {
   // What the app's Delete Account does, for someone who asks by email instead.
   const [email, ...extra] = rest;
@@ -45,7 +68,7 @@ if (command === "mint-session") {
     console.error("usage: links-server delete-user <email>");
     process.exit(1);
   }
-  const db = openDatabase(config.dataDir);
+  const db = openDatabase(config.dataDir, config.legacyAllowedEmails);
   const accounts = new Accounts(db, config);
   const users = accounts.usersWithEmail(email);
   for (const user of users) {
@@ -63,7 +86,7 @@ if (command === "mint-session") {
   mkdirSync(dir, { recursive: true });
   const file = join(dir, `links-${new Date().toISOString().slice(0, 10)}.db`);
   rmSync(file, { force: true });
-  const db = openDatabase(config.dataDir);
+  const db = openDatabase(config.dataDir, config.legacyAllowedEmails);
   db.run("VACUUM INTO ?", [file]);
   db.close();
   const old = readdirSync(dir).filter((f) => /^links-\d{4}-\d{2}-\d{2}\.db$/.test(f)).sort().slice(0, -14);
@@ -71,7 +94,7 @@ if (command === "mint-session") {
   console.log(`backed up to ${file}`);
 } else if (command === "reports") {
   // App Store guideline 1.2: "timely responses" to reports. Each new one is also logged (journalctl -u links).
-  const db = openDatabase(config.dataDir);
+  const db = openDatabase(config.dataDir, config.legacyAllowedEmails);
   try {
     if (!rest.length) {
       const reports = openReports(db);
@@ -100,10 +123,13 @@ if (command === "mint-session") {
   process.exit(1);
 } else {
   if (!config.workosClientId) console.warn("warning: WORKOS_CLIENT_ID isn't set, so nobody can sign in.");
-  if (!config.allowedEmails.length) {
-    console.warn("warning: ALLOWED_EMAILS isn't set, so anyone who can sign in to your AuthKit can see and add links.");
+  if (config.legacyAllowedEmails.length) {
+    console.warn("note: ALLOWED_EMAILS is only read once, to keep those already signed up who are on it; invites are the only way in now, so it can go.");
   }
-  const { server } = startServer(config);
+  const { app, server } = startServer(config);
+  if (!app.db.query("SELECT 1 FROM users WHERE member = 1").get()) {
+    console.warn("warning: nobody is in yet. Run `links-server invite you@example.com`, then sign in with that email.");
+  }
   console.log(`Links API running on ${server.url} (sign-in redirect: ${config.publicUrl}/auth/callback)`);
   for (const signal of ["SIGINT", "SIGTERM"] as const) {
     process.on(signal, () => {

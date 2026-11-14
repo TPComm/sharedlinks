@@ -1,11 +1,13 @@
 import type { Database } from "bun:sqlite";
 import { join } from "node:path";
-import { Accounts, AuthError, publicUser } from "./accounts.ts";
+import { Accounts, AuthError, INVITE_TOKEN_RE, publicUser } from "./accounts.ts";
 import type { Config } from "./config.ts";
 import { deleteLink, now, openDatabase, type LinkRow, type UserRow } from "./db.ts";
 import { BadRequest, canonical, clipText, extractUrl } from "./links.ts";
 import { REPORT_REASONS } from "./moderation.ts";
 import { fetchMetadata, PREVIEW_VERSION } from "./previews.ts";
+// Embedded in the compiled binary (bun build --compile), for invite pages and their link previews.
+import iconPath from "../../assets/icon/previews/B/default-256.png" with { type: "file" };
 import { BUILD_COMMIT } from "./version.ts";
 
 export const EMOJIS = new Set(["❤️", "😂", "🔥", "😮", "😭", "👎"]);
@@ -89,6 +91,39 @@ ${banner}<title>Open in Links</title><style>body{font:17px/1.5 -apple-system,sys
 }
 
 /**
+ * What an invite link shows in a browser and in Messages' preview: who sent it and how to get in,
+ * nothing from the inbox. Loading it never uses the invite up; only signing in does.
+ */
+function invitePage(config: Config, token: string, invite: { inviter: string | null } | null): string {
+  const appLink = `${config.appScheme}://invite/${token}`;
+  const store = config.appStoreId ? `https://apps.apple.com/app/id${encodeURIComponent(config.appStoreId)}` : "";
+  const title = !invite ? "This invite doesn't work anymore" : invite.inviter ? `${invite.inviter} invited you to Links` : "You're invited to Links";
+  const description = invite
+    ? "Send each other reels and TikToks, and see who's watched them."
+    : "It was already used, cancelled, or it expired. Ask for a new one.";
+  const banner = invite && config.appStoreId
+    ? `<meta name="apple-itunes-app" content="app-id=${escapeHtml(config.appStoreId)}, app-argument=${escapeHtml(`${config.publicUrl}/invite/${token}`)}">`
+    : "";
+  const steps = invite
+    ? `<ol><li>${store ? `<a href="${escapeHtml(store)}">Get Links</a>` : "Install Links"} on your iPhone.</li>
+<li>Come back here and tap <b>Open in Links</b>, then sign in.</li></ol>
+<p><a class="button" href="${escapeHtml(appLink)}">Open in Links</a></p>
+<p class="small">${invite?.inviter ? `If ${escapeHtml(invite.inviter)} sent the invite to your email address` : "If the invite was sent to your email address"}, signing in with it works even without this link.</p>`
+    : "";
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>${escapeHtml(title)}</title>${banner}
+<meta property="og:title" content="${escapeHtml(title)}"><meta property="og:description" content="${escapeHtml(description)}">
+<meta property="og:site_name" content="Links"><meta property="og:image" content="${escapeHtml(`${config.publicUrl}/icon.png`)}">
+<style>body{font:17px/1.5 -apple-system,system-ui,sans-serif;max-width:30em;margin:3em auto;padding:0 1em}
+.button{display:inline-block;background:#1f9d55;color:#fff;padding:.6em 1.4em;border-radius:2em;text-decoration:none;font-weight:600}
+.small{color:#666;font-size:15px}</style></head>
+<body><img src="/icon.png" width="72" height="72" alt="" style="border-radius:16px"><h1>${escapeHtml(title)}</h1><p>${escapeHtml(description)}</p>${steps}
+</body></html>
+`;
+}
+
+/**
  * The privacy policy (guideline 5.1.1(i)): the App Store listing's Privacy Policy URL, and the app's
  * account menu and sign-in screen. Keep it in step with ios/Links/PrivacyInfo.xcprivacy.
  */
@@ -104,8 +139,9 @@ function privacyPage(email: string, sessionDays: number): string {
 
 <h2>What Links keeps, and why</h2>
 <ul>
-<li><b>Your account:</b> your email address, display name and profile photo address. They come from WorkOS, our sign-in provider, when you first sign in, and you can change your name in the app. They sign you in, check you're on this server's guest list, and show your friends who sent what.</li>
+<li><b>Your account:</b> your email address, display name and profile photo address. They come from WorkOS, our sign-in provider, when you first sign in, and you can change your name in the app. They sign you in, match invites sent to you, and show your friends who sent what.</li>
 <li><b>What you do in Links:</b> the links you send and their notes, which links you've watched, your reactions, the reports you make and the people you block. For each link the server also fetches its title, author and thumbnail from the link's page.</li>
+<li><b>Invites you send:</b> the email address you invite, if you type one, when the invite expires, and who used it. They let your friend in; cancelling an invite deletes it.</li>
 <li><b>Signed-in devices:</b> a scrambled (hashed) copy of each device's sign-in token, with when it was created and last used.</li>
 <li><b>Server logs:</b> one line per request, with what was asked for (for example, "mark link 12 watched") and whether it worked. They're used to fix problems.</li>
 <li><b>Backups:</b> a copy of the server's database, made every day.</li>
@@ -147,7 +183,7 @@ function bearer(req: Request): string | null {
 }
 
 export function createApp(config: Config) {
-  const db = openDatabase(config.dataDir);
+  const db = openDatabase(config.dataDir, config.legacyAllowedEmails);
   const accounts = new Accounts(db, config);
   const fetchOpts = { allowPrivateNetwork: config.allowPrivateNetwork };
   const pending = new Set<Promise<void>>();
@@ -392,7 +428,7 @@ export function createApp(config: Config) {
       POST: route(async (req) => {
         const data = await readJson(req);
         return json(await accounts.signIn(String(data.code ?? ""), String(data.code_verifier ?? ""),
-                                          req.headers.get("user-agent") ?? ""));
+                                          req.headers.get("user-agent") ?? "", String(data.invite ?? "")));
       }, pub),
     },
     "/api/auth/logout": {
@@ -428,7 +464,8 @@ export function createApp(config: Config) {
     },
 
     ...appSiteRoute,
-    ...Object.fromEntries(APP_PATHS.map((prefix) => [`${prefix}:token`, {
+    // Invites have their own page, below.
+    ...Object.fromEntries(APP_PATHS.filter((prefix) => prefix !== "/invite/").map((prefix) => [`${prefix}:token`, {
       GET: route<Request & { params: { token: string } }>((req) => {
         if (!TOKEN.test(req.params.token)) throw new NotFound("Not found");
         return new Response(openInAppPage(`${config.publicUrl}${prefix}${req.params.token}`, config.appStoreId),
@@ -439,6 +476,39 @@ export function createApp(config: Config) {
     "/privacy": new Response(privacyPage(config.supportEmail, config.sessionDays), { headers: { "Content-Type": "text/html; charset=utf-8" } }),
 
     "/api/state": { GET: route((_req, me) => json(getState(me))) },
+
+    // Invites (#5): anyone who's in can let a friend in. The link (with its token) is only in the
+    // POST's reply; the server keeps its hash. Only POST /api/auth/token uses an invite up.
+    "/api/invites": {
+      GET: route((_req, me) => json({ invites: accounts.pendingInvites(me) })),
+      POST: route(async (req, me) => {
+        const { email } = await readJson(req);
+        const { invite, token } = asUser(me, () => accounts.createInvite(me, email));
+        return json({ invite: { ...invite, url: `${config.publicUrl}/invite/${token}` } }, 201);
+      }),
+    },
+    "/api/invites/:id": {
+      DELETE: route<WithId>((req, me) => {
+        if (!/^\d+$/.test(req.params.id) || !accounts.revokeInvite(me, Number(req.params.id))) {
+          throw new NotFound("That invite was already used or cancelled.");
+        }
+        return json({ invites: accounts.pendingInvites(me) });
+      }),
+    },
+    "/invite/:token": {
+      GET: (req: Request & { params: { token: string } }) => {
+        const { token } = req.params;
+        if (!INVITE_TOKEN_RE.test(token)) return new Response("Not found\n", { status: 404 });
+        const invite = accounts.pendingInvite(token);
+        return new Response(invitePage(config, token, invite), {
+          status: invite ? 200 : 404,
+          headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" },
+        });
+      },
+    },
+    "/icon.png": new Response(Bun.file(iconPath), {
+      headers: { "Content-Type": "image/png", "Cache-Control": "public, max-age=86400" },
+    }),
 
     // Report a link or a person. It's hidden for the reporter at once; the owner reads reports
     // with `links-server reports` (and in the log).

@@ -114,5 +114,5 @@ export function resolveReport(db: Database, dataDir: string, id: number, remove:
       db.run("UPDATE reports SET resolved_at = ?, resolution = 'kept' WHERE id = ?", [now(), id]);
     }
     return db.query("SELECT * FROM reports WHERE id = ?").get(id) as ReportRow;
-  })();
+  }).immediate(); // takes the write lock first: a read-then-write would fail at once if the server wrote in between
 }

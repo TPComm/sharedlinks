@@ -42,9 +42,8 @@ command -v bun >/dev/null || { echo "error: bun isn't installed (https://bun.sh)
 # -- server: a free port (8000 is usually the dev server), a throwaway database.
 port="$(bun -e 'const s = Bun.serve({ port: 0, hostname: "127.0.0.1", fetch: () => new Response() }); console.log(s.port); s.stop(true)')"
 url="http://127.0.0.1:$port"
-# ALLOWED_EMAILS pinned empty and server/.env skipped: a list from your shell or .env would refuse
-# the test accounts, and every test would fail at sign-in.
-server_env=(DATA_DIR="$tmp/data" HOST=127.0.0.1 PORT="$port" WORKOS_CLIENT_ID=client_E2E ALLOWED_EMAILS=)
+# server/.env skipped: settings from it would leak into the tests. Minted accounts are in already.
+server_env=(DATA_DIR="$tmp/data" HOST=127.0.0.1 PORT="$port" WORKOS_CLIENT_ID=client_E2E)
 
 (cd "$server_dir" && exec env "${server_env[@]}" bun --no-env-file src/main.ts) >"$logs/server.log" 2>&1 &
 server_pid=$!

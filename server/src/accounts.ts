@@ -2,7 +2,7 @@ import type { Database } from "bun:sqlite";
 import { rmSync } from "node:fs";
 import { join } from "node:path";
 import type { Config } from "./config.ts";
-import { LEGACY, now, type UserRow } from "./db.ts";
+import { LEGACY, now, type InviteRow, type UserRow } from "./db.ts";
 import { BadRequest, clip } from "./links.ts";
 import { screener } from "./moderation.ts";
 
@@ -26,6 +26,17 @@ function randomToken(): string {
   return Buffer.from(crypto.getRandomValues(new Uint8Array(32))).toString("base64url");
 }
 
+/** How long an invite link works. */
+export const INVITE_DAYS = 7;
+/** Pending invites one person can have at a time. */
+export const MAX_PENDING_INVITES = 20;
+export const INVITE_TOKEN_RE = /^[A-Za-z0-9_-]{43}$/;
+
+/** What the app sees of an invite: never the token, which only the response that made it carries. */
+export const publicInvite = (i: InviteRow) => ({
+  id: i.id, email: i.email, created_at: i.created_at, expires_at: i.expires_at,
+});
+
 /** "jane.doe" -> "Jane Doe" */
 function titleCase(s: string): string {
   return s.replace(/\S+/g, (w) => w[0]!.toUpperCase() + w.slice(1).toLowerCase());
@@ -39,11 +50,68 @@ export class Accounts {
     this.screen = screener(config.dataDir);
   }
 
-  emailAllowed(email: string | null | undefined): boolean {
-    const list = this.config.allowedEmails;
-    if (!list.length) return true;
-    const e = (email ?? "").toLowerCase();
-    return list.some((a) => e === a || (a.startsWith("@") && e.endsWith(a)));
+  /** In: let in by an invite, or signed up before invites (users.member). Checked at sign-in and on every request. */
+  isMember(userId: string): boolean {
+    return !!this.db.query("SELECT 1 FROM users WHERE id = ? AND member = 1").get(userId);
+  }
+
+  // -- invites (#5)
+
+  /** `userId` null: an admin's invite from `links-server invite`, which no one's 20 count includes. */
+  createInvite(userId: string | null, email: unknown): { invite: ReturnType<typeof publicInvite>; token: string } {
+    let bound: string | null = null;
+    if (email !== undefined && email !== null && String(email).trim() !== "") {
+      bound = String(email).trim().toLowerCase();
+      if (bound.length > 254 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(bound)) throw new BadRequest("That doesn't look like an email address.");
+    }
+    const t = now();
+    const pending = userId === null ? 0 : (this.db.query("SELECT COUNT(*) AS n FROM invites WHERE invited_by = ? AND used_at IS NULL AND expires_at > ?")
+      .get(userId, t) as { n: number }).n;
+    if (pending >= MAX_PENDING_INVITES) throw new BadRequest("You have a lot of invites waiting. Cancel some first.");
+    const token = randomToken();
+    const row = this.db.query(`INSERT INTO invites (token_hash, email, invited_by, created_at, expires_at)
+        VALUES (?, ?, ?, ?, ?) RETURNING *`)
+      .get(sha256(token), bound, userId, t, t + INVITE_DAYS * 86400) as InviteRow;
+    return { invite: publicInvite(row), token };
+  }
+
+  /** Mine that nobody has used yet and that still work, newest first. */
+  pendingInvites(userId: string) {
+    return (this.db.query("SELECT * FROM invites WHERE invited_by = ? AND used_at IS NULL AND expires_at > ? ORDER BY created_at DESC, id DESC")
+      .all(userId, now()) as InviteRow[]).map(publicInvite);
+  }
+
+  /** Revoked links stop working at once. Only whoever sent an invite can take it back. */
+  revokeInvite(userId: string, id: number): boolean {
+    return this.db.run("DELETE FROM invites WHERE id = ? AND invited_by = ? AND used_at IS NULL", [id, userId]).changes > 0;
+  }
+
+  /**
+   * A link's invite if it still works (unused, not expired, not revoked), for the /invite page. Never
+   * uses it up. `inviter` is null for an admin's invite.
+   */
+  pendingInvite(token: string): (InviteRow & { inviter: string | null }) | null {
+    if (!INVITE_TOKEN_RE.test(token)) return null;
+    return this.db.query(`SELECT i.*, u.name AS inviter FROM invites i LEFT JOIN users u ON u.id = i.invited_by
+        WHERE i.token_hash = ? AND i.used_at IS NULL AND i.expires_at > ?`)
+      .get(sha256(token), now()) as (InviteRow & { inviter: string | null }) | null;
+  }
+
+  /**
+   * The invite that lets this person in, if any: the link's token (bound to their email, if it names
+   * one), or else one sent to their email. An email only counts once WorkOS has verified it.
+   */
+  private findInvite(token: string, email: string, verified: boolean): InviteRow | null {
+    const t = now();
+    if (token && INVITE_TOKEN_RE.test(token)) {
+      const row = this.db.query("SELECT * FROM invites WHERE token_hash = ? AND used_at IS NULL AND expires_at > ?")
+        .get(sha256(token), t) as InviteRow | null;
+      // Hide My Email: the link was sent to them, but Apple signs them in with a relay address.
+      if (row && (!row.email || (verified && (row.email.toLowerCase() === email.toLowerCase() || appleRelay(email))))) return row;
+    }
+    if (!email || !verified) return null;
+    return this.db.query("SELECT * FROM invites WHERE email = ? COLLATE NOCASE AND used_at IS NULL AND expires_at > ? ORDER BY created_at LIMIT 1")
+      .get(email, t) as InviteRow | null;
   }
 
   mePayload(userId: string) {
@@ -93,15 +161,15 @@ export class Accounts {
     if (!token) return null;
     const digest = sha256(token);
     const row = this.db.query(
-      "SELECT s.user_id, s.last_used, u.email FROM sessions s JOIN users u ON u.id = s.user_id WHERE s.token_hash = ?",
-    ).get(digest) as { user_id: string; last_used: number; email: string | null } | null;
+      "SELECT s.user_id, s.last_used, u.member FROM sessions s JOIN users u ON u.id = s.user_id WHERE s.token_hash = ?",
+    ).get(digest) as { user_id: string; last_used: number; member: number } | null;
     if (!row) return null;
     const t = now();
     if (t - row.last_used > this.config.sessionDays * 86400) {
       this.db.run("DELETE FROM sessions WHERE token_hash = ?", [digest]);
       return null;
     }
-    if (!this.emailAllowed(row.email)) return null;
+    if (!row.member) return null; // no way to read anything without being let in
     if (t - row.last_used > 3600) this.db.run("UPDATE sessions SET last_used = ? WHERE token_hash = ?", [t, digest]);
     return row.user_id;
   }
@@ -188,7 +256,7 @@ export class Accounts {
   }
 
   /** Exchange an AuthKit authorization code (PKCE) for the WorkOS user, then start our own session. */
-  async signIn(code: string, codeVerifier: string, userAgent: string) {
+  async signIn(code: string, codeVerifier: string, userAgent: string, inviteToken = "") {
     if (!this.config.workosClientId) throw new AuthError("Sign-in isn't set up on the server (WORKOS_CLIENT_ID).", 503);
     if (!code || !codeVerifier) throw new AuthError("Missing authorization code.", 400);
     const body: Record<string, string> = {
@@ -214,14 +282,34 @@ export class Accounts {
     const user = data.user as { id: string; email?: string; email_verified?: boolean; first_name?: string;
                                 profile_picture_url?: string | null };
     const email = user.email ?? "";
-    if (!this.emailAllowed(email)) throw new AuthError(`${email} isn't on the guest list for this Links.`, 403);
-    if (this.config.allowedEmails.length && !user.email_verified) {
-      throw new AuthError("Verify your email address, then sign in again.", 403);
-    }
     // A WorkOS name with a listed word doesn't stop the sign-in: the next name in line is used.
     const name = [user.first_name, titleCase((email.split("@")[0] ?? "").replace(/\./g, " "))]
       .find((n) => n && this.allowsName(n)) ?? "Someone";
-    this.upsertUser(user.id, email, name, user.profile_picture_url || null);
+    const avatar = user.profile_picture_url || null;
+    // One transaction: two phones redeeming the same invite can't both get in on it.
+    this.db.transaction(() => {
+      if (this.isMember(user.id)) {
+        this.upsertUser(user.id, email, name, avatar);
+        return;
+      }
+      const invite = this.findInvite(inviteToken, email, !!user.email_verified);
+      if (!invite) {
+        if (!user.email_verified && email && this.findInvite(inviteToken, email, true)) {
+          throw new AuthError("Verify your email address, then sign in again.", 403);
+        }
+        if (inviteToken && this.pendingInvite(inviteToken)?.email) {
+          throw new AuthError("This invite is for a different email address. Sign in with the one it was sent to.", 403);
+        }
+        if (appleRelay(email)) {
+          throw new AuthError("Links is invite-only, and you signed in with Hide My Email. If you're already in, sign in the way you did before; if not, tap a friend's invite link first.", 403);
+        }
+        throw new AuthError("Links is invite-only. Ask a friend who uses it to invite you, then tap their invite link.", 403);
+      }
+      this.upsertUser(user.id, email, name, avatar);
+      this.db.run("UPDATE users SET member = 1 WHERE id = ?", [user.id]);
+      this.db.run("UPDATE invites SET used_by = ?, used_at = ? WHERE id = ?", [user.id, now(), invite.id]);
+      console.log(`invite ${invite.id} from ${invite.invited_by ?? "admin"} used by ${user.id}`);
+    }).immediate();
     return { token: this.newSession(user.id), ...this.mePayload(user.id) };
   }
 
@@ -237,6 +325,12 @@ export class Accounts {
       .get(email, `${LEGACY}%`) as { id: string } | null;
     const id = row?.id ?? `local_${Buffer.from(crypto.getRandomValues(new Uint8Array(8))).toString("hex")}`;
     this.upsertUser(id, email, name || titleCase(email.split("@")[0] ?? "Someone"), null);
+    this.db.run("UPDATE users SET member = 1 WHERE id = ?", [id]); // the admin minting it vouches for them
     return this.newSession(id);
   }
+}
+
+/** Sign in with Apple's Hide My Email addresses, which never match an email anyone was invited with. */
+function appleRelay(email: string): boolean {
+  return /@(privaterelay\.appleid\.com|private\.icloud\.com)$/i.test(email);
 }

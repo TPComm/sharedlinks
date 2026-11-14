@@ -95,7 +95,6 @@ function env(overrides: Record<string, string | undefined> = {}) {
     PUBLIC_URL: `${PUBLIC_URL}/`, // the trailing slash is trimmed
     WORKOS_CLIENT_ID: CLIENT_ID,
     WORKOS_API: workos.url.href,
-    ALLOWED_EMAILS: " alice@example.com , @team.test",
     ...egress.env,
     ...overrides,
   };
@@ -137,6 +136,14 @@ describe("a day with Links", () => {
 
   beforeAll(() => withLogs(async () => {
     server = await startServer("links-server", binary, { cwd, env: env({ DATA_DIR: dataDir }) });
+    await printed(server, "stderr", "warning: nobody is in yet. Run `links-server invite you@example.com`, then sign in with that email.\n");
+    // Invites are the only way in; the admin sends the first ones from the CLI.
+    for (const email of ["alice@example.com", "Bob.Smith@team.test", "new@team.test"]) {
+      const run = await cli(dataDir, "invite", email);
+      expect(run.code, run.logs()).toBe(0);
+      expect(run.stdout).toMatch(new RegExp(`^${PUBLIC_URL}/invite/[A-Za-z0-9_-]{43}\n$`));
+      expect(run.stderr).toContain(`signing in with ${email.toLowerCase()} (verified) uses it even without the link`);
+    }
   }), 30_000);
 
   afterAll(async () => {
@@ -177,7 +184,8 @@ describe("a day with Links", () => {
 
   e2e("starts, says where it is and answers health checks", async () => {
     expect(server.stdout).toContain(`Links API running on ${server.url}/ (sign-in redirect: ${PUBLIC_URL}/auth/callback)`);
-    expect(server.stderr).not.toContain("warning:");
+    // Set up, so the only warning is that nobody had an invite yet when it started.
+    expect(server.stderr.match(/warning:.*/g)).toEqual(["warning: nobody is in yet. Run `links-server invite you@example.com`, then sign in with that email."]);
     const health = await call("/healthz");
     expect([health.status, health.text]).toEqual([200, "ok\n"]);
     const home = await call("/");
@@ -219,7 +227,7 @@ describe("a day with Links", () => {
     });
     Object.assign(alice, { token: res.data.token, id: res.data.user.id });
 
-    // On the guest list by domain (@team.test). No first name, so the name comes from the email.
+    // Invited by email. No first name, so the name comes from the email.
     const b = await signIn("bob");
     expect(b.user).toEqual({ id: "user_01BOB", name: "Bob Smith", avatar: null, email: "bob.smith@team.test" });
     Object.assign(bob, { token: b.token, id: b.user.id });
@@ -228,7 +236,7 @@ describe("a day with Links", () => {
   e2e("turns away strangers, unverified emails and a wrong PKCE verifier", async () => {
     const stranger = await authorize("stranger");
     expect(await exchange(stranger.code, stranger.verifier))
-      .toMatchObject({ status: 403, data: { error: "stranger@evil.test isn't on the guest list for this Links." } });
+      .toMatchObject({ status: 403, data: { error: "Links is invite-only. Ask a friend who uses it to invite you, then tap their invite link." } });
     const unverified = await authorize("unverified");
     expect(await exchange(unverified.code, unverified.verifier))
       .toMatchObject({ status: 403, data: { error: "Verify your email address, then sign in again." } });
@@ -361,11 +369,6 @@ describe("a day with Links", () => {
     const me = (await call("/api/me", { token: carol.stdout.trim() })).data.user;
     expect(me).toMatchObject({ name: "Carol Jones", email: "carol@team.test" });
     expect(me.id).toMatch(/^local_[0-9a-f]{16}$/);
-
-    // Not a way around the guest list: that's checked on every request.
-    const mallory = await cli(dataDir, "mint-session", "mallory@evil.test");
-    expect(mallory.code, mallory.logs()).toBe(0);
-    expect((await call("/api/me", { token: mallory.stdout.trim() })).status).toBe(401);
   });
 
   e2e("delete-user deletes an account the running server knows, and the links it sent", async () => {
@@ -439,7 +442,7 @@ describe("a day with Links", () => {
     const snapshot = new Database(file, { readonly: true });
     try {
       expect(snapshot.query("PRAGMA integrity_check").get()).toEqual({ integrity_check: "ok" });
-      expect(snapshot.query("PRAGMA user_version").get()).toEqual({ user_version: 6 });
+      expect(snapshot.query("PRAGMA user_version").get()).toEqual({ user_version: 7 });
       expect(snapshot.query("SELECT id, url FROM links ORDER BY id").all())
         .toEqual(live.links.map((l: any) => ({ id: l.id, url: l.url })).sort((a: any, b: any) => a.id - b.id));
       expect(snapshot.query("SELECT name FROM users WHERE id = ?").get(alice.id)).toEqual({ name: "Ally A" });
@@ -509,10 +512,10 @@ describe("upgrading a database from the web-app days (v0)", () => {
     if (server?.running) await server.stop();
   });
 
-  e2e("migrates to user_version 6 and keeps the history under legacy people", async () => {
+  e2e("migrates to user_version 7 and keeps the history under legacy people", async () => {
     const db = new Database(join(dataDir, "links.db"), { readonly: true });
     try {
-      expect(db.query("PRAGMA user_version").get()).toEqual({ user_version: 6 });
+      expect(db.query("PRAGMA user_version").get()).toEqual({ user_version: 7 });
       expect((db.query("SELECT sql FROM sqlite_master WHERE name = 'links'").get() as { sql: string }).sql).toContain("AUTOINCREMENT");
       expect(db.query("SELECT name FROM sqlite_master WHERE name = 'people'").get()).toBeNull();
     } finally {
@@ -559,7 +562,7 @@ describe("upgrading a database from the web-app days (v0)", () => {
 });
 
 describe("a server that isn't set up yet", () => {
-  e2e("warns about WORKOS_CLIENT_ID and ALLOWED_EMAILS, and ignores a stray .env", async () => {
+  e2e("warns about WORKOS_CLIENT_ID and that nobody is in yet, and ignores a stray .env", async () => {
     const dir = join(tmp, "unconfigured");
     mkdirSync(dir);
     // Built with --no-compile-autoload-dotenv: a .env in the working directory must not configure it.
@@ -569,7 +572,7 @@ describe("a server that isn't set up yet", () => {
     });
     try {
       await printed(server, "stderr", "warning: WORKOS_CLIENT_ID isn't set, so nobody can sign in.\n");
-      await printed(server, "stderr", "warning: ALLOWED_EMAILS isn't set, so anyone who can sign in to your AuthKit can see and add links.\n");
+      await printed(server, "stderr", "warning: nobody is in yet. Run `links-server invite you@example.com`, then sign in with that email.\n");
       const unavailable = { status: 503, data: { error: "Sign-in isn't set up on the server (WORKOS_CLIENT_ID)." } };
       expect(await request(server.url, `/auth/authorize?code_challenge=${pkce().challenge}&state=x`)).toMatchObject(unavailable);
       expect(await request(server.url, "/api/auth/token", { body: { code: "c", code_verifier: "v" } })).toMatchObject(unavailable);
