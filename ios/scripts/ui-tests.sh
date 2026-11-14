@@ -87,7 +87,9 @@ if [[ -z "$destination" ]]; then
   # ("Timed out while launching application via Xcode"), failing whichever test runs first. Later
   # launches take a second, so the app is installed and launched once here, where simctl waits as
   # long as it takes. Only with an app already built (test-without-building); best effort.
-  app="$ios/${LINKS_UI_TEST_DERIVED_DATA:-build}/Build/Products/Debug-iphonesimulator/Links.app"
+  app="${LINKS_UI_TEST_DERIVED_DATA:-build}"
+  if [[ "$app" != /* ]]; then app="$ios/$app"; fi
+  app="$app/Build/Products/Debug-iphonesimulator/Links.app"
   if [[ "${LINKS_UI_TEST_ACTION:-test}" == test-without-building && -d "$app" ]]; then
     started=$SECONDS
     xcrun simctl boot "$udid" 2>/dev/null || true
@@ -188,6 +190,9 @@ if [[ $status -ne 0 ]]; then
     echo "warning: these tests failed only because the app took too long to launch; running them once more:" >&2
     echo "$timed_out" >&2
     mv "$logs/xcodebuild.log" "$logs/xcodebuild-launch-timeout.log"
+    # The sign-out and account-deletion tests use up these two, so they get fresh ones.
+    spare_token="$(mint me@e2e.test)"
+    deletable_token="$(mint deletable@e2e.test Deletable)"
     shard_args=()
     while IFS= read -r test; do shard_args+=("-only-testing:LinksUITests/$test"); done <<<"$timed_out"
     status=0
