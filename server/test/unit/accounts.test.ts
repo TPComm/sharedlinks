@@ -153,7 +153,7 @@ describe("claimLegacy", () => {
   function setup() {
     addUser("user_A", "a@x.com", "sam rivers", 5);
     addUser("user_B", "b@x.com", "Bo", 6);
-    addUser("legacy:Sam", null, "Sam", 1);
+    addUser("legacy:Sam", "a@x.com", "Sam", 1); // what `links-server claim a@x.com Sam` approves
     addUser("legacy:Alex", null, "Alex", 2);
     db.exec(`
       INSERT INTO links (group_id, id, url, platform, added_by, added_at) VALUES
@@ -221,19 +221,52 @@ describe("claimLegacy", () => {
     expect(rows("SELECT name FROM users WHERE id = 'user_A'")).toEqual([{ name: "Sam" }]);
   });
 
-  test("mePayload: the account with its email, and who's left to claim, oldest first", () => {
+  test("mePayload: the account with its email, and who an admin let it claim, oldest first", () => {
     const a = setup();
     expect(a.mePayload("user_A")).toEqual({
       user: { id: "user_A", name: "sam rivers", avatar: null, email: "a@x.com" },
       claimable: [{ id: "legacy:Sam", name: "Sam", avatar: null }],
     });
+    // Renaming yourself to someone's name doesn't make them yours.
+    a.rename("user_B", "Alex");
     expect(a.mePayload("user_B").claimable).toEqual([]);
-    a.rename("user_B", "ALEX");
+    expect(() => a.claimLegacy("user_B", "legacy:Alex")).toThrow(BadRequest);
+    a.approveClaim("B@X.com", "alex");
     expect(a.mePayload("user_B").claimable).toEqual([{ id: "legacy:Alex", name: "Alex", avatar: null }]);
     db.run("DELETE FROM group_members WHERE user_id = 'user_B'");
     expect(a.mePayload("user_B").claimable).toEqual([]);
     a.claimLegacy("user_A", "legacy:Sam");
     expect(a.mePayload("user_A").claimable).toEqual([]);
+  });
+
+  test("approveClaim: one account in the default chat, one unclaimed legacy person", () => {
+    const a = setup();
+    addUser("legacy:sam", null, "sam", 3);
+    addUser("user_C", "c@x.com", "Cy", 7);
+    addUser("user_D", "b@x.com", "Bo too", 8);
+    const refused = (email: string, name: string) => {
+      try {
+        a.approveClaim(email, name);
+      } catch (e) {
+        expect(e).toBeInstanceOf(BadRequest);
+        return (e as Error).message;
+      }
+      throw new Error("approved");
+    };
+    expect(refused("nobody@x.com", "Alex")).toBe("no account with the email nobody@x.com");
+    expect(refused("b@x.com", "Alex")).toBe("more than one account has the email b@x.com");
+    expect(refused("c@x.com", "Alex")).toBe("Cy isn't in the default chat, where legacy history is");
+    db.run("INSERT INTO group_members (group_id, user_id, joined_at) VALUES (1, 'user_C', 1)");
+    expect(refused("c@x.com", "Nobody")).toBe("no unclaimed legacy person called Nobody");
+    expect(refused("c@x.com", "SAM")).toBe("more than one legacy person is called SAM; give the exact name");
+    expect(a.approveClaim("C@x.com", " sam ").legacy.id).toBe("legacy:sam");
+    // A second approval moves it; the first account no longer sees it.
+    a.approveClaim("c@x.com", "Sam");
+    expect(a.mePayload("user_A").claimable).toEqual([]);
+    expect(a.mePayload("user_C").claimable.map((p) => p.id)).toEqual(["legacy:Sam", "legacy:sam"]);
+    expect(a.legacyPeople().map((p) => [p.id, p.links, p.email])).toEqual([
+      ["legacy:Sam", 1, "c@x.com"], ["legacy:Alex", 1, null], ["legacy:sam", 0, "c@x.com"],
+    ]);
   });
 });
 

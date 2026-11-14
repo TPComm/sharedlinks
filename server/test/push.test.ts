@@ -281,6 +281,7 @@ describe("pushes", () => {
 
   test("claiming a pre-sign-in person updates your badge", async () => {
     app.db.run("INSERT INTO users (id, name, created_at) VALUES ('legacy:Kim', 'Kim', 1)");
+    app.accounts.approveClaim("kim@team.test", "Kim");
     app.db.run("INSERT INTO links (group_id, url, platform, added_by, added_at) VALUES (1, 'https://a.test/kim', 'web', 'legacy:Kim', 1)");
     expect((await call("/api/me/claim", { token: kim, body: { id: "legacy:Kim" } })).status).toBe(200);
     await settle();

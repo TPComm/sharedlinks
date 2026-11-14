@@ -541,7 +541,7 @@ describe("upgrading a database from the web-app days (v0)", () => {
     });
     expect(linkIn(state, 2).url).toBe("https://de.wikipedia.org/wiki/M%C3%BCnchen");
     expect(linkIn(state, 3).url).toBe(TIKTOK);
-    expect((await call("/api/me", { token })).data.claimable).toEqual([]); // only legacy people with your name
+    expect((await call("/api/me", { token })).data.claimable).toEqual([]); // only legacy people an admin let you claim
   });
 
   e2e("finds old links when they're shared again, TikTok tracking included", async () => {
@@ -561,8 +561,18 @@ describe("upgrading a database from the web-app days (v0)", () => {
     expect(originHits).toEqual([]);
   });
 
-  e2e("lets a signed-in person claim a legacy person's history", async () => {
+  e2e("lets a signed-in person claim a legacy person's history once the admin approves it", async () => {
     expect((await call("/api/me", { method: "PATCH", token, body: { name: "Sam" } })).status).toBe(200);
+    expect((await call("/api/me", { token })).data.claimable).toEqual([]); // a typed name isn't enough
+    expect((await cli(dataDir, "claim")).stdout).toBe("Sam: 2 links\nAlex: 2 links\n");
+    const usage = await cli(dataDir, "claim", "alice@example.com");
+    expect([usage.code, usage.stderr]).toEqual([1, "usage: links-server claim [<email> <legacy name>]\n"]);
+    const missing = await cli(dataDir, "claim", "alice@example.com", "Nobody");
+    expect([missing.code, missing.stderr]).toEqual([1, "no unclaimed legacy person called Nobody\n"]);
+    const approve = await cli(dataDir, "claim", "alice@example.com", "sam");
+    expect(approve.code, approve.logs()).toBe(0);
+    expect(approve.stdout).toContain("may now claim Sam");
+    expect((await cli(dataDir, "claim")).stdout).toBe("Sam: 2 links; alice@example.com may claim\nAlex: 2 links\n");
     expect((await call("/api/me", { token })).data.claimable.map((u: any) => u.id)).toEqual(["legacy:Sam"]);
     const claim = await call("/api/me/claim", { token, body: { id: "legacy:Sam" } });
     expect(claim.status, claim.text).toBe(200);
