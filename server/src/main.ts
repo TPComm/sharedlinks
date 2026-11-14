@@ -8,6 +8,7 @@
  *   links-server backup [dir]                        snapshot the database (keeps the newest 14)
  *   links-server reports                             list open reports (what was reported, by whom)
  *   links-server reports resolve <id> [--remove]     mark one handled; --remove deletes the link for everyone
+ *   links-server version                             print the git commit it was built from (also on /version)
  *
  * In development, `bun src/main.ts ...` does the same as the compiled `links-server`.
  *
@@ -23,6 +24,7 @@ import { configFromEnv } from "./config.ts";
 import { openDatabase } from "./db.ts";
 import { BadRequest } from "./links.ts";
 import { formatReport, openReports, resolveReport } from "./moderation.ts";
+import { BUILD_COMMIT } from "./version.ts";
 
 const config = configFromEnv();
 const [command, ...rest] = process.argv.slice(2);
@@ -91,6 +93,8 @@ if (command === "mint-session") {
   } finally {
     db.close();
   }
+} else if (command === "version") {
+  console.log(BUILD_COMMIT);
 } else if (command) {
   console.error(`unknown command: ${command}`);
   process.exit(1);

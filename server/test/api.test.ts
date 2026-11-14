@@ -468,6 +468,20 @@ describe("reports, blocks and the word list", () => {
     expect((await call("/api/blocks/legacy%3AAlex", { method: "DELETE", token: bea.token })).data).toEqual({ blocked: [] });
   });
 
+  test("unblocking a legacy name with a % in it", async () => {
+    const id = "legacy:100%";
+    const db = new Database(join(dataDir, "links.db"));
+    db.run("INSERT INTO users (id, name, created_at) VALUES (?, '100%', 1)", [id]);
+    try {
+      expect((await call("/api/blocks", { token: bea.token, body: { user_id: id } })).data).toEqual({ blocked: [id] });
+      expect((await call(`/api/blocks/${encodeURIComponent(id)}`, { method: "DELETE", token: bea.token })).data).toEqual({ blocked: [] });
+    } finally {
+      db.run("DELETE FROM blocks WHERE blocked = ?", [id]);
+      db.run("DELETE FROM users WHERE id = ?", [id]);
+      db.close();
+    }
+  });
+
   test("a listed word in a note or a name is refused; a WorkOS name with one still signs in", async () => {
     const add = await call("/api/links", { token: riley.token, body: { url: `${origin}/plain?n=words`, note: "what a ZONK!" } });
     expect(add).toMatchObject({ status: 400, data: { error: expect.stringContaining("note") } });
@@ -489,6 +503,13 @@ describe("reports, blocks and the word list", () => {
     expect(res.headers.get("content-type")).toContain("text/html");
     expect(res.data).toContain("Links Support");
     expect(res.data).toContain('<a href="mailto:support@tpcomm.co">support@tpcomm.co</a>');
+  });
+
+  test("/version says which commit is running, without signing in", async () => {
+    const res = await call("/version");
+    expect(res.status).toBe(200);
+    expect(res.headers.get("content-type")).toContain("application/json");
+    expect(res.data).toEqual({ commit: "dev" });
   });
 });
 

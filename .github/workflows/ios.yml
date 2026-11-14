@@ -1,11 +1,10 @@
 name: iOS
 
 on:
+  # Every PR, not just iOS ones: main requires this workflow's check, and a check that never
+  # reports blocks the merge. The changes job below decides whether it runs or reports "skipped",
+  # which counts as passing.
   pull_request:
-    # The app icon lives outside ios/ (assets/icon/SharedLinks.icon), so changes there count too.
-    # A PR that only touches server/ skips this macOS job (~10x Linux minutes): server.yml and
-    # deploy-e2e.yml check it on Linux, and the push to main below still runs the UI tests on it.
-    paths: ["ios/**", "assets/icon/**", ".github/workflows/ios.yml"]
   push:
     branches: [main]
     # The UI tests run the app against server/, so on main server changes count as well.
@@ -21,8 +20,37 @@ permissions:
   contents: read
 
 jobs:
+  changes:
+    name: Changes
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      relevant: ${{ steps.diff.outputs.relevant }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 2
+      # A PR checks out GitHub's test merge, whose first parent is main: the diff is what merging
+      # changes. (The list is saved first because grep -q in a pipe would cut git off and fail it.)
+      # --no-renames lists both sides of a move, so moving a file out of the area counts too.
+      # The app icon lives outside ios/ (assets/icon/SharedLinks.icon), so changes there count too.
+      # A PR that only touches server/ skips the macOS job (~10x Linux minutes): server.yml and
+      # deploy-e2e.yml check it on Linux, and the push to main still runs the UI tests on it.
+      - id: diff
+        run: |
+          files=$(git diff --name-only --no-renames HEAD^1 HEAD)
+          if grep -qE '^(ios/|assets/icon/|\.github/workflows/ios\.yml$)' <<<"$files"; then
+            echo relevant=true >>"$GITHUB_OUTPUT"
+          else
+            echo relevant=false >>"$GITHUB_OUTPUT"
+          fi
+
   build:
     name: LinksKit tests, app build and UI tests
+    needs: changes
+    # Pushes to main skip `changes`; if it failed, run rather than let a skipped check pass.
+    if: ${{ !cancelled() && needs.changes.outputs.relevant != 'false' }}
     # The only hosted image with Xcode 27. One job for everything: macOS minutes cost ~10x Linux
     # and each job pays its own start-up and rounding.
     runs-on: xcode-27
@@ -71,10 +99,11 @@ jobs:
           bun-version: 1.4.4
 
       # Starts the server from source with an empty database, creates a "Links UI Tests"
-      # Simulator, and drives the app in it. On the hosted image the first Simulator boot alone
-      # takes ~8 minutes and the 22 tests ~13, so leave most of the job's 40 minutes to this step.
+      # Simulator, and drives the app in it.
+      # 22 tests take ~12 minutes on the hosted runner, after up to ~8 minutes creating and booting
+      # the Simulator, so 20 minutes cut off runs that were passing.
       - name: UI tests
-        timeout-minutes: 35
+        timeout-minutes: 30
         env:
           LINKS_UI_TEST_ACTION: test-without-building
         run: ios/scripts/ui-tests.sh

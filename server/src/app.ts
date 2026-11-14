@@ -6,6 +6,7 @@ import { deleteLink, now, openDatabase, type LinkRow, type UserRow } from "./db.
 import { BadRequest, canonical, clipText, extractUrl } from "./links.ts";
 import { REPORT_REASONS } from "./moderation.ts";
 import { fetchMetadata, PREVIEW_VERSION } from "./previews.ts";
+import { BUILD_COMMIT } from "./version.ts";
 
 export const EMOJIS = new Set(["❤️", "😂", "🔥", "😮", "😭", "👎"]);
 
@@ -317,6 +318,8 @@ export function createApp(config: Config) {
   const routes = {
     "/": new Response("Links API. Open the Links app to use it.\n", { headers: { "Content-Type": "text/plain; charset=utf-8" } }),
     "/healthz": new Response("ok\n"),
+    // What's deployed: the nightly check compares `commit` with origin/main.
+    "/version": Response.json({ commit: BUILD_COMMIT }),
 
     // -- sign-in (AuthKit authorization code + PKCE)
     // 1. The app opens /auth/authorize in ASWebAuthenticationSession with its PKCE challenge.
@@ -416,10 +419,10 @@ export function createApp(config: Config) {
         return json({ blocked: [...blockedBy(me)] });
       }),
     },
-    // The id is URL-encoded: legacy ones look like legacy:<name>.
+    // The id is URL-encoded (legacy ones look like legacy:<name>); Bun has already decoded the param.
     "/api/blocks/:user_id": {
       DELETE: route<Request & { params: { user_id: string } }>((req, me) => {
-        db.run("DELETE FROM blocks WHERE blocker = ? AND blocked = ?", [me, decodeURIComponent(req.params.user_id)]);
+        db.run("DELETE FROM blocks WHERE blocker = ? AND blocked = ?", [me, req.params.user_id]);
         return json({ blocked: [...blockedBy(me)] });
       }),
     },

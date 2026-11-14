@@ -60,9 +60,12 @@ WORKOS_CLIENT_ID=client_... bun run dev          # http://localhost:8000
 bun test                                         # API tests (offline: WorkOS is stubbed)
 ```
 
-Then open `ios/Links.xcodeproj`. In `ios/Config.xcconfig` set `DEVELOPMENT_TEAM` and
-`LINKS_BUNDLE_ID` (something you own, e.g. `com.yourname.links`); the App Group becomes
-`group.<that>`. `LINKS_SERVER_URL` defaults to `http://localhost:8000`, which the Simulator can reach.
+Then open `ios/Links.xcodeproj`. `ios/Config.xcconfig` holds the shipped app's team
+(`DEVELOPMENT_TEAM`) and bundle id (`LINKS_BUNDLE_ID = com.tpcomm.links`; the App Group is
+`group.<that>`); a fork that runs on its own devices sets its own team and an id it owns there.
+Debug builds talk to `http://localhost:8000`, which the Simulator can reach, and Release builds
+(archives for TestFlight) to `https://links.tpcomm.co` (`LINKS_SERVER_URL_Debug` /
+`LINKS_SERVER_URL_Release`). Bump `CURRENT_PROJECT_VERSION` there before each TestFlight upload.
 
 **Skip WorkOS in the Simulator:** mint a session and hand it to the app.
 
@@ -110,9 +113,11 @@ WORKOS_CLIENT_ID=client_... ALLOWED_EMAILS=you@x.com,friend@y.com \
 That adds swap on small boxes, installs Caddy and automatic security updates, creates a locked-down
 `links` service and a daily database backup (`/var/lib/links/backups`, newest 14), opens only
 SSH/80/443, then builds the right binary for the VPS's CPU on your Mac and deploys it. Finally set
-`LINKS_SERVER_URL = https:/$()/links.example.com` in `ios/Config.xcconfig`.
+`LINKS_SERVER_URL_Release = https:/$()/links.example.com` in `ios/Config.xcconfig`.
 
 **Updates:** `deploy/deploy.sh root@203.0.113.7` tests, builds, uploads, swaps and health-checks.
+It only ships a clean `main` that matches `origin/main`, and compiles the commit in: `curl
+https://links.example.com/version` says what's live, and `/opt/links/deploys.log` lists each deploy.
 A build that doesn't come up healthy is rolled back automatically; the last good one is kept as
 `links-server.prev`. Re-running `setup.sh` only changes the settings you pass. The OS and Caddy patch themselves; Bun's
 runtime is inside the binary, so run `bun upgrade && deploy/deploy.sh …` about once a month.
@@ -198,9 +203,11 @@ All endpoints except sign-in need `Authorization: Bearer <session token>`.
 | GET | `/l/:token`, `/invite/:token`, `/g/:id` | public "Open this in the Links app" page; universal links into the app |
 | GET | `/support` | public page with the support address (`SUPPORT_EMAIL`, default `support@tpcomm.co`), for the App Store Support URL |
 | GET | `/thumbs/:id` | the cached thumbnail |
+| GET | `/version` | public: `{commit}`, the git commit the server was built from (`dev` unless built by `deploy/deploy.sh`) |
 
 Admin: `links-server mint-session <email> [name]`, `links-server delete-user <email>` (what the app's Delete Account does),
-`links-server reports`, `links-server reports resolve <id> [--remove]` and `links-server backup [dir]`.
+`links-server reports`, `links-server reports resolve <id> [--remove]`, `links-server backup [dir]` and
+`links-server version` (the commit it was built from).
 
 The app icon is `assets/icon/SharedLinks.icon`, a layered Icon Composer document the Xcode project uses
 directly; open it in Icon Composer to edit. `assets/icon/README.md` has previews and the alternate design.
