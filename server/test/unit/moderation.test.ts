@@ -24,12 +24,20 @@ describe("word list", () => {
   const words = new Set(["zonk", "bad", "dyke", "bitch"]);
 
   test("whole words, in any case, with accents or a plural", () => {
-    for (const text of ["ZONK", "a zonk!", "zonks", "Zönk", "so...bad", "line\nbad", "badés", "dykes", "bitches"]) {
+    for (const text of ["ZONK", "a zonk!", "zonks", "Zönk", "so...bad", "line\nbad", "bäds", "dykes", "bitches"]) {
       expect(findBlockedWord(text, words), text).not.toBeNull();
     }
     for (const text of ["", "zonked", "badge", "abad", "Scunthorpe", "z o n k"]) {
       expect(findBlockedWord(text, words), text).toBeNull();
     }
+  });
+
+  test("an -es plural only after s, x, z, ch or sh: spices isn't a slur", () => {
+    const builtIn = new Set(DEFAULT_BLOCKED_WORDS);
+    for (const text of ["Best spices for curry", "Spices", "bades"]) {
+      expect(findBlockedWord(text, new Set([...builtIn, ...words])), text).toBeNull();
+    }
+    expect(findBlockedWord("spics", builtIn)).toBe("spic");
   });
 
   test("the built-in list, plus the owner's file with comments and blank lines", () => {
