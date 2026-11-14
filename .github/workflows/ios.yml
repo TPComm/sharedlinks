@@ -71,9 +71,9 @@ jobs:
           bun-version: 1.4.4
 
       # Starts the server from source with an empty database, creates a "Links UI Tests"
-      # Simulator, and drives the app in it.
+      # Simulator, and drives the app in it. Booting that Simulator alone can take 6 minutes.
       - name: UI tests
-        timeout-minutes: 20
+        timeout-minutes: 25
         env:
           LINKS_UI_TEST_ACTION: test-without-building
         run: ios/scripts/ui-tests.sh
