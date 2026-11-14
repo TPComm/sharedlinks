@@ -61,11 +61,14 @@ function minutes(ms: number): string {
   return `${Math.round(ms / 60_000)} min`;
 }
 
-export function issueBody(f: Feedback, screenshotUrls: string[]): string {
+export function issueBody(f: Feedback, screenshotUrls: string[], expiredScreenshots = 0): string {
   const parts: string[] = [];
   parts.push(f.comment?.trim() ? quote(f.comment) : "_No comment._");
   if (screenshotUrls.length) {
     parts.push(screenshotUrls.map((url) => `<img src="${url}" width="320">`).join(" "));
+  }
+  if (expiredScreenshots) {
+    parts.push(`_${expiredScreenshots} screenshot(s) expired in App Store Connect before this was filed._`);
   }
   const rows: [string, string | null][] = [
     ["Sent", f.createdDate],
@@ -273,10 +276,16 @@ async function putFile(repo: string, path: string, content: Buffer, message: str
   });
 }
 
-async function storeScreenshot(repo: string, path: string, sourceUrl: string): Promise<string> {
+/** The screenshot's URL on the assets branch, or null once Apple's link to it has expired. */
+async function storeScreenshot(repo: string, path: string, sourceUrl: string): Promise<string | null> {
   const url = `https://raw.githubusercontent.com/${repo}/${ASSETS_BRANCH}/${path}`;
   if ((await github("GET", `/repos/${repo}/contents/${path}?ref=${ASSETS_BRANCH}`)).ok) return url;
   const res = await fetch(sourceUrl);
+  // A link past its expirationDate gets a 4xx from Apple's image host; file the feedback without it.
+  if ([400, 403, 404, 410].includes(res.status)) {
+    console.warn(`Screenshot ${path} is no longer available from Apple (${res.status})`);
+    return null;
+  }
   if (!res.ok) throw new Error(`Screenshot download ${res.status} for ${path}`);
   await putFile(repo, path, Buffer.from(await res.arrayBuffer()), `Add TestFlight feedback screenshot ${path}`);
   return url;
@@ -318,10 +327,11 @@ async function main(): Promise<void> {
       const urls: string[] = [];
       for (const [i, src] of f.screenshots.entries()) {
         const path = `${f.id}/${i + 1}.jpg`;
-        urls.push(dryRun ? `https://raw.githubusercontent.com/${repo}/${ASSETS_BRANCH}/${path}` : await storeScreenshot(repo, path, src));
+        const url = dryRun ? `https://raw.githubusercontent.com/${repo}/${ASSETS_BRANCH}/${path}` : await storeScreenshot(repo, path, src);
+        if (url) urls.push(url);
       }
       const title = issueTitle(f);
-      const body = issueBody(f, urls);
+      const body = issueBody(f, urls, f.screenshots.length - urls.length);
       if (dryRun) {
         console.log(`\n--- ${title}\n${body}`);
         continue;

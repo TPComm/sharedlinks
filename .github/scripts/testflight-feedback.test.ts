@@ -45,6 +45,11 @@ describe("issueBody", () => {
     expect(filedIds([body])).toEqual(new Set([base.id]));
   });
 
+  test("notes screenshots that expired before filing", () => {
+    expect(issueBody(base, [], 1)).toContain("_1 screenshot(s) expired in App Store Connect before this was filed._");
+    expect(issueBody(base, [])).not.toContain("expired");
+  });
+
   test("keeps a huge crash log under GitHub's body limit", () => {
     const body = issueBody({ ...base, kind: "crash", screenshots: [], crashLog: "frame\n".repeat(50_000) }, []);
     expect(body.length).toBeLessThan(65_536);
