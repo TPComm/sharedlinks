@@ -176,6 +176,12 @@ at startup and sends nothing.
 
 **Backups off the box:** `rsync -a root@203.0.113.7:/var/lib/links/backups/ ./backups/`
 
+**Grafana dashboard:** `deploy/grafana/links-dashboard.json` reads what `deploy/monitoring.sh` ships:
+host health, API traffic parsed from the request log, the daily backup, unit state and the logs, per
+host. Import it in Grafana (Dashboards → New → Import); it finds the stack's Prometheus and Loki
+data sources itself. The live copy is "Links" in the Links folder of the Grafana Cloud stack; after
+editing it there, export it (Share → Export, without "Export for sharing externally") over this file.
+
 **Reports and moderation** (App Store guideline 1.2). Whoever runs the server reads the reports:
 
 - People report a link or a person from its long-press menu or its page. A reported link is hidden
