@@ -345,7 +345,12 @@ final class LinksUITests: XCTestCase {
 
         let react = app.buttons["react.\(link.id)"]
         XCTAssertEqual(react.label, "React")
-        react.tap()
+        // A generous target (TestFlight feedback: "the reaction trigger is quite small"): it runs
+        // to the row's trailing edge and takes a tap well away from the smiley itself.
+        XCTAssertGreaterThanOrEqual(react.frame.width, 48)
+        XCTAssertGreaterThanOrEqual(react.frame.height, 48)
+        XCTAssertEqual(react.frame.maxX, row.frame.maxX, accuracy: 1)
+        react.coordinate(withNormalizedOffset: CGVector(dx: 0.1, dy: 0.9)).tap()
         let heart = app.buttons["reaction.❤️"]
         XCTAssert(heart.waitForExistence(timeout: 5), "no reaction bar")
         heart.tap()
