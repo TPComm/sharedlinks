@@ -113,10 +113,7 @@ public struct APIClient: Sendable {
 
     public func thumbnail(_ link: SharedLink) async throws -> Data {
         guard let path = link.thumb else { throw APIError.server("No thumbnail.") }
-        let parts = URLComponents(string: path)
-        var req = request("GET", String((parts?.path ?? path).drop(while: { $0 == "/" })))
-        if let query = parts?.queryItems { req.url?.append(queryItems: query) }
-        let (data, response) = try await perform(req)
+        let (data, response) = try await perform(request("GET", String(path.drop(while: { $0 == "/" }))))
         try check(response, data)
         return data
     }

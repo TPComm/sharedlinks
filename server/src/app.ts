@@ -104,7 +104,7 @@ export function createApp(config: Config) {
     return {
       id: r.id, url: r.url, platform: r.platform, title: r.title, author: r.author, note: r.note,
       description: r.description, site_name: r.site_name,
-      thumb: r.thumb_type ? `/thumbs/${r.id}${r.thumb_v ? `?v=${r.thumb_v}` : ""}` : null, thumb_w: r.thumb_w, thumb_h: r.thumb_h, meta: r.meta, added_by: r.added_by, added_at: r.added_at,
+      thumb: r.thumb_type ? `/thumbs/${r.id}${r.thumb_v ? `/${r.thumb_v}` : ""}` : null, thumb_w: r.thumb_w, thumb_h: r.thumb_h, meta: r.meta, added_by: r.added_by, added_at: r.added_at,
       seen: {} as Record<string, number>, reactions: {} as Record<string, string>,
     };
   }
@@ -284,19 +284,21 @@ export function createApp(config: Config) {
       }),
     },
 
-    "/thumbs/:id": {
-      GET: route<WithId>((req) => {
-        const id = linkId(req);
-        const row = db.query("SELECT thumb_type FROM links WHERE id = ?").get(id) as { thumb_type: string | null };
-        const file = Bun.file(join(config.dataDir, "thumbs", String(id)));
-        if (!row.thumb_type) throw new NotFound("Not found");
-        return file.exists().then((exists) => {
-          if (!exists) throw new NotFound("Not found");
-          return new Response(file, { headers: { "Content-Type": row.thumb_type!, "Cache-Control": "private, max-age=2592000" } });
-        });
-      }),
-    },
+    "/thumbs/:id": { GET: route<WithId>(serveThumb) },
+    // The version only changes the URL, so phones re-download a replaced thumbnail.
+    "/thumbs/:id/:v": { GET: route<WithId>(serveThumb) },
   };
+
+  function serveThumb(req: WithId) {
+    const id = linkId(req);
+    const row = db.query("SELECT thumb_type FROM links WHERE id = ?").get(id) as { thumb_type: string | null };
+    const file = Bun.file(join(config.dataDir, "thumbs", String(id)));
+    if (!row.thumb_type) throw new NotFound("Not found");
+    return file.exists().then((exists) => {
+      if (!exists) throw new NotFound("Not found");
+      return new Response(file, { headers: { "Content-Type": row.thumb_type!, "Cache-Control": "private, max-age=2592000" } });
+    });
+  }
 
   return {
     db,

@@ -52,7 +52,7 @@ public actor ThumbnailStore {
         return dir
     }
 
-    /// One file per version of a link's thumbnail (the server's `?v=`), so a replaced image is fetched again.
+    /// One file per version of a link's thumbnail (`SharedLink.thumbVersion`), so a replaced image is fetched again.
     static func fileURL(_ id: Int, version: String? = nil) -> URL {
         directory.appending(path: version.map { "\(id)-\($0).jpg" } ?? "\(id).jpg")
     }

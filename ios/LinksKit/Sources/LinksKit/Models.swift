@@ -185,9 +185,10 @@ public struct SharedLink: Codable, Sendable, Hashable, Identifiable {
     /// The server tried and found nothing to show; the app offers a retry.
     public var previewFailed: Bool { meta == "failed" }
 
-    /// The `v` of the thumbnail's URL, which the server bumps when it replaces the image.
+    /// The `<v>` of a `/thumbs/<id>/<v>` thumbnail URL, which the server bumps when it replaces the image.
     public var thumbVersion: String? {
-        thumb.flatMap { URLComponents(string: $0)?.queryItems?.first { $0.name == "v" }?.value }
+        guard let parts = thumb?.split(separator: "/"), parts.count == 3 else { return nil }
+        return String(parts[2])
     }
 
     /// Width over height of the thumbnail, clamped to what a card can show (9:16 portrait to 2:1 wide).

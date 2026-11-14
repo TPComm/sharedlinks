@@ -240,7 +240,7 @@ describe("links", () => {
     const { data } = await call("/api/state", { token });
     const link = data.links.find((l: any) => l.id === add.data.link.id);
     expect(link).toMatchObject({
-      title: "Cats & Dogs", author: "PetTube", meta: "done", thumb: `/thumbs/${link.id}?v=1`,
+      title: "Cats & Dogs", author: "PetTube", meta: "done", thumb: `/thumbs/${link.id}/1`,
       description: "Two pets", site_name: "PetTube", thumb_w: 1, thumb_h: 1,
     });
 
@@ -249,6 +249,9 @@ describe("links", () => {
     expect(thumb.headers.get("content-type")).toBe("image/png");
     expect(new Uint8Array(await thumb.arrayBuffer())).toEqual(PNG);
     expect((await fetch(api + link.thumb)).status).toBe(401);
+    // Apps from before versioned thumbnail URLs still get the image at the plain URL.
+    expect((await fetch(`${api}/thumbs/${link.id}`, { headers: { Authorization: `Bearer ${token}` } })).status).toBe(200);
+    expect((await fetch(`${api}/thumbs/${link.id}/x`, { headers: { Authorization: `Bearer ${token}` } })).status).toBe(200);
 
     const dup = await call("/api/links", { token, body: { url: `${origin}/video/?id=7&fbclid=zzz` } });
     expect(dup.status).toBe(200);
@@ -370,7 +373,7 @@ describe("deleting an account", () => {
     expect(data.users.map((u: any) => u.id)).not.toContain(janeId);
     expect(data.users.map((u: any) => u.id)).not.toContain("deleted");
     const kept = data.links.find((l: any) => l.id === sent.id);
-    expect(kept).toMatchObject({ added_by: "deleted", note: "from jane", thumb: `/thumbs/${sent.id}?v=1` });
+    expect(kept).toMatchObject({ added_by: "deleted", note: "from jane", thumb: `/thumbs/${sent.id}/1` });
     expect(Object.keys(kept.seen)).toEqual([friendId]);
     expect(kept.reactions).toEqual({ [friendId]: "🔥" });
     expect(existsSync(join(dataDir, "thumbs", String(sent.id)))).toBe(true);

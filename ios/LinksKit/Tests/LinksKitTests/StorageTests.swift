@@ -81,7 +81,7 @@ struct InboxSnapshotTests {
 struct ThumbnailStoreTests {
     static func link(_ id: Int, hasThumbnail: Bool = true, version: Int? = nil) -> SharedLink {
         SharedLink(id: id, url: URL(string: "https://www.youtube.com/watch?v=\(id)")!, platform: .youtube,
-                   thumb: hasThumbnail ? "/thumbs/\(id)" + (version.map { "?v=\($0)" } ?? "") : nil, addedBy: "u")
+                   thumb: hasThumbnail ? "/thumbs/\(id)" + (version.map { "/\($0)" } ?? "") : nil, addedBy: "u")
     }
 
     @Test func aReplacedThumbnailIsFetchedAgain() async throws {
@@ -91,8 +91,7 @@ struct ThumbnailStoreTests {
             _ = await store.data(for: Self.link(5, version: 1), client: server.client())
             _ = await store.data(for: Self.link(5, version: 1), client: server.client())
             _ = await store.data(for: Self.link(5, version: 2), client: server.client())
-            #expect(server.requests.map { $0.url.path() } == ["/thumbs/5", "/thumbs/5"])
-            #expect(server.requests.map { $0.url.query() } == ["v=1", "v=2"])
+            #expect(server.requests.map { $0.url.path() } == ["/thumbs/5/1", "/thumbs/5/2"])
             #expect(FileManager.default.fileExists(atPath: dir.appending(path: "thumbs/5-2.jpg").path()))
             ThumbnailStore.prune(keeping: [Self.link(5, version: 2)])
             let left = try FileManager.default.contentsOfDirectory(atPath: ThumbnailStore.directory.path())
