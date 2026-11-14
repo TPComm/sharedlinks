@@ -70,6 +70,11 @@ public struct APIClient: Sendable {
         try await send("POST", "api/me/claim", json: ["id": legacyID])
     }
 
+    /// Deletes the account; the links it sent stay, from `LinkUser.deletedID`. Every session ends.
+    public func deleteAccount() async throws {
+        let _: [String: Bool] = try await send("DELETE", "api/me")
+    }
+
     // MARK: Links
 
     public func state() async throws -> InboxState { try await send("GET", "api/state") }

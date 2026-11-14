@@ -4,6 +4,7 @@
  *
  *   links-server                                    start the server (http://localhost:8000)
  *   links-server mint-session you@example.com [Name]   print a session token (admin / Simulator)
+ *   links-server delete-user you@example.com         delete an account (its links stay, from "Deleted user")
  *   links-server backup [dir]                        snapshot the database (keeps the newest 14)
  *
  * In development, `bun src/main.ts ...` does the same as the compiled `links-server`.
@@ -30,6 +31,25 @@ if (command === "mint-session") {
   const db = openDatabase(config.dataDir);
   console.log(new Accounts(db, config).mintSession(email, name.join(" ") || undefined));
   db.close();
+} else if (command === "delete-user") {
+  // What the app's Delete Account does, for someone who asks by email instead.
+  const [email, ...extra] = rest;
+  if (!email || extra.length) {
+    console.error("usage: links-server delete-user <email>");
+    process.exit(1);
+  }
+  const db = openDatabase(config.dataDir);
+  const accounts = new Accounts(db, config);
+  const users = accounts.usersWithEmail(email);
+  for (const user of users) {
+    const { links, workos } = await accounts.deleteUser(user.id);
+    console.log(`deleted ${user.name} (${user.id}); ${links} sent link${links === 1 ? "" : "s"} kept as "Deleted user"; WorkOS user: ${workos}`);
+  }
+  db.close();
+  if (!users.length) {
+    console.error(`no account with the email ${email}`);
+    process.exit(1);
+  }
 } else if (command === "backup") {
   // A consistent copy even while the server is running (VACUUM INTO reads a snapshot).
   const dir = rest[0] ?? join(config.dataDir, "backups");

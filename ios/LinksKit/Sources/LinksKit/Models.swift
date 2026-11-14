@@ -84,6 +84,10 @@ public struct LinkUser: Codable, Sendable, Hashable, Identifiable {
     /// Someone from before sign-in existed, waiting to be claimed.
     public var isLegacy: Bool { id.hasPrefix("legacy:") }
 
+    /// The sender of links whose sender deleted their account (DELETED_USER in server/src/db.ts).
+    /// It's never in `users`, so no new account can take those links over.
+    public static let deletedID = "deleted"
+
     public var initials: String {
         let letters = name.split(separator: " ").compactMap(\.first).prefix(2)
         return String(letters).uppercased()
@@ -203,7 +207,9 @@ public enum InboxFilter: String, CaseIterable, Sendable, Identifiable {
 public extension InboxState {
     func user(_ id: String) -> LinkUser? { users.first { $0.id == id } }
 
-    func name(of id: String) -> String { user(id)?.name ?? "Someone" }
+    func name(of id: String) -> String {
+        user(id)?.name ?? (id == LinkUser.deletedID ? "Deleted user" : "Someone")
+    }
 
     var meUser: LinkUser? { user(me) }
 

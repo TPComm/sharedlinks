@@ -4,13 +4,13 @@ import Testing
 
 /// Every call the app makes, and the request server/src/app.ts expects for it.
 enum Endpoint: String, CaseIterable, Sendable {
-    case exchange, signOut, me, rename, claim, state, add, seen, unseen, react, unreact, note, delete, thumbnail
+    case exchange, signOut, me, rename, claim, deleteAccount, state, add, seen, unseen, react, unreact, note, delete, thumbnail
 
     var method: String {
         switch self {
         case .me, .state, .thumbnail: "GET"
         case .rename, .note: "PATCH"
-        case .delete: "DELETE"
+        case .delete, .deleteAccount: "DELETE"
         default: "POST"
         }
     }
@@ -19,7 +19,7 @@ enum Endpoint: String, CaseIterable, Sendable {
         switch self {
         case .exchange: "/api/auth/token"
         case .signOut: "/api/auth/logout"
-        case .me, .rename: "/api/me"
+        case .me, .rename, .deleteAccount: "/api/me"
         case .claim: "/api/me/claim"
         case .state: "/api/state"
         case .add: "/api/links"
@@ -42,14 +42,14 @@ enum Endpoint: String, CaseIterable, Sendable {
         case .react: #"{"emoji":"🔥"}"#
         case .unreact: #"{"emoji":null}"#
         case .note: #"{"note":"new note"}"#
-        case .signOut, .me, .state, .delete, .thumbnail: nil
+        case .signOut, .me, .deleteAccount, .state, .delete, .thumbnail: nil
         }
     }
 
     var reply: Reply {
         switch self {
         case .exchange: .json(#"{"token": "tok_new", "user": \#(Fixture.sam), "claimable": []}"#)
-        case .signOut, .delete: .json(#"{"ok": true}"#)
+        case .signOut, .delete, .deleteAccount: .json(#"{"ok": true}"#)
         case .me, .rename, .claim: .json(Fixture.me)
         case .state: .json(#"{"me": "user_01SAM", "users": [\#(Fixture.sam)], "links": [\#(Fixture.link())]}"#)
         case .add: .json(#"{"link": \#(Fixture.link()), "duplicate": false}"#, status: 201)
@@ -66,6 +66,7 @@ enum Endpoint: String, CaseIterable, Sendable {
         case .me: _ = try await client.me()
         case .rename: _ = try await client.rename(to: "Sam L")
         case .claim: _ = try await client.claim("legacy:Jo")
+        case .deleteAccount: try await client.deleteAccount()
         case .state: _ = try await client.state()
         case .add: _ = try await client.add("lol https://vm.tiktok.com/ZMabc/", note: "for you")
         case .seen: _ = try await client.setSeen(7, true)
@@ -203,6 +204,7 @@ struct APIClientErrorTests {
         let server = StubServer(always: .json(#"{"error": "Sign in to continue."}"#, status: 401))
         await #expect(throws: APIError.signedOut) { try await server.client().state() }
         await #expect(throws: APIError.signedOut) { try await server.client().delete(1) }
+        await #expect(throws: APIError.signedOut) { try await server.client().deleteAccount() }
     }
 
     @Test(arguments: [

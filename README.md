@@ -142,7 +142,7 @@ All endpoints except sign-in need `Authorization: Bearer <session token>`.
 | GET | `/auth/callback` | AuthKit's redirect; bounces to `sharedlinks://auth/callback?code=…` |
 | POST | `/api/auth/token` | `{code, code_verifier}` → `{token, user, claimable}` |
 | POST | `/api/auth/logout` | ends this session |
-| GET/PATCH | `/api/me` | `{user, claimable}`; PATCH `{name}` |
+| GET/PATCH/DELETE | `/api/me` | `{user, claimable}`; PATCH `{name}`; DELETE deletes the account, its sessions, watched marks and reactions; the links it sent stay, from `deleted` ("Deleted user"). Also the WorkOS user, given `WORKOS_API_KEY` |
 | POST | `/api/me/claim` | `{id}` of a legacy person |
 | GET | `/api/state` | `{me, users, links}` |
 | POST | `/api/links` | `{url, note?}`; `url` may be any text containing a link → `{link, duplicate}` |
@@ -151,7 +151,8 @@ All endpoints except sign-in need `Authorization: Bearer <session token>`.
 | PATCH / DELETE | `/api/links/:id` | `{note}` / – |
 | GET | `/thumbs/:id` | the cached thumbnail |
 
-Admin: `links-server mint-session <email> [name]` and `links-server backup [dir]`.
+Admin: `links-server mint-session <email> [name]`, `links-server delete-user <email>` (what the app's Delete Account does)
+and `links-server backup [dir]`.
 
 The app icon is `assets/icon/SharedLinks.icon`, a layered Icon Composer document the Xcode project uses
 directly; open it in Icon Composer to edit. `assets/icon/README.md` has previews and the alternate design.

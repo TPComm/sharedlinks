@@ -12,6 +12,7 @@ final class AppModel {
     private(set) var claimable: [LinkUser] = []
     private(set) var isOffline = false
     private(set) var isSigningIn = false
+    private(set) var isDeletingAccount = false
 
     var tab: InboxTab = .toWatch
     var toast: String?
@@ -92,6 +93,8 @@ final class AppModel {
         sessionID = UUID()
         SessionStore.clear()
         InboxSnapshot.clear()
+        ThumbnailCache.clear()
+        URLCache.shared.removeAllCachedResponses() // thumbnails and avatars this session fetched
         ShareSuggestions.deleteAll()
         token = nil
         account = nil
@@ -136,6 +139,33 @@ final class AppModel {
             self.setAccount(me.user)
             await self.refresh()
         }
+    }
+
+    /// Deletes the account on the server (the links it sent stay, from "Deleted user"), then
+    /// forgets everything on this device: what signing out does, plus this app's settings.
+    func deleteAccount() async {
+        isDeletingAccount = true
+        defer { isDeletingAccount = false }
+        do {
+            try await client.deleteAccount()
+        } catch APIError.signedOut {
+            endSession()
+            errorMessage = "You were signed out, so your account wasn't deleted. Sign in, then try again."
+            return
+        } catch {
+            errorMessage = error.localizedDescription
+            return
+        }
+        endSession()
+        // Settings kept across sign-outs (e.g. what's been shown once) go too: a new account
+        // on this device starts fresh.
+        if let group = LinksConfig.appGroup {
+            UserDefaults(suiteName: group)?.removePersistentDomain(forName: group)
+        }
+        if let bundleID = Bundle.main.bundleIdentifier {
+            UserDefaults.standard.removePersistentDomain(forName: bundleID)
+        }
+        toast = "Account deleted"
     }
 
     private func setAccount(_ user: LinkUser) {

@@ -62,6 +62,7 @@ struct InboxStateTests {
         #expect(state.user("nobody") == nil)
         #expect(state.name(of: "user_ALEX") == "Alex Kim")
         #expect(state.name(of: "user_GONE") == "Someone")
+        #expect(state.name(of: LinkUser.deletedID) == "Deleted user") // their account was deleted
         // New links go to everyone who has signed in, in server order; not me, not legacy people.
         #expect(state.otherPeople.map(\.id) == ["user_SAM", "user_ALEX"])
     }

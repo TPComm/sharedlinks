@@ -4,6 +4,11 @@ import { join } from "node:path";
 import { normalize } from "./links.ts";
 
 export const LEGACY = "legacy:"; // people from the pre-sign-in version, until someone claims them
+/**
+ * Who sent a link whose sender deleted their account. There's no users row for it, so no account,
+ * however it signs up again, can ever own those links; the app shows them as from "Deleted user".
+ */
+export const DELETED_USER = "deleted";
 
 export interface LinkRow {
   id: number;

@@ -85,6 +85,19 @@ struct AccountMenu: View {
     @Environment(AppModel.self) private var model
     @State private var renaming = false
     @State private var nameDraft = ""
+    @State private var confirmingDelete = false
+
+    /// Spells out what goes and what stays, since none of it can come back.
+    private var deleteWarning: String {
+        let sent = model.inbox.links(for: .sent).count
+        let links = switch sent {
+        case 0: ""
+        case 1: " The link you sent stays for your friends, from “Deleted user”. Delete it first if you’d rather it went too."
+        default: " The \(sent) links you sent stay for your friends, from “Deleted user”. Delete them first if you’d rather they went too."
+        }
+        return "This permanently deletes your Links account, your watched marks and your reactions.\(links) "
+            + "This can't be undone."
+    }
 
     var body: some View {
         Menu {
@@ -102,11 +115,26 @@ struct AccountMenu: View {
             Button("Sign Out", systemImage: "rectangle.portrait.and.arrow.right", role: .destructive) {
                 Task { await model.signOut() }
             }
+            Button("Delete Account…", systemImage: "person.crop.circle.badge.xmark", role: .destructive) {
+                confirmingDelete = true
+            }
         } label: {
-            AvatarView(user: model.me, size: 30)
-                .accessibilityLabel("Account")
+            if model.isDeletingAccount {
+                ProgressView()
+                    .accessibilityLabel("Deleting account")
+            } else {
+                AvatarView(user: model.me, size: 30)
+                    .accessibilityLabel("Account")
+            }
         }
+        .disabled(model.isDeletingAccount)
         .accessibilityIdentifier("account")
+        .alert("Delete Your Account?", isPresented: $confirmingDelete) {
+            Button("Delete Account", role: .destructive) { Task { await model.deleteAccount() } }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text(deleteWarning)
+        }
         .alert("Display Name", isPresented: $renaming) {
             TextField("Name", text: $nameDraft)
                 .textInputAutocapitalization(.words)

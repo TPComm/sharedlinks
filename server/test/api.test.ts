@@ -1,6 +1,6 @@
 import { Database } from "bun:sqlite";
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { startServer } from "../src/app.ts";
@@ -297,6 +297,71 @@ describe("links", () => {
     expect((await call("/api/auth/logout", { method: "POST", token: data.token })).data).toEqual({ ok: true });
     expect((await call("/api/me", { token: data.token })).status).toBe(401);
     expect((await call("/api/me", { token })).status).toBe(200); // other sessions unaffected
+  });
+});
+
+describe("deleting an account", () => {
+  test("removes the person, every session, their marks and reactions; their links stay, from no one", async () => {
+    const jane = await signIn("domain");
+    const otherPhone = await signIn("domain");
+    const friend = await signIn("good");
+    const [janeId, token, friendId, friendToken] = [jane.data.user.id, jane.data.token, friend.data.user.id, friend.data.token];
+
+    // Jane sends a link with a thumbnail and marks it watched; the friend watches it and reacts.
+    const sent = (await call("/api/links", { token, body: { url: `${origin}/video?id=jane`, note: "from jane" } })).data.link;
+    await call(`/api/links/${sent.id}/seen`, { token, body: { seen: true } });
+    await call(`/api/links/${sent.id}/seen`, { token: friendToken, body: { seen: true } });
+    await call(`/api/links/${sent.id}/react`, { token: friendToken, body: { emoji: "🔥" } });
+    // The friend sends one, which they both watch and react to.
+    const friends = (await call("/api/links", { token: friendToken, body: { url: `${origin}/plain?n=kept` } })).data.link;
+    for (const [t, emoji] of [[token, "😂"], [friendToken, "❤️"]]) {
+      await call(`/api/links/${friends.id}/seen`, { token: t, body: { seen: true } });
+      await call(`/api/links/${friends.id}/react`, { token: t, body: { emoji } });
+    }
+    await idle();
+
+    expect((await call("/api/me", { method: "DELETE", token })).data).toEqual({ ok: true });
+
+    // Every session is gone, with the 401 the app reads as "signed out".
+    for (const t of [token, otherPhone.data.token]) {
+      expect((await call("/api/me", { token: t })).status).toBe(401);
+      expect((await call("/api/state", { token: t })).status).toBe(401);
+      expect((await call("/api/me", { method: "DELETE", token: t })).status).toBe(401);
+    }
+    const db = new Database(join(dataDir, "links.db"), { readonly: true });
+    try {
+      for (const where of ["users WHERE id = ?", "sessions WHERE user_id = ?", "seen WHERE person = ?",
+                           "reactions WHERE person = ?", "links WHERE added_by = ?"]) {
+        expect(db.query(`SELECT COUNT(*) AS n FROM ${where}`).get(janeId), where).toEqual({ n: 0 });
+      }
+      expect(db.query("SELECT 1 FROM users WHERE id = 'deleted'").get()).toBeNull();
+    } finally {
+      db.close();
+    }
+
+    // Her link stays for the friend, from "deleted", with its note, thumbnail and the friend's marks.
+    const { data } = await call("/api/state", { token: friendToken });
+    expect(data.users.map((u: any) => u.id)).not.toContain(janeId);
+    expect(data.users.map((u: any) => u.id)).not.toContain("deleted");
+    const kept = data.links.find((l: any) => l.id === sent.id);
+    expect(kept).toMatchObject({ added_by: "deleted", note: "from jane", thumb: `/thumbs/${sent.id}` });
+    expect(Object.keys(kept.seen)).toEqual([friendId]);
+    expect(kept.reactions).toEqual({ [friendId]: "🔥" });
+    expect(existsSync(join(dataDir, "thumbs", String(sent.id)))).toBe(true);
+    expect((await call(kept.thumb, { token: friendToken })).status).toBe(200);
+    // The friend's own link keeps the friend's marks, not hers.
+    const theirs = data.links.find((l: any) => l.id === friends.id);
+    expect(Object.keys(theirs.seen)).toEqual([friendId]);
+    expect(theirs.reactions).toEqual({ [friendId]: "❤️" });
+
+    // Still on the guest list, so she can sign up again (same WorkOS id, same email), but as a new,
+    // empty account: her old links stay "deleted" rather than coming back to her.
+    const again = await signIn("domain");
+    expect(again.status).toBe(200);
+    expect(again.data.user).toMatchObject({ id: janeId, name: "Jane Doe", email: "jane.doe@team.test" });
+    const after = (await call("/api/state", { token: again.data.token })).data;
+    expect(after.links.find((l: any) => l.id === sent.id).added_by).toBe("deleted");
+    expect(after.links.some((l: any) => l.added_by === janeId || l.seen[janeId] || l.reactions[janeId])).toBe(false);
   });
 });
 
