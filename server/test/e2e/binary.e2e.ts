@@ -387,6 +387,29 @@ describe("a day with Links", () => {
     expect([again.code, again.stdout, again.stderr]).toEqual([1, "", "no account with the email carol@team.test\n"]);
   });
 
+  e2e("a report is logged, listed with what was reported, and resolve --remove deletes the link", async () => {
+    const sent = await call("/api/links", { token: bob.token, body: { url: `${origin}/video?id=reported`, note: "rude" } });
+    expect(sent.status, sent.text).toBe(201);
+    const id = sent.data.link.id;
+    const report = await call("/api/reports", { token: alice.token, body: { link_id: id, reason: "offensive" } });
+    expect(report.status, report.text).toBe(201);
+    await printed(server, "stdout", `offensive, link ${id}, by ${alice.id}`);
+
+    const list = await cli(dataDir, "reports");
+    expect(list.code, list.logs()).toBe(0);
+    const reportId = list.stdout.match(new RegExp(`^#(\\d+) .* offensive  link ${id}  reported by `, "m"))?.[1];
+    expect(reportId, list.stdout).toBeDefined();
+    expect(list.stdout).toContain('note: "rude"');
+
+    const run = await cli(dataDir, "reports", "resolve", reportId!, "--remove");
+    expect(run.code, run.logs()).toBe(0);
+    expect(run.stdout).toBe(`report #${reportId} resolved: removed (link ${id} deleted)\n`);
+    expect(linkIn((await call("/api/state", { token: bob.token })).data, id)).toBeUndefined();
+    expect((await cli(dataDir, "reports")).stdout).toBe("no open reports\n");
+    const usage = await cli(dataDir, "reports", "resolve", "x");
+    expect([usage.code, usage.stderr]).toEqual([1, "usage: links-server reports [resolve <id> [--remove]]\n"]);
+  });
+
   e2e("exits 1 with a message for mint-session without an email, or an unknown command", async () => {
     const usage = await cli(dataDir, "mint-session");
     expect([usage.code, usage.stdout, usage.stderr]).toEqual([1, "", "usage: links-server mint-session <email> [name]\n"]);

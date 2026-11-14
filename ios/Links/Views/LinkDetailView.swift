@@ -13,7 +13,8 @@ struct LinkDetailView: View {
         if let link = model.inbox.links.first(where: { $0.id == linkID }) {
             LinkPage(link: link)
         } else {
-            // Someone deleted it while this page was open (or while the app was away).
+            // Someone deleted it while this page was open (or while the app was away), or I
+            // reported it or blocked its sender on another device.
             ContentUnavailableView("Link Deleted", systemImage: "trash",
                                    description: Text("This link isn't in Links anymore."))
         }
@@ -29,9 +30,11 @@ private struct LinkPage: View {
     @State private var editingNote = false
     @State private var noteDraft = ""
     @State private var confirmingDelete = false
-    /// Set by Delete, which goes back first and deletes once the page has gone, so the page
-    /// doesn't turn into "Link Deleted" on its way out.
-    @State private var deleteOnDisappear = false
+    @State private var reporting = false
+    @State private var blocking = false
+    /// Set by Delete, Report and Block, which go back first and act once the page has gone, so
+    /// the page doesn't turn into "Link Deleted" on its way out.
+    @State private var afterLeaving: (@MainActor () async -> Void)?
     /// Counts reactions picked here, for the haptic (not every change is one made here).
     @State private var picks = 0
 
@@ -65,14 +68,15 @@ private struct LinkPage: View {
         .sensoryFeedback(.success, trigger: seenAt) { old, new in old == nil && new != nil }
         .sensoryFeedback(.selection, trigger: picks)
         .linkDeleteConfirmation(link, isPresented: $confirmingDelete) {
-            deleteOnDisappear = true
-            dismiss()
+            let link = link
+            leave { await model.delete(link) }
         }
         .linkNoteEditor(link, isPresented: $editingNote, draft: $noteDraft)
+        .linkModeration(link, reporting: $reporting, blocking: $blocking, perform: leave)
         .onDisappear {
-            guard deleteOnDisappear else { return }
-            let link = link
-            Task { await model.delete(link) }
+            guard let work = afterLeaving else { return }
+            afterLeaving = nil
+            Task { await work() }
         }
     }
 
@@ -260,7 +264,9 @@ private struct LinkPage: View {
             .sorted { $0.value < $1.value }
             .map { Receipt(id: $0.key, date: $0.value) }
         guard mine else { return seen }
-        return seen + inbox.otherPeople.filter { link.seen[$0.id] == nil }.map { Receipt(id: $0.id, date: nil) }
+        // Not the people I blocked: their marks never reach me, so they'd read "Not yet" for good.
+        return seen + inbox.otherPeople.filter { link.seen[$0.id] == nil && !inbox.isBlocked($0.id) }
+            .map { Receipt(id: $0.id, date: nil) }
     }
 
     @ToolbarContentBuilder private var toolbar: some ToolbarContent {
@@ -269,11 +275,18 @@ private struct LinkPage: View {
         }
         ToolbarItem(placement: .topBarTrailing) {
             Menu {
-                Button(link.note.isEmpty ? "Add Note" : "Edit Note", systemImage: "note.text") {
-                    noteDraft = link.note
-                    editingNote = true
+                if mine {
+                    Button(link.note.isEmpty ? "Add Note" : "Edit Note", systemImage: "note.text") {
+                        noteDraft = link.note
+                        editingNote = true
+                    }
                 }
                 CopyLinkButton(link: link)
+                if !mine {
+                    Section {
+                        LinkModerationButtons(link: link, reporting: $reporting, blocking: $blocking)
+                    }
+                }
                 Button("Delete", systemImage: "trash", role: .destructive) { confirmingDelete = true }
             } label: {
                 Label("More", systemImage: "ellipsis")
@@ -283,6 +296,12 @@ private struct LinkPage: View {
     }
 
     // MARK: Actions
+
+    /// Goes back to the list, then does `work` once this page has gone.
+    private func leave(_ work: @escaping @MainActor () async -> Void) {
+        afterLeaving = work
+        dismiss()
+    }
 
     private func watch() {
         model.watch(link, with: openURL)

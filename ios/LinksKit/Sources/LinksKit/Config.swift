@@ -16,6 +16,28 @@ public enum LinksConfig {
         return URL(string: raw.trimmingCharacters(in: .whitespaces)) ?? URL(string: "http://localhost:8000")!
     }
 
+    /// Where people reach whoever runs the server (App Store guideline 1.2), from LINKS_SUPPORT_URL:
+    /// a mailto: or https: URL. Nil if it isn't set.
+    public static var supportURL: URL? {
+        parseSupportURL(Bundle.main.object(forInfoDictionaryKey: "LinksSupportURL") as? String)
+    }
+
+    static func parseSupportURL(_ raw: String?) -> URL? {
+        let raw = raw?.trimmingCharacters(in: .whitespaces) ?? ""
+        guard let url = URL(string: raw), ["mailto", "https", "http"].contains(url.scheme?.lowercased() ?? "") else { return nil }
+        return url
+    }
+
+    /// The support address as people read it: "help@example.com", or "example.com/support".
+    public static func supportAddress(_ url: URL) -> String {
+        if url.scheme?.lowercased() == "mailto" {
+            return url.absoluteString.dropFirst("mailto:".count).split(separator: "?").first.map(String.init) ?? ""
+        }
+        let host = url.host()?.replacingOccurrences(of: "www.", with: "", options: .anchored) ?? ""
+        let path = url.path()
+        return path == "/" || path.isEmpty ? host : host + path
+    }
+
     /// The App Group the app and its extensions share (keychain item, inbox cache, thumbnails).
     public static var appGroup: String? {
         let value = Bundle.main.object(forInfoDictionaryKey: "LinksAppGroup") as? String

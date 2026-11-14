@@ -10,3 +10,8 @@ LINKS_BUNDLE_ID = com.example.links
 // Where server/ runs. The Simulator can use localhost; a phone needs your VPS's https URL.
 // ("//" starts a comment in xcconfig files, hence the $() in the middle.)
 LINKS_SERVER_URL = http:/$()/localhost:8000
+
+// Where people reach whoever runs the server (App Store guideline 1.2), shown in the account menu
+// and on the sign-in screen: a mailto: address, or an https: page (written https:/$()/...).
+// Use the same address as the server's SUPPORT_EMAIL, which its /support page shows.
+LINKS_SUPPORT_URL = mailto:support@example.com

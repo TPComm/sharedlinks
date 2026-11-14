@@ -86,6 +86,7 @@ struct AccountMenu: View {
     @State private var renaming = false
     @State private var nameDraft = ""
     @State private var confirmingDelete = false
+    @State private var showingBlocked = false
 
     /// Spells out what goes and what stays, since none of it can come back.
     private var deleteWarning: String {
@@ -120,6 +121,14 @@ struct AccountMenu: View {
                     model.startTour()
                 }
             }
+            Section {
+                Button("Blocked People…", systemImage: "hand.raised") {
+                    showingBlocked = true
+                }
+                if let support = LinksConfig.supportURL {
+                    ContactSupportButton(url: support)
+                }
+            }
             Button("Sign Out", systemImage: "rectangle.portrait.and.arrow.right", role: .destructive) {
                 Task { await model.signOut() }
             }
@@ -137,6 +146,9 @@ struct AccountMenu: View {
         }
         .disabled(model.isDeletingAccount)
         .accessibilityIdentifier("account")
+        .sheet(isPresented: $showingBlocked) {
+            BlockedPeopleSheet().environment(model)
+        }
         .alert("Delete Your Account?", isPresented: $confirmingDelete) {
             Button("Delete Account", role: .destructive) { Task { await model.deleteAccount() } }
             Button("Cancel", role: .cancel) {}

@@ -1,5 +1,5 @@
 import { Database } from "bun:sqlite";
-import { mkdirSync } from "node:fs";
+import { mkdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { normalize } from "./links.ts";
 
@@ -90,6 +90,31 @@ export function openDatabase(dataDir: string): Database {
       user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
       created_at REAL NOT NULL,
       last_used REAL NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS reports (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      reporter TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      link_id INTEGER,             -- no foreign key: the report outlives the link (ids are never reused)
+      comment_id INTEGER,          -- for comments (#6)
+      user_id TEXT REFERENCES users(id) ON DELETE CASCADE,  -- a person (their name or photo)
+      reason TEXT NOT NULL,        -- see REPORT_REASONS in moderation.ts
+      details TEXT NOT NULL DEFAULT '',
+      snapshot TEXT NOT NULL,      -- JSON copy of what was reported, as it was then
+      created_at REAL NOT NULL,
+      resolved_at REAL,
+      resolution TEXT,
+      CHECK ((link_id IS NOT NULL) + (comment_id IS NOT NULL) + (user_id IS NOT NULL) = 1)
+    );
+    -- NULLs are distinct in a UNIQUE, so one partial index per kind of target stops repeats.
+    CREATE UNIQUE INDEX IF NOT EXISTS reports_link ON reports (reporter, link_id) WHERE link_id IS NOT NULL;
+    CREATE UNIQUE INDEX IF NOT EXISTS reports_comment ON reports (reporter, comment_id) WHERE comment_id IS NOT NULL;
+    CREATE UNIQUE INDEX IF NOT EXISTS reports_user ON reports (reporter, user_id) WHERE user_id IS NOT NULL;
+    CREATE TABLE IF NOT EXISTS blocks (
+      blocker TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      blocked TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      created_at REAL NOT NULL,
+      PRIMARY KEY (blocker, blocked),
+      CHECK (blocker <> blocked)
     );
   `);
   migrateFromNames(db);
@@ -208,3 +233,9 @@ function respellLinks(db: Database) {
 }
 
 export const now = () => Date.now() / 1000;
+
+/** Delete a link for everyone, with its thumbnail (seen marks and reactions cascade). */
+export function deleteLink(db: Database, dataDir: string, id: number) {
+  db.run("DELETE FROM links WHERE id = ?", [id]);
+  rmSync(join(dataDir, "thumbs", String(id)), { force: true });
+}

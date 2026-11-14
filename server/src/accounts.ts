@@ -2,6 +2,7 @@ import type { Database } from "bun:sqlite";
 import type { Config } from "./config.ts";
 import { DELETED_USER, LEGACY, now, type UserRow } from "./db.ts";
 import { BadRequest, clip } from "./links.ts";
+import { screener } from "./moderation.ts";
 
 export class AuthError extends Error {
   constructor(message: string, readonly status = 401) {
@@ -29,7 +30,12 @@ function titleCase(s: string): string {
 }
 
 export class Accounts {
-  constructor(private db: Database, private config: Config) {}
+  /** Refuses notes and names with a word on the moderation list. */
+  readonly screen: ReturnType<typeof screener>;
+
+  constructor(private db: Database, private config: Config) {
+    this.screen = screener(config.dataDir);
+  }
 
   emailAllowed(email: string | null | undefined): boolean {
     const list = this.config.allowedEmails;
@@ -56,8 +62,20 @@ export class Accounts {
     }
   }
 
+  /** Not at sign-in (upsertUser): a WorkOS name on the list falls back to one from the email. */
   rename(userId: string, name: unknown) {
-    this.db.run("UPDATE users SET name = ? WHERE id = ?", [cleanName(name), userId]);
+    const cleaned = cleanName(name);
+    this.screen(cleaned, "name");
+    this.db.run("UPDATE users SET name = ? WHERE id = ?", [cleaned, userId]);
+  }
+
+  private allowsName(name: string): boolean {
+    try {
+      this.screen(cleanName(name), "name");
+      return true;
+    } catch {
+      return false;
+    }
   }
 
   newSession(userId: string): string {
@@ -90,7 +108,11 @@ export class Accounts {
     this.db.run("DELETE FROM sessions WHERE token_hash = ?", [sha256(token)]);
   }
 
-  /** "That was me": move a pre-sign-in person's links, seen marks and reactions onto this account. */
+  /**
+   * "That was me": move a pre-sign-in person's links, seen marks, reactions, and the blocks and
+   * reports on them onto this account. A block of themselves fails the CHECK, so it's skipped and
+   * cascades away with the legacy row.
+   */
   claimLegacy(userId: string, legacyId: string) {
     this.db.transaction(() => {
       const legacy = this.db.query("SELECT name FROM users WHERE id = ? AND id LIKE ?")
@@ -100,6 +122,9 @@ export class Accounts {
       for (const table of ["seen", "reactions"]) {
         this.db.run(`UPDATE OR IGNORE ${table} SET person = ? WHERE person = ?`, [userId, legacyId]);
         this.db.run(`DELETE FROM ${table} WHERE person = ?`, [legacyId]);
+      }
+      for (const [table, col] of [["blocks", "blocker"], ["blocks", "blocked"], ["reports", "reporter"], ["reports", "user_id"]]) {
+        this.db.run(`UPDATE OR IGNORE ${table} SET ${col} = ? WHERE ${col} = ?`, [userId, legacyId]);
       }
       this.db.run("UPDATE users SET name = ? WHERE id = ?", [legacy.name, userId]);
       this.db.run("DELETE FROM users WHERE id = ?", [legacyId]);
@@ -190,7 +215,9 @@ export class Accounts {
     if (this.config.allowedEmails.length && !user.email_verified) {
       throw new AuthError("Verify your email address, then sign in again.", 403);
     }
-    const name = user.first_name || titleCase((email.split("@")[0] ?? "").replace(/\./g, " ")) || "Someone";
+    // A WorkOS name with a listed word doesn't stop the sign-in: the next name in line is used.
+    const name = [user.first_name, titleCase((email.split("@")[0] ?? "").replace(/\./g, " "))]
+      .find((n) => n && this.allowsName(n)) ?? "Someone";
     this.upsertUser(user.id, email, name, user.profile_picture_url || null);
     return { token: this.newSession(user.id), ...this.mePayload(user.id) };
   }

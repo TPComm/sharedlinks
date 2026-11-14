@@ -5,12 +5,13 @@ import Testing
 /// Every call the app makes, and the request server/src/app.ts expects for it.
 enum Endpoint: String, CaseIterable, Sendable {
     case exchange, signOut, me, rename, claim, deleteAccount, state, add, seen, unseen, react, unreact, note, delete, thumbnail
+    case reportLink, reportPerson, block, unblock
 
     var method: String {
         switch self {
         case .me, .state, .thumbnail: "GET"
         case .rename, .note: "PATCH"
-        case .delete, .deleteAccount: "DELETE"
+        case .delete, .deleteAccount, .unblock: "DELETE"
         default: "POST"
         }
     }
@@ -27,6 +28,9 @@ enum Endpoint: String, CaseIterable, Sendable {
         case .react, .unreact: "/api/links/7/react"
         case .note, .delete: "/api/links/7"
         case .thumbnail: "/thumbs/7"
+        case .reportLink, .reportPerson: "/api/reports"
+        case .block: "/api/blocks"
+        case .unblock: "/api/blocks/user_01SAM"
         }
     }
 
@@ -42,7 +46,10 @@ enum Endpoint: String, CaseIterable, Sendable {
         case .react: #"{"emoji":"🔥"}"#
         case .unreact: #"{"emoji":null}"#
         case .note: #"{"note":"new note"}"#
-        case .signOut, .me, .deleteAccount, .state, .delete, .thumbnail: nil
+        case .reportLink: #"{"link_id":7,"reason":"offensive"}"#
+        case .reportPerson: #"{"reason":"harassment","user_id":"user_01SAM"}"#
+        case .block: #"{"user_id":"user_01SAM"}"#
+        case .signOut, .me, .deleteAccount, .state, .delete, .thumbnail, .unblock: nil
         }
     }
 
@@ -55,6 +62,9 @@ enum Endpoint: String, CaseIterable, Sendable {
         case .add: .json(#"{"link": \#(Fixture.link()), "duplicate": false}"#, status: 201)
         case .seen, .unseen, .react, .unreact, .note: .json(#"{"link": \#(Fixture.link())}"#)
         case .thumbnail: .http(status: 200, body: Data([0xFF, 0xD8, 0xFF]), contentType: "image/jpeg")
+        case .reportLink, .reportPerson: .json(#"{"ok": true}"#, status: 201)
+        case .block: .json(#"{"blocked": ["user_01SAM"]}"#)
+        case .unblock: .json(#"{"blocked": []}"#)
         }
     }
 
@@ -76,6 +86,10 @@ enum Endpoint: String, CaseIterable, Sendable {
         case .note: _ = try await client.setNote(7, "new note")
         case .delete: try await client.delete(7)
         case .thumbnail: _ = try await client.thumbnail(link)
+        case .reportLink: try await client.report(link: 7, reason: .offensive)
+        case .reportPerson: try await client.report(person: "user_01SAM", reason: .harassment)
+        case .block: #expect(try await client.block("user_01SAM") == ["user_01SAM"])
+        case .unblock: #expect(try await client.unblock("user_01SAM") == [])
         }
     }
 }

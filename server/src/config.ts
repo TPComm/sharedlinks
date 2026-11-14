@@ -21,6 +21,8 @@ export interface Config {
   allowPrivateNetwork: boolean;
   /** Log one line per request. */
   logRequests: boolean;
+  /** Shown on /support, the page the App Store listing's Support URL points at. */
+  supportEmail: string;
   /** Pause between re-fetches of old links' previews after an upgrade; 0 turns that off. */
   previewBackfillMs: number;
 }
@@ -43,6 +45,7 @@ export function configFromEnv(env: Record<string, string | undefined> = process.
       .filter(Boolean),
     allowPrivateNetwork: false,
     logRequests: true,
+    supportEmail: (env.SUPPORT_EMAIL ?? "").trim(),
     previewBackfillMs: Number(env.PREVIEW_BACKFILL_MS ?? 5000),
   };
 }

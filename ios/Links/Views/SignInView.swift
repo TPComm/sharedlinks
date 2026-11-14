@@ -79,7 +79,16 @@ struct SignInView: View {
                 .font(.footnote)
                 .foregroundStyle(.secondary)
                 .padding(.top, 16)
+                .padding(.bottom, LinksConfig.supportURL == nil ? 8 : 4)
+            // For people who can't sign in, too (App Store guideline 1.2: published contact information).
+            if let support = LinksConfig.supportURL {
+                Link(destination: support) {
+                    Text("Help: \(LinksConfig.supportAddress(support))")
+                }
+                .font(.footnote)
                 .padding(.bottom, 8)
+                .accessibilityIdentifier("signIn.support")
+            }
         }
         .padding()
     }
