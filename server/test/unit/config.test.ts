@@ -18,6 +18,7 @@ describe("configFromEnv", () => {
       allowPrivateNetwork: false,
       logRequests: true,
       supportEmail: "support@tpcomm.co",
+      appStoreId: "",
       previewBackfillMs: 5000,
     });
   });

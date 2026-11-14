@@ -228,7 +228,7 @@ describe("a day with Links", () => {
   e2e("turns away strangers, unverified emails and a wrong PKCE verifier", async () => {
     const stranger = await authorize("stranger");
     expect(await exchange(stranger.code, stranger.verifier))
-      .toMatchObject({ status: 403, data: { error: "stranger@evil.test isn't on the guest list for this Links." } });
+      .toMatchObject({ status: 403, data: { error: "stranger@evil.test isn't on the guest list for this Links. Got an invite? Tap its link again." } });
     const unverified = await authorize("unverified");
     expect(await exchange(unverified.code, unverified.verifier))
       .toMatchObject({ status: 403, data: { error: "Verify your email address, then sign in again." } });
@@ -439,7 +439,7 @@ describe("a day with Links", () => {
     const snapshot = new Database(file, { readonly: true });
     try {
       expect(snapshot.query("PRAGMA integrity_check").get()).toEqual({ integrity_check: "ok" });
-      expect(snapshot.query("PRAGMA user_version").get()).toEqual({ user_version: 6 });
+      expect(snapshot.query("PRAGMA user_version").get()).toEqual({ user_version: 7 });
       expect(snapshot.query("SELECT id, url FROM links ORDER BY id").all())
         .toEqual(live.links.map((l: any) => ({ id: l.id, url: l.url })).sort((a: any, b: any) => a.id - b.id));
       expect(snapshot.query("SELECT name FROM users WHERE id = ?").get(alice.id)).toEqual({ name: "Ally A" });
@@ -509,10 +509,10 @@ describe("upgrading a database from the web-app days (v0)", () => {
     if (server?.running) await server.stop();
   });
 
-  e2e("migrates to user_version 6 and keeps the history under legacy people", async () => {
+  e2e("migrates to user_version 7 and keeps the history under legacy people", async () => {
     const db = new Database(join(dataDir, "links.db"), { readonly: true });
     try {
-      expect(db.query("PRAGMA user_version").get()).toEqual({ user_version: 6 });
+      expect(db.query("PRAGMA user_version").get()).toEqual({ user_version: 7 });
       expect((db.query("SELECT sql FROM sqlite_master WHERE name = 'links'").get() as { sql: string }).sql).toContain("AUTOINCREMENT");
       expect(db.query("SELECT name FROM sqlite_master WHERE name = 'people'").get()).toBeNull();
     } finally {

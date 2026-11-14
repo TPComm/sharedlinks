@@ -23,6 +23,8 @@ export interface Config {
   logRequests: boolean;
   /** Shown on /support, the page the App Store listing's Support URL points at. SUPPORT_EMAIL overrides it. */
   supportEmail: string;
+  /** The app's numeric App Store ID (App Store Connect), for the Smart App Banner on invite pages. Optional. */
+  appStoreId: string;
   /** Pause between re-fetches of old links' previews after an upgrade; 0 turns that off. */
   previewBackfillMs: number;
 }
@@ -49,6 +51,7 @@ export function configFromEnv(env: Record<string, string | undefined> = process.
     allowPrivateNetwork: false,
     logRequests: true,
     supportEmail: env.SUPPORT_EMAIL?.trim() || DEFAULT_SUPPORT_EMAIL,
+    appStoreId: (env.APP_STORE_ID ?? "").trim(),
     previewBackfillMs: Number(env.PREVIEW_BACKFILL_MS ?? 5000),
   };
 }

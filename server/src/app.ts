@@ -1,11 +1,13 @@
 import type { Database } from "bun:sqlite";
 import { join } from "node:path";
-import { Accounts, AuthError, publicUser } from "./accounts.ts";
+import { Accounts, AuthError, INVITE_TOKEN_RE, publicUser } from "./accounts.ts";
 import type { Config } from "./config.ts";
 import { deleteLink, now, openDatabase, type LinkRow, type UserRow } from "./db.ts";
 import { BadRequest, canonical, clipText, extractUrl } from "./links.ts";
 import { REPORT_REASONS } from "./moderation.ts";
 import { fetchMetadata, PREVIEW_VERSION } from "./previews.ts";
+// Embedded in the compiled binary (bun build --compile), for invite pages and their link previews.
+import iconPath from "../../assets/icon/previews/B/default-256.png" with { type: "file" };
 
 export const EMOJIS = new Set(["❤️", "😂", "🔥", "😮", "😭", "👎"]);
 
@@ -41,6 +43,39 @@ function supportPage(email: string): string {
 <title>Links Support</title><style>body{font:17px/1.5 -apple-system,system-ui,sans-serif;max-width:36em;margin:3em auto;padding:0 1em}</style></head>
 <body><h1>Links Support</h1>${contact}
 <p>To report a link or a person, long-press the link in the app and choose <b>Report…</b> or <b>Block…</b>. Reported links are hidden for you straight away.</p>
+</body></html>
+`;
+}
+
+/**
+ * What an invite link shows in a browser and in Messages' preview: who sent it and how to get in,
+ * nothing from the inbox. Loading it never uses the invite up; only signing in does.
+ */
+function invitePage(config: Config, token: string, inviter: string | null): string {
+  const appLink = `${config.appScheme}://invite/${token}`;
+  const store = config.appStoreId ? `https://apps.apple.com/app/id${encodeURIComponent(config.appStoreId)}` : "";
+  const title = inviter ? `${inviter} invited you to Links` : "This invite doesn't work anymore";
+  const description = inviter
+    ? "Send each other reels and TikToks, and see who's watched them."
+    : "It was already used, cancelled, or it expired. Ask for a new one.";
+  const banner = inviter && config.appStoreId
+    ? `<meta name="apple-itunes-app" content="app-id=${escapeHtml(config.appStoreId)}, app-argument=${escapeHtml(`${config.publicUrl}/invite/${token}`)}">`
+    : "";
+  const steps = inviter
+    ? `<ol><li>${store ? `<a href="${escapeHtml(store)}">Get Links</a>` : "Install Links"} on your iPhone.</li>
+<li>Come back here and tap <b>Open in Links</b>, then sign in.</li></ol>
+<p><a class="button" href="${escapeHtml(appLink)}">Open in Links</a></p>
+<p class="small">If ${escapeHtml(inviter)} sent the invite to your email address, signing in with it works even without this link.</p>`
+    : "";
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>${escapeHtml(title)}</title>${banner}
+<meta property="og:title" content="${escapeHtml(title)}"><meta property="og:description" content="${escapeHtml(description)}">
+<meta property="og:site_name" content="Links"><meta property="og:image" content="${escapeHtml(`${config.publicUrl}/icon.png`)}">
+<style>body{font:17px/1.5 -apple-system,system-ui,sans-serif;max-width:30em;margin:3em auto;padding:0 1em}
+.button{display:inline-block;background:#1f9d55;color:#fff;padding:.6em 1.4em;border-radius:2em;text-decoration:none;font-weight:600}
+.small{color:#666;font-size:15px}</style></head>
+<body><img src="/icon.png" width="72" height="72" alt="" style="border-radius:16px"><h1>${escapeHtml(title)}</h1><p>${escapeHtml(description)}</p>${steps}
 </body></html>
 `;
 }
@@ -290,7 +325,7 @@ export function createApp(config: Config) {
       POST: route(async (req) => {
         const data = await readJson(req);
         return json(await accounts.signIn(String(data.code ?? ""), String(data.code_verifier ?? ""),
-                                          req.headers.get("user-agent") ?? ""));
+                                          req.headers.get("user-agent") ?? "", String(data.invite ?? "")));
       }, pub),
     },
     "/api/auth/logout": {
@@ -328,6 +363,39 @@ export function createApp(config: Config) {
     "/support": new Response(supportPage(config.supportEmail), { headers: { "Content-Type": "text/html; charset=utf-8" } }),
 
     "/api/state": { GET: route((_req, me) => json(getState(me))) },
+
+    // Invites (#5): anyone who's in can let a friend in. The link (with its token) is only in the
+    // POST's reply; the server keeps its hash. Only POST /api/auth/token uses an invite up.
+    "/api/invites": {
+      GET: route((_req, me) => json({ invites: accounts.pendingInvites(me) })),
+      POST: route(async (req, me) => {
+        const { email } = await readJson(req);
+        const { invite, token } = asUser(me, () => accounts.createInvite(me, email));
+        return json({ invite: { ...invite, url: `${config.publicUrl}/invite/${token}` } }, 201);
+      }),
+    },
+    "/api/invites/:id": {
+      DELETE: route<WithId>((req, me) => {
+        if (!/^\d+$/.test(req.params.id) || !accounts.revokeInvite(me, Number(req.params.id))) {
+          throw new NotFound("That invite was already used or cancelled.");
+        }
+        return json({ invites: accounts.pendingInvites(me) });
+      }),
+    },
+    "/invite/:token": {
+      GET: (req: Request & { params: { token: string } }) => {
+        const { token } = req.params;
+        if (!INVITE_TOKEN_RE.test(token)) return new Response("Not found\n", { status: 404 });
+        const invite = accounts.pendingInvite(token);
+        return new Response(invitePage(config, token, invite?.inviter ?? null), {
+          status: invite ? 200 : 404,
+          headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" },
+        });
+      },
+    },
+    "/icon.png": new Response(Bun.file(iconPath), {
+      headers: { "Content-Type": "image/png", "Cache-Control": "public, max-age=86400" },
+    }),
 
     // Report a link or a person. It's hidden for the reporter at once; the owner reads reports
     // with `links-server reports` (and in the log).

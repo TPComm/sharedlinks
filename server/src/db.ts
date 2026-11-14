@@ -37,6 +37,20 @@ export interface UserRow {
   name: string;
   avatar: string | null;
   created_at: number;
+  /** 1 once an invite let them in: they stay in whatever ALLOWED_EMAILS says (see Accounts.mayEnter). */
+  member: number;
+}
+
+export interface InviteRow {
+  id: number;
+  token_hash: string;
+  /** Lets this person in even without the token (they installed from the App Store first). */
+  email: string | null;
+  invited_by: string;
+  created_at: number;
+  expires_at: number;
+  used_by: string | null;
+  used_at: number | null;
 }
 
 /**
@@ -123,6 +137,7 @@ export function openDatabase(dataDir: string): Database {
   migrateToV4(db);
   migrateToV5(db);
   migrateToV6(db, dataDir);
+  migrateToV7(db);
   return db;
 }
 
@@ -231,6 +246,31 @@ function migrateToV6(db: Database, dataDir: string) {
     return rows;
   })();
   for (const { id } of damaged) rmSync(join(dataDir, "thumbs", String(id)), { force: true });
+}
+
+/**
+ * v7: in-app invites (#5). A redeemed invite makes its user a member, so the guest list lives in
+ * the database as well as in ALLOWED_EMAILS. Revoking an invite deletes it.
+ */
+function migrateToV7(db: Database) {
+  const { user_version } = db.query("PRAGMA user_version").get() as { user_version: number };
+  if (user_version >= 7) return;
+  db.transaction(() => {
+    const have = new Set((db.query("PRAGMA table_info(users)").all() as { name: string }[]).map((c) => c.name));
+    if (!have.has("member")) db.run("ALTER TABLE users ADD COLUMN member INTEGER NOT NULL DEFAULT 0");
+    db.run(`CREATE TABLE IF NOT EXISTS invites (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      token_hash TEXT NOT NULL UNIQUE,   -- SHA-256 of the token in the link; the token itself isn't kept
+      email TEXT COLLATE NOCASE,         -- optional: lets that (verified) email in without the link
+      invited_by TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      created_at REAL NOT NULL,
+      expires_at REAL NOT NULL,
+      used_by TEXT REFERENCES users(id) ON DELETE SET NULL,
+      used_at REAL
+    )`);
+    db.run("CREATE INDEX IF NOT EXISTS invites_email ON invites (email) WHERE email IS NOT NULL AND used_at IS NULL");
+    db.run("PRAGMA user_version = 7");
+  })();
 }
 
 /**

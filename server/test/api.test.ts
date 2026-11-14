@@ -41,6 +41,11 @@ const fakeWorkOS = Bun.serve({
           unverified: { id: "user_01UNVERIFIED", email: "friend2@team.test", email_verified: false },
           rude: { id: "user_01RUDE", email: "rude.person@team.test", email_verified: true, first_name: "Zonk" },
           blocker: { id: "user_01BLOCKER", email: "blocker@team.test", email_verified: true, first_name: "Bea" },
+          // Not on the guest list: they get in by invite.
+          nova: { id: "user_01NOVA", email: "nova@else.test", email_verified: true, first_name: "Nova" },
+          sol: { id: "user_01SOL", email: "Sol@Else.test", email_verified: true, first_name: "Sol" },
+          kit: { id: "user_01KIT", email: "kit@else.test", email_verified: true, first_name: "Kit" },
+          unverifiedGuest: { id: "user_01UNVGUEST", email: "unv@else.test", email_verified: false },
         };
         const user = users[body.code];
         if (!user) return Response.json({ error: "invalid_grant", error_description: "Invalid authorization code." }, { status: 400 });
@@ -131,8 +136,8 @@ async function call(path: string, opts: { method?: string; token?: string; body?
   return { status: res.status, data, headers: res.headers };
 }
 
-const signIn = (code: string, verifier = VERIFIER) =>
-  call("/api/auth/token", { body: { code, code_verifier: verifier } });
+const signIn = (code: string, verifier = VERIFIER, invite?: string) =>
+  call("/api/auth/token", { body: { code, code_verifier: verifier, ...(invite ? { invite } : {}) } });
 
 describe("auth", () => {
   test("everything but sign-in needs a session", async () => {
@@ -183,6 +188,91 @@ describe("auth", () => {
   });
 });
 
+describe("invites", () => {
+  const tokenOf = (url: string) => url.split("/invite/")[1]!;
+  let me: string;
+  let novaToken = "";
+  const nova = () => novaToken;
+  beforeAll(async () => { me = (await signIn("good")).data.token; });
+
+  test("make one, share its page, use it once", async () => {
+    expect((await call("/api/invites", { body: {} })).status).toBe(401);
+    const made = await call("/api/invites", { token: me, body: {} });
+    expect(made.status).toBe(201);
+    expect(made.data.invite.url).toMatch(/^https:\/\/links\.example\.com\/invite\/[A-Za-z0-9_-]{43}$/);
+    expect(made.data.invite.email).toBeNull();
+    const token = tokenOf(made.data.invite.url);
+    expect(made.data.invite.expires_at - made.data.invite.created_at).toBe(7 * 86400);
+
+    const listed = await call("/api/invites", { token: me });
+    expect(listed.data.invites.map((i: any) => i.id)).toContain(made.data.invite.id);
+    expect(JSON.stringify(listed.data)).not.toContain(token);
+
+    // Link previews and page loads don't use it up.
+    for (let i = 0; i < 2; i++) {
+      const page = await call(`/invite/${token}`);
+      expect(page.status).toBe(200);
+      expect(page.headers.get("content-type")).toContain("text/html");
+      expect(page.data).toContain('<meta property="og:title" content="Riley invited you to Links">');
+      expect(page.data).toContain(`href="sharedlinks://invite/${token}"`);
+      expect(page.data).not.toContain("apple-itunes-app"); // no App Store ID set
+    }
+    expect((await call("/icon.png")).headers.get("content-type")).toBe("image/png");
+
+    expect((await signIn("nova")).data.error).toBe("nova@else.test isn't on the guest list for this Links. Got an invite? Tap its link again.");
+    const nova = await signIn("nova", VERIFIER, token);
+    expect(nova.status).toBe(200);
+    novaToken = nova.data.token;
+    // A member now: in, and still in on the next sign-in without a link.
+    expect((await call("/api/state", { token: nova.data.token })).status).toBe(200);
+    expect((await signIn("nova")).status).toBe(200);
+    const state = await call("/api/state", { token: me });
+    expect(state.data.users.map((u: any) => u.name)).toContain("Nova");
+
+    // Single use.
+    expect((await signIn("kit", VERIFIER, token)).status).toBe(403);
+    expect((await call(`/invite/${token}`)).status).toBe(404);
+    expect((await call(`/invite/${token}`)).data).toContain("doesn&#39;t work anymore");
+    expect((await call("/api/invites", { token: me })).data.invites.map((i: any) => i.id)).not.toContain(made.data.invite.id);
+    expect((await call("/invite/not-a-token")).status).toBe(404);
+  });
+
+  test("an invite to an email lets that verified email in without the link", async () => {
+    expect((await call("/api/invites", { token: me, body: { email: "nope" } })).status).toBe(400);
+    const made = await call("/api/invites", { token: me, body: { email: " sol@else.TEST " } });
+    expect(made.data.invite.email).toBe("sol@else.test");
+    // Someone else holding the link can't use an invite meant for Sol.
+    expect((await signIn("kit", VERIFIER, tokenOf(made.data.invite.url))).status).toBe(403);
+    const sol = await signIn("sol");
+    expect(sol.status).toBe(200);
+    expect((await call("/api/state", { token: sol.data.token })).status).toBe(200);
+
+    await call("/api/invites", { token: me, body: { email: "unv@else.test" } });
+    expect((await signIn("unverifiedGuest")).status).toBe(403);
+  });
+
+  test("revoked and expired invites stop working", async () => {
+    const made = await call("/api/invites", { token: me, body: {} });
+    const { id } = made.data.invite;
+    expect((await call(`/api/invites/${id}`, { method: "DELETE", token: nova() })).status).toBe(404); // not theirs
+    const revoked = await call(`/api/invites/${id}`, { method: "DELETE", token: me });
+    expect(revoked.status).toBe(200);
+    expect(revoked.data.invites.map((i: any) => i.id)).not.toContain(id);
+    expect((await call(`/api/invites/${id}`, { method: "DELETE", token: me })).status).toBe(404);
+    expect((await call(`/invite/${tokenOf(made.data.invite.url)}`)).status).toBe(404);
+    expect((await signIn("kit", VERIFIER, tokenOf(made.data.invite.url))).status).toBe(403);
+
+    const old = await call("/api/invites", { token: me, body: {} });
+    const db = new Database(join(dataDir, "links.db"));
+    db.run("UPDATE invites SET expires_at = ? WHERE id = ?", [Date.now() / 1000 - 1, old.data.invite.id]);
+    db.close();
+    expect((await call(`/invite/${tokenOf(old.data.invite.url)}`)).status).toBe(404);
+    expect((await signIn("kit", VERIFIER, tokenOf(old.data.invite.url))).status).toBe(403);
+    expect((await call("/api/invites", { token: me })).data.invites.map((i: any) => i.id)).not.toContain(old.data.invite.id);
+  });
+
+});
+
 describe("links", () => {
   let token: string;
   let friendId: string;
@@ -196,7 +286,7 @@ describe("links", () => {
     const db = new Database(join(dataDir, "links.db"), { readonly: true });
     const { sql } = db.query("SELECT sql FROM sqlite_master WHERE name = 'links'").get() as { sql: string };
     expect(sql).toContain("AUTOINCREMENT");
-    expect((db.query("PRAGMA user_version").get() as any).user_version).toBe(6);
+    expect((db.query("PRAGMA user_version").get() as any).user_version).toBe(7);
     db.close();
     const { data } = await call("/api/state", { token });
     expect(data.links.map((l: any) => l.url)).toContain("https://de.wikipedia.org/wiki/M%C3%BCnchen");

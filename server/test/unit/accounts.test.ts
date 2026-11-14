@@ -1,6 +1,6 @@
 import type { Database } from "bun:sqlite";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, setSystemTime, spyOn, test } from "bun:test";
-import { Accounts, AuthError, cleanName, publicUser } from "../../src/accounts.ts";
+import { Accounts, AuthError, cleanName, MAX_PENDING_INVITES, publicUser } from "../../src/accounts.ts";
 import { configFromEnv, type Config } from "../../src/config.ts";
 import { DELETED_USER, openDatabase } from "../../src/db.ts";
 import { BadRequest } from "../../src/links.ts";
@@ -68,7 +68,7 @@ describe("names", () => {
   });
 
   test("publicUser leaves out the email", () => {
-    expect(publicUser({ id: "u", email: "a@x.com", name: "A", avatar: null, created_at: 1 })).toEqual({ id: "u", name: "A", avatar: null });
+    expect(publicUser({ id: "u", email: "a@x.com", name: "A", avatar: null, created_at: 1, member: 0 })).toEqual({ id: "u", name: "A", avatar: null });
   });
 
   test("upsertUser creates once, then keeps the chosen name and refreshes email and avatar", () => {
@@ -515,7 +515,7 @@ describe("signIn (WorkOS stub)", () => {
 
   test("guest list and email verification", async () => {
     let e = await authError(signer().signIn("stranger", VERIFIER, ""));
-    expect([e.status, e.message]).toEqual([403, "stranger@evil.test isn't on the guest list for this Links."]);
+    expect([e.status, e.message]).toEqual([403, "stranger@evil.test isn't on the guest list for this Links. Got an invite? Tap its link again."]);
     e = await authError(signer().signIn("unverified", VERIFIER, ""));
     expect([e.status, e.message]).toEqual([403, "Verify your email address, then sign in again."]);
     e = await authError(signer().signIn("noemail", VERIFIER, ""));
@@ -523,6 +523,36 @@ describe("signIn (WorkOS stub)", () => {
     expect([count("users"), count("sessions")]).toEqual([0, 0]);
     // Without a guest list: anyone AuthKit lets in, verified or not.
     expect((await signer({ allowedEmails: [] }).signIn("unverified", VERIFIER, "")).user.id).toBe("user_05");
+  });
+
+  test("an invite lets someone off the guest list in, once, and they stay a member", async () => {
+    const a = signer();
+    a.upsertUser("host", "friend@example.com", "Riley", null);
+    const { invite, token } = a.createInvite("host", undefined);
+    const e = await authError(a.signIn("stranger", VERIFIER, "", "x".repeat(43)));
+    expect(e.status).toBe(403);
+    const res = await a.signIn("stranger", VERIFIER, "", token);
+    expect(a.sessionUser(res.token)).toBe("user_04"); // not refused by the guest list on the next request
+    expect(a.pendingInvites("host")).toEqual([]);
+    expect(a.revokeInvite("host", invite.id)).toBe(false); // used, so not revocable
+    expect((await a.signIn("stranger", VERIFIER, "")).user.id).toBe("user_04");
+    // An unverified email doesn't count for an invite sent to it.
+    a.createInvite("host", "friend2@team.test");
+    expect((await authError(a.signIn("unverified", VERIFIER, ""))).message).toBe("Verify your email address, then sign in again.");
+    expect(a.pendingInvites("host").length).toBe(1);
+    // Members stay in after the guest list changes; everyone else's sessions end.
+    const listed = await a.signIn("good", VERIFIER, "");
+    const narrower = signer({ allowedEmails: ["someone@else.test"] });
+    expect(narrower.sessionUser(res.token)).toBe("user_04");
+    expect(narrower.sessionUser(listed.token)).toBeNull();
+  });
+
+  test("invite limits: a bad email, too many pending", () => {
+    const a = signer();
+    a.upsertUser("host", "friend@example.com", "Riley", null);
+    expect(() => a.createInvite("host", "not an email")).toThrow("doesn't look like an email");
+    for (let i = 0; i < MAX_PENDING_INVITES; i++) a.createInvite("host", null);
+    expect(() => a.createInvite("host", null)).toThrow("Cancel some first");
   });
 
   test.each([["team", "Jane Doe"], ["upper", "Bob Smith"]])("with no first name, %s is named from the email: %p", async (code, name) => {

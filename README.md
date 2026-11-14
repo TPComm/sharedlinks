@@ -43,6 +43,11 @@ itself off, and TipKit tips then point out the gestures once each.
 4. Decide who can get in: set `ALLOWED_EMAILS` on the server (`you@x.com,friend@y.com`, or
    `@yourdomain.com` for a whole domain). Without it, anyone who can sign in to your AuthKit
    can see everything. You can also turn off sign-ups in the WorkOS dashboard.
+   After that, anyone who's in can let a friend in from the app (**People → Invite a Friend**):
+   the invite link works once, for 7 days, and an invite sent to an email address also lets that
+   (verified) address in without the link. People who join by invite stay in whatever
+   `ALLOWED_EMAILS` says. Set `APP_STORE_ID` (the app's numeric App Store ID) to show a Smart
+   App Banner on invite pages.
 
 How it fits together: the app opens `/auth/authorize` in `ASWebAuthenticationSession` with a PKCE
 challenge; the server forwards to AuthKit; AuthKit redirects back to `/auth/callback`, which hands
@@ -127,7 +132,8 @@ runtime is inside the binary, so run `bun upgrade && deploy/deploy.sh …` about
 - `links-server reports` (as the `links` user: `sudo -u links env DATA_DIR=/var/lib/links /opt/links/links-server reports`)
   lists open reports, each with a copy of what was reported then. `links-server reports resolve <id>`
   marks one handled; `--remove` also deletes the link and its thumbnail for everyone. To remove a
-  person, `links-server delete-user <email>` and take them out of `ALLOWED_EMAILS`.
+  person, `links-server delete-user <email>` and take them out of `ALLOWED_EMAILS` (people who
+  joined by invite aren't on it).
 - Blocking is one-way and only for the blocker: they stop seeing the blocked person's links,
   watched marks and reactions. Notes can only be changed by the link's sender.
 - Notes and display names with a word on the list in `server/src/moderation.ts` are refused. Add
@@ -167,7 +173,7 @@ All endpoints except sign-in need `Authorization: Bearer <session token>`.
 | --- | --- | --- |
 | GET | `/auth/authorize` | `?code_challenge=&state=[&screen_hint=sign-up]` → redirects to AuthKit |
 | GET | `/auth/callback` | AuthKit's redirect; bounces to `sharedlinks://auth/callback?code=…` |
-| POST | `/api/auth/token` | `{code, code_verifier}` → `{token, user, claimable}` |
+| POST | `/api/auth/token` | `{code, code_verifier, invite?}` → `{token, user, claimable}`; `invite` is the token from an invite link, used up here (and only here) |
 | POST | `/api/auth/logout` | ends this session |
 | GET/PATCH/DELETE | `/api/me` | `{user, claimable}`; PATCH `{name}`; DELETE deletes the account, its sessions, watched marks and reactions; the links it sent stay, from `deleted` ("Deleted user"). Also the WorkOS user, given `WORKOS_API_KEY` |
 | POST | `/api/me/claim` | `{id}` of a legacy person |
@@ -179,6 +185,9 @@ All endpoints except sign-in need `Authorization: Bearer <session token>`.
 | POST | `/api/reports` | `{link_id \| user_id, reason, details?}`; reason is `spam`, `offensive`, `harassment` or `other` → 201 |
 | POST | `/api/blocks` | `{user_id}` → `{blocked}` |
 | DELETE | `/api/blocks/:user_id` | unblock (URL-encode the id) → `{blocked}` |
+| GET/POST | `/api/invites` | GET → `{invites}` (mine, still pending); POST `{email?}` → 201 `{invite: {id, email, created_at, expires_at, url}}` |
+| DELETE | `/api/invites/:id` | cancels a pending invite → `{invites}` |
+| GET | `/invite/:token` | public page for an invite link: who sent it, Open in Links, the Smart App Banner. Loading it never uses the invite up |
 | GET | `/support` | public page with the support address (`SUPPORT_EMAIL`, default `support@tpcomm.co`), for the App Store Support URL |
 | GET | `/thumbs/:id` | the cached thumbnail |
 
