@@ -30,14 +30,30 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
         print("Couldn't register for push notifications: \(error.localizedDescription)")
     }
 
-    nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter,
-                                            willPresent notification: UNNotification) async -> UNNotificationPresentationOptions {
-        await MainActor.run { refreshes += 1 }
-        return [.banner, .list, .sound]
+    // The completion-handler forms, called back on the main thread: UIKit crashes ("Call must be
+    // made on main thread") when the async forms return from the background.
+    nonisolated func userNotificationCenter(
+        _ center: UNUserNotificationCenter,
+        willPresent notification: UNNotification,
+        withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void
+    ) {
+        nonisolated(unsafe) let completionHandler = completionHandler
+        DispatchQueue.main.async {
+            MainActor.assumeIsolated { self.refreshes += 1 }
+            completionHandler([.banner, .list, .sound])
+        }
     }
 
-    nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse) async {
-        guard let id = response.notification.request.content.userInfo["link_id"] as? Int else { return }
-        await MainActor.run { openLinkID = id }
+    nonisolated func userNotificationCenter(
+        _ center: UNUserNotificationCenter,
+        didReceive response: UNNotificationResponse,
+        withCompletionHandler completionHandler: @escaping () -> Void
+    ) {
+        let id = response.notification.request.content.userInfo["link_id"] as? Int
+        nonisolated(unsafe) let completionHandler = completionHandler
+        DispatchQueue.main.async {
+            if let id { MainActor.assumeIsolated { self.openLinkID = id } }
+            completionHandler()
+        }
     }
 }
