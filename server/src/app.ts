@@ -627,7 +627,8 @@ export function createApp(config: Config, opts: AppOptions = {}) {
       PATCH: route<WithId>(async (req, me) => {
         const id = groupOf(req.params.id, me);
         const name = groupName((await readJson(req)).name);
-        db.run("UPDATE groups SET name = ? WHERE id = ?", [name, id]);
+        // Again once the body is in: they may have left while it uploaded.
+        asUser(me, () => db.run("UPDATE groups SET name = ? WHERE id = ?", [name, groupOf(id, me)]));
         return json({ group: getGroup(id) });
       }),
       // Leave the chat.
@@ -647,6 +648,7 @@ export function createApp(config: Config, opts: AppOptions = {}) {
         const id = groupOf(req.params.id, me);
         const data = await readJson(req);
         const added = asUser(me, () => {
+          groupOf(id, me); // still in it now the body is in
           const have = toGroup(db.query("SELECT * FROM groups WHERE id = ?").get(id) as GroupRow).members;
           const added = newMembers(data.members, me, have);
           const at = now();

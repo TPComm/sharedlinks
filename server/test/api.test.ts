@@ -752,6 +752,33 @@ describe("group chats", () => {
     db.close();
   });
 
+  test("someone who leaves while a request uploads can't rename the chat or add people to it", async () => {
+    const chat = (await call("/api/groups", { token: ann, body: { name: "Before", members: [boId] } })).data.group;
+    const slow = (method: string, path: string, body: object) => {
+      let send!: () => void;
+      const stream = new ReadableStream({
+        start(controller) {
+          send = () => { controller.enqueue(new TextEncoder().encode(JSON.stringify(body))); controller.close(); };
+        },
+      });
+      const res = fetch(api + path, {
+        method, body: stream, duplex: "half",
+        headers: { Authorization: `Bearer ${bo}`, "Content-Type": "application/json" },
+      } as RequestInit);
+      return { send, res };
+    };
+    const inFlight = [
+      slow("PATCH", `/api/groups/${chat.id}`, { name: "Mine now" }),
+      slow("POST", `/api/groups/${chat.id}/members`, { members: [cyId] }),
+    ];
+    await Bun.sleep(50);
+    expect((await call(`/api/groups/${chat.id}`, { method: "DELETE", token: bo })).status).toBe(200);
+    for (const r of inFlight) r.send();
+    expect(await Promise.all(inFlight.map(async (r) => (await r.res).status))).toEqual([404, 404]);
+    const after = (await state(ann)).groups.find((g: any) => g.id === chat.id);
+    expect(after).toMatchObject({ name: "Before", members: [annId] });
+  });
+
   test("an app from before groups sends to the default chat, or the only chat left", async () => {
     const dee = mint("dee@groups.test", "Dee");
     const everyone = (await state(dee)).groups[0];
