@@ -1,0 +1,50 @@
+name: TestFlight feedback
+
+# Files new TestFlight feedback (testers' screenshot comments and crash reports) as GitHub issues
+# labelled "testflight". The repo is public, so these issues are too; they leave out who sent them.
+# Screenshots go to the testflight-feedback branch, since Apple's links to them expire.
+# Needs the App Store Connect API key in the repo's Actions secrets: ASC_ISSUER_ID, ASC_KEY_ID and
+# ASC_KEY_P8 (the .p8 file's contents).
+
+on:
+  schedule:
+    # Every 6 hours: a ~20 s Linux job, free on a public repo and ~120 min/month if it went private.
+    - cron: "23 */6 * * *"
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: Print the issues instead of filing them
+        type: boolean
+        default: false
+
+concurrency:
+  group: ${{ github.workflow }}
+  # Let a run finish rather than file the same feedback twice.
+  cancel-in-progress: false
+
+permissions:
+  contents: write # screenshots on the testflight-feedback branch
+  issues: write
+
+jobs:
+  file:
+    name: File TestFlight feedback as issues
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          sparse-checkout: .github/scripts
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.4
+      - name: Test the script
+        run: bun test ./.github/scripts/testflight-feedback.test.ts
+      - name: File new feedback
+        run: bun .github/scripts/testflight-feedback.ts
+        env:
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_KEY_P8: ${{ secrets.ASC_KEY_P8 }}
+          GITHUB_TOKEN: ${{ github.token }}
+          DRY_RUN: ${{ inputs.dry_run }}

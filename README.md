@@ -83,6 +83,13 @@ Debug builds talk to `http://localhost:8000`, which the Simulator can reach, and
 (archives for TestFlight) to `https://links.tpcomm.co` (`LINKS_SERVER_URL_Debug` /
 `LINKS_SERVER_URL_Release`). Bump `CURRENT_PROJECT_VERSION` there before each TestFlight upload.
 
+TestFlight feedback becomes GitHub issues on its own: every 6 hours
+`.github/workflows/testflight-feedback.yml` files each new screenshot comment or crash report as
+an issue labelled `testflight` (public, like the repo, but without the tester's name or email),
+with its screenshots copied to the `testflight-feedback` branch. It needs the App Store Connect API
+key in the repo's Actions secrets (`ASC_ISSUER_ID`, `ASC_KEY_ID`, `ASC_KEY_P8`); run it from the
+Actions tab to file feedback right away, or with "dry run" to preview.
+
 **Skip WorkOS in the Simulator:** mint a session and hand it to the app.
 
 ```bash
