@@ -11,6 +11,7 @@ struct LinksApp: App {
         _model = State(initialValue: model)
         // Lets App Intents (e.g. "New Link") act on the running app.
         AppDependencyManager.shared.add(dependency: model)
+        LinkTips.configure()
     }
 
     var body: some Scene {
@@ -27,14 +28,19 @@ struct RootView: View {
     @Environment(\.openURL) private var openURL
 
     var body: some View {
+        @Bindable var model = model
         Group {
             if model.isSignedIn {
                 InboxView()
                     .task(id: scenePhase) {
                         guard scenePhase == .active else { return }
+                        model.showTourIfNeeded()
                         model.requestBadgePermission()
                         await model.loadAccount()
                         await model.pollWhileActive()
+                    }
+                    .fullScreenCover(isPresented: $model.showTour) {
+                        TourView(start: model.tourStart)
                     }
             } else {
                 SignInView()

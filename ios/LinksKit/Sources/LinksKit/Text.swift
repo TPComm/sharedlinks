@@ -12,6 +12,26 @@ public enum LinkText {
             .compactMap(\.url)
             .first { ["http", "https"].contains($0.scheme?.lowercased()) }
     }
+
+    /// The web link in a shared URL attachment (what `NSItemProvider.loadItem` returns for
+    /// public.url). Most apps hand over a URL, but SwiftUI's ShareLink hands over the type's data.
+    public static func webURL(fromSharedItem item: Any?) -> URL? {
+        let url: URL? = switch item {
+        case let url as URL: url
+        case let data as Data: url(fromURLData: data)
+        case let string as String: URL(string: string)
+        default: nil
+        }
+        guard let url, ["http", "https"].contains(url.scheme?.lowercased()) else { return nil }
+        return url
+    }
+
+    /// public.url as data: on iOS a property list, [string, base, {}]; elsewhere the bare string.
+    static func url(fromURLData data: Data) -> URL? {
+        let plist = try? PropertyListSerialization.propertyList(from: data, format: nil)
+        let string = (plist as? [Any])?.first as? String ?? plist as? String ?? String(data: data, encoding: .utf8)
+        return string.flatMap { URL(string: $0) }
+    }
 }
 
 public enum LinkFormat {

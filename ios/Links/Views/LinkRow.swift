@@ -1,9 +1,11 @@
 import LinksKit
 import SwiftUI
+import TipKit
 
 struct LinkRow: View {
     @Environment(AppModel.self) private var model
     @Environment(\.openURL) private var openURL
+    @Environment(\.gestureTipsLinkID) private var gestureTipsLinkID
     let link: SharedLink
 
     @State private var editingNote = false
@@ -19,6 +21,12 @@ struct LinkRow: View {
     private var mine: Bool { inbox.isMine(link) }
     private var seen: Bool { inbox.isSeenByMe(link) }
     private var unwatched: Bool { inbox.isUnwatched(link) }
+
+    /// The gesture tip due on this row, if it's the one that carries them (see Tips.swift).
+    private var gestureTip: (any Tip)? {
+        guard gestureTipsLinkID == link.id, model.canShowTips else { return nil }
+        return LinkTips.group.currentTip
+    }
 
     var body: some View {
         Button {
@@ -43,13 +51,16 @@ struct LinkRow: View {
             // column does: the tap frame is wider than the capsule, by `slack` on each side.
             let slack = (ReactButton.frameWidth(reactGlyph) - ReactButton.capsule(reactGlyph).width) / 2
             ReactButton(link: link, glyph: reactGlyph)
+                .gestureTip(gestureTip as? ReactTip)
                 .offset(x: slack - Self.trailingInset,
                         y: 10 + topLineCenter - ReactButton.frameHeight(reactGlyph) / 2)
         }
+        .gestureTip(gestureTip is ReactTip ? nil : gestureTip)
         .listRowInsets(EdgeInsets())
         .swipeActions(edge: .leading) {
             if !mine {
                 Button {
+                    SwipeToWatchTip().invalidate(reason: .actionPerformed)
                     Task { await model.setSeen(link, !seen) }
                 } label: {
                     Label(seen ? "Not Watched" : "Watched", systemImage: seen ? "circle" : "checkmark.circle.fill")

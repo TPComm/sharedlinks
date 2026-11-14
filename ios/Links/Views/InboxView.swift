@@ -33,7 +33,8 @@ struct InboxView: View {
         .sheet(isPresented: $model.showAddSheet) {
             AddLinkSheet(prefill: model.addPrefill)
         }
-        .sheet(isPresented: $model.showClaimSheet) {
+        // The tour waits for the claim sheet to be gone, not just going.
+        .sheet(isPresented: $model.showClaimSheet, onDismiss: { model.showTourIfNeeded() }) {
             ClaimSheet()
         }
         // Drop a link from Safari (iPad, or iPhone with drag and drop) anywhere to send it.
@@ -82,6 +83,7 @@ struct LinkList: View {
         }
         .listStyle(.plain)
         .accessibilityIdentifier("links.\(filter.rawValue)")
+        .environment(\.gestureTipsLinkID, filter == .toWatch ? links.first?.id : nil)
         .animation(.default, value: links.map(\.id))
         .refreshable { await model.refresh() }
         .overlay {
@@ -110,6 +112,9 @@ struct LinkList: View {
             } actions: {
                 Button("New Link") { model.showAddSheet = true }
                     .buttonStyle(.borderedProminent)
+                if !Onboarding.shared.hasOpenedShareExtension {
+                    Button("Add Links to Your Share Sheet") { model.startTour(at: .shareSheet) }
+                }
             }
         } else {
             switch filter {

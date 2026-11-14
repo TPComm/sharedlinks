@@ -11,18 +11,25 @@ struct ShareComposeView: View {
                 .navigationTitle("Links")
                 .navigationBarTitleDisplayMode(.inline)
                 .toolbar {
-                    ToolbarItem(placement: .cancellationAction) {
-                        Button("Cancel", role: .cancel) { model.cancel() }
-                    }
-                    ToolbarItem(placement: .confirmationAction) {
-                        Button("Send") { Task { await model.send() } }
-                            .disabled(model.phase != .ready && !isFailed)
+                    if model.phase == .practice {
+                        ToolbarItem(placement: .confirmationAction) {
+                            Button("Done") { model.finishPractice() }
+                                .accessibilityIdentifier("share.practiceDone")
+                        }
+                    } else {
+                        ToolbarItem(placement: .cancellationAction) {
+                            Button("Cancel", role: .cancel) { model.cancel() }
+                        }
+                        ToolbarItem(placement: .confirmationAction) {
+                            Button("Send") { Task { await model.send() } }
+                                .disabled(model.phase != .ready && !isFailed)
+                        }
                     }
                 }
         }
         .tint(Color.linksAccent) // extensions don't get the app's AccentColor asset
         .overlay { resultOverlay }
-        .sensoryFeedback(.success, trigger: model.phase) { _, new in new == .sent }
+        .sensoryFeedback(.success, trigger: model.phase) { _, new in new == .sent || new == .practice }
     }
 
     private var isFailed: Bool {
@@ -40,6 +47,13 @@ struct ShareComposeView: View {
         case .noLink:
             ContentUnavailableView("No Link Found", systemImage: "link",
                                    description: Text("There's no web link in what you shared."))
+        case .practice:
+            ContentUnavailableView {
+                Label("You Found Links", systemImage: "checkmark.circle.fill")
+                    .foregroundStyle(Color.linksAccent)
+            } description: {
+                Text("This is where reels and TikToks go to your friends: add a note if you like, then tap Send. This practice link stays here.")
+            }
         default:
             Form {
                 Section {

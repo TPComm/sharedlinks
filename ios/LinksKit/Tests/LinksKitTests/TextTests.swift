@@ -22,6 +22,29 @@ struct LinkTextTests {
     func findsNothing(_ text: String) {
         #expect(LinkText.firstURL(in: text) == nil)
     }
+
+    @Test func takesASharedURL() {
+        let url = URL(string: "https://www.tiktok.com/@a/video/1")!
+        #expect(LinkText.webURL(fromSharedItem: url) == url)
+        #expect(LinkText.webURL(fromSharedItem: url.absoluteString) == url)
+        #expect(LinkText.webURL(fromSharedItem: Data(url.absoluteString.utf8)) == url)
+    }
+
+    /// What SwiftUI's ShareLink hands the Share Extension on iOS: the public.url data, a binary
+    /// property list of [string, base, {}], rather than a URL.
+    @Test func readsTheURLPropertyList() throws {
+        let url = URL(string: "https://example.com/links-share-sheet-practice")!
+        let data = try PropertyListSerialization.data(fromPropertyList: [url.absoluteString, "", [String: String]()],
+                                                      format: .binary, options: 0)
+        #expect(LinkText.webURL(fromSharedItem: data) == url)
+    }
+
+    @Test func ignoresWhatIsntAWebLink() {
+        #expect(LinkText.webURL(fromSharedItem: nil) == nil)
+        #expect(LinkText.webURL(fromSharedItem: URL(string: "file:///tmp/x")!) == nil)
+        #expect(LinkText.webURL(fromSharedItem: "tel:5551234") == nil)
+        #expect(LinkText.webURL(fromSharedItem: 42) == nil)
+    }
 }
 
 @Suite("Formatting")

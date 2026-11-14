@@ -15,7 +15,7 @@ Sign-in is [WorkOS AuthKit](https://workos.com/docs/authkit).
 | From | What happens |
 | --- | --- |
 | **Any app's share sheet** (TikTok, Instagram, Safari…) | Tap **Links**. A compose sheet shows a preview (LinkPresentation), you can add a note, and Send. |
-| **Share sheet suggestions row** | After you've sent a few, iOS offers your Links group in the top row next to Messages contacts, one tap from any app. |
+| **Share sheet suggestions row** | Once a friend has joined (and after each send), Links donates the group to iOS, which then offers it in the top row next to Messages contacts, one tap from any app. |
 | **Shortcuts / Siri / Spotlight / Action button** | "Send a link with Links" (`Send Link` intent, takes a URL or any text containing one), "What's in Links", "New Links". |
 | **In the app** | **+** opens a sheet with the system Paste button (no "Allow Paste" prompt). Drag a link from Safari onto the list (iPad, iPhone). |
 | **Sharing out** | Long-press or swipe a row: Share… uses the system share sheet with the thumbnail as the preview. |
@@ -24,6 +24,10 @@ Plus: a **Home Screen / Lock Screen widget** (To Watch or Sent receipts, small/m
 lock screen sizes) whose ✓ buttons mark things watched without opening the app, an **app icon
 badge** with the To Watch count, reactions, notes, search, swipe actions, and tapping a row opens
 the video straight in TikTok/Instagram/YouTube.
+
+New people get a short **welcome tour** after their first sign-in (Account menu → Show Tour Again).
+It walks through putting Links at the front of the share sheet, with a practice share that ticks
+itself off, and TipKit tips then point out the gestures once each.
 
 ## Set up WorkOS (once)
 
@@ -68,6 +72,8 @@ scheme is committed, and CI and `ios/scripts/ui-tests.sh` use it. In Product →
 Schemes, select Links, click Duplicate, and make sure **Shared** is unchecked on the copy (Xcode
 then keeps it in the gitignored `xcuserdata/`). Add `LINKS_DEV_TOKEN` under that copy's Edit
 Scheme → Run → Environment Variables, run it once, and the app is signed in (Debug builds only).
+Add `LINKS_RESET_ONBOARDING=1` too to see the welcome tour and tips again, as on a first launch.
+(The UI tests set `LINKS_UI_TESTS=1`, which skips the tour, the tips and the badge prompt.)
 
 `ios/LinksKit` is a Swift package shared by all three targets; `swift test` in that folder runs
 its tests on the Mac.

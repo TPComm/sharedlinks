@@ -13,6 +13,8 @@ final class ShareViewController: UIViewController {
 
     override func viewDidLoad() {
         super.viewDidLoad()
+        // Tells the app's tour that Links is reachable from the share sheet (#9).
+        Onboarding.shared.recordShareExtensionOpened()
         let host = UIHostingController(rootView: ShareComposeView(model: model))
         addChild(host)
         host.view.frame = view.bounds
@@ -27,6 +29,8 @@ final class ShareViewController: UIViewController {
 final class ShareModel {
     enum Phase: Equatable {
         case loading, ready, noLink, signedOut, sending, sent, duplicate(String), failed(String)
+        /// Opened with the tour's practice link: say it worked, send nothing.
+        case practice
     }
 
     private weak var context: NSExtensionContext?
@@ -50,11 +54,15 @@ final class ShareModel {
         if let intent = context?.intent as? INSendMessageIntent, recipients.isEmpty {
             recipients = intent.recipients?.compactMap(\.displayName) ?? []
         }
+        url = await sharedURL()
+        if Onboarding.isPractice(url) {
+            phase = .practice
+            return
+        }
         guard SessionStore.isSignedIn else {
             phase = .signedOut
             return
         }
-        url = await sharedURL()
         guard let url else {
             phase = .noLink
             return
@@ -69,8 +77,7 @@ final class ShareModel {
         for item in items {
             for provider in item.attachments ?? [] {
                 if provider.hasItemConformingToTypeIdentifier(UTType.url.identifier),
-                   let url = try? await provider.loadItem(forTypeIdentifier: UTType.url.identifier) as? URL,
-                   ["http", "https"].contains(url.scheme?.lowercased()) {
+                   let url = LinkText.webURL(fromSharedItem: try? await provider.loadItem(forTypeIdentifier: UTType.url.identifier)) {
                     return url
                 }
                 if provider.hasItemConformingToTypeIdentifier(UTType.plainText.identifier),
@@ -125,6 +132,10 @@ final class ShareModel {
         } catch {
             phase = .failed(error.localizedDescription)
         }
+    }
+
+    func finishPractice() {
+        context?.completeRequest(returningItems: nil)
     }
 
     func cancel() {
