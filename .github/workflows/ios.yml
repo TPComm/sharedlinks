@@ -74,13 +74,15 @@ jobs:
           xcodebuild -version
           xcrun simctl list runtimes
 
-      # Booting takes minutes, so it runs in the background while the steps below build. The UI
-      # test step waits for it, and ui-tests.sh finds the Simulator by name.
+      # The first boot takes 1.5-8.5 minutes, so it starts in the background and overlaps the
+      # build. Only `simctl boot`, not `bootstatus`: #46 found bootstatus waits longer than
+      # xcodebuild, which needs less of the boot finished to start testing. ui-tests.sh finds the
+      # Simulator by name.
       - name: Start booting the Simulator
         run: |
           udid="$(xcrun simctl create "Links UI Tests" "iPhone 17")"
           echo "SIMULATOR_UDID=$udid" >>"$GITHUB_ENV"
-          nohup xcrun simctl bootstatus "$udid" -b >"$RUNNER_TEMP/simulator-boot.log" 2>&1 &
+          nohup xcrun simctl boot "$udid" >"$RUNNER_TEMP/simulator-boot.log" 2>&1 &
 
       - name: LinksKit tests
         if: matrix.shard == 1
@@ -123,8 +125,10 @@ jobs:
           LINKS_UI_TEST_ACTION: test-without-building
           LINKS_UI_TEST_SHARD: ${{ matrix.shard }}/${{ strategy.job-total }}
         run: |
-          xcrun simctl bootstatus "$SIMULATOR_UDID"
-          cat "$RUNNER_TEMP/simulator-boot.log"
+          until xcrun simctl list devices | grep -q "$SIMULATOR_UDID) (Booted)"; do
+            cat "$RUNNER_TEMP/simulator-boot.log"
+            sleep 5
+          done
           ios/scripts/ui-tests.sh
 
   check:
