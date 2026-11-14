@@ -439,12 +439,18 @@ describe("fetchMetadata (local stub)", () => {
   });
 
   const rich = (id: number) =>
-    db.query("SELECT description, site_name, thumb_w, thumb_h, preview_v FROM links WHERE id = ?").get(id);
+    db.query("SELECT description, site_name, thumb_w, thumb_h, preview_v, thumb_v FROM links WHERE id = ?").get(id);
 
   test("stores the description, site name and the decoded thumbnail size over og:image:width/height", async () => {
     const { id, row } = await run("/rich");
     expect(row).toMatchObject({ title: "Reel", thumb_type: "image/png", meta: "done" });
-    expect(rich(id)).toEqual({ description: "About it", site_name: "Site", thumb_w: 1, thumb_h: 1, preview_v: PREVIEW_VERSION });
+    expect(rich(id)).toEqual({ description: "About it", site_name: "Site", thumb_w: 1, thumb_h: 1, preview_v: PREVIEW_VERSION, thumb_v: 1 });
+  });
+
+  test("each new thumbnail bumps thumb_v, so clients refetch it", async () => {
+    const { id } = await run("/rich");
+    await fetchMetadata(db, tmp.dir, id, `${stub.origin}/rich`, "web", local);
+    expect(rich(id)).toMatchObject({ thumb_v: 2 });
   });
 
   test("an undecodable thumbnail keeps the og:image size", async () => {
@@ -459,7 +465,7 @@ describe("fetchMetadata (local stub)", () => {
     await fetchMetadata(db, tmp.dir, id, url, "web", local);
     expect(db.query("SELECT title, thumb_type, meta FROM links WHERE id = ?").get(id))
       .toEqual({ title: "Reel", thumb_type: "image/png", meta: "done" });
-    expect(rich(id)).toEqual({ description: "About it", site_name: "Site", thumb_w: 1, thumb_h: 1, preview_v: PREVIEW_VERSION });
+    expect(rich(id)).toEqual({ description: "About it", site_name: "Site", thumb_w: 1, thumb_h: 1, preview_v: PREVIEW_VERSION, thumb_v: 1 });
     expect(new Uint8Array(readFileSync(file))).toEqual(PNG);
   });
 

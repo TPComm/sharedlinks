@@ -249,10 +249,10 @@ describe("migrations", () => {
       PRAGMA user_version = 4;
     `);
     const db = openDatabase(tmp.dir);
-    expect(db.query("SELECT id, title, meta, description, site_name, thumb_w, thumb_h, preview_v FROM links ORDER BY id").all())
+    expect(db.query("SELECT id, title, meta, description, site_name, thumb_w, thumb_h, preview_v, thumb_v FROM links ORDER BY id").all())
       .toEqual([
-        { id: 1, title: "A", meta: "done", description: null, site_name: null, thumb_w: null, thumb_h: null, preview_v: 0 },
-        { id: 2, title: null, meta: "failed", description: null, site_name: null, thumb_w: null, thumb_h: null, preview_v: 0 },
+        { id: 1, title: "A", meta: "done", description: null, site_name: null, thumb_w: null, thumb_h: null, preview_v: 0, thumb_v: 0 },
+        { id: 2, title: null, meta: "failed", description: null, site_name: null, thumb_w: null, thumb_h: null, preview_v: 0, thumb_v: 0 },
       ]);
     expect(pragma(db, "user_version")).toBe(5);
     db.close();

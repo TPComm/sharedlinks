@@ -247,7 +247,7 @@ final class AppModel {
         inbox = state
         InboxSnapshot.save(state)
         ShareSuggestions.seedIfNeeded(in: state)
-        ThumbnailStore.prune(keeping: Set(state.links.map(\.id)))
+        ThumbnailStore.prune(keeping: state.links)
         UNUserNotificationCenter.current().setBadgeCount(state.toWatch.count)
         // Any change can matter to some widget (To Watch, Sent receipts, a preview title arriving).
         // Reloads requested while the app is in the foreground don't count against the budget.

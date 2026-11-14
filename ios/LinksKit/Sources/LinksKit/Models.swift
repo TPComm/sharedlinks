@@ -185,6 +185,11 @@ public struct SharedLink: Codable, Sendable, Hashable, Identifiable {
     /// The server tried and found nothing to show; the app offers a retry.
     public var previewFailed: Bool { meta == "failed" }
 
+    /// The `v` of the thumbnail's URL, which the server bumps when it replaces the image.
+    public var thumbVersion: String? {
+        thumb.flatMap { URLComponents(string: $0)?.queryItems?.first { $0.name == "v" }?.value }
+    }
+
     /// Width over height of the thumbnail, clamped to what a card can show (9:16 portrait to 2:1 wide).
     /// Without a known size, short-video platforms are assumed portrait and the web landscape.
     public var thumbAspect: Double {

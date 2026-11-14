@@ -323,8 +323,8 @@ export async function fetchMetadata(db: Database, dataDir: string, linkId: numbe
   const [w, h] = thumb ? [thumb.width, thumb.height] : [old.thumb_w, old.thumb_h];
   const { changes } = db.run(
     `UPDATE links SET title = ?, author = ?, description = ?, site_name = ?, thumb_type = ?, thumb_w = ?, thumb_h = ?,
-       meta = ?, preview_v = ? WHERE id = ?`,
-    [title, author, description, siteName, thumbType, w, h, title || thumbType ? "done" : "failed", PREVIEW_VERSION, linkId]);
+       meta = ?, preview_v = ?, thumb_v = thumb_v + ? WHERE id = ?`,
+    [title, author, description, siteName, thumbType, w, h, title || thumbType ? "done" : "failed", PREVIEW_VERSION, thumb ? 1 : 0, linkId]);
   // Deleted while we were fetching: don't leave its thumbnail behind.
   if (!changes && thumb) rmSync(thumbPath, { force: true });
 }

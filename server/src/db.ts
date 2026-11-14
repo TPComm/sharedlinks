@@ -23,6 +23,8 @@ export interface LinkRow {
   thumb_h: number | null;
   /** The PREVIEW_VERSION (see previews.ts) its preview was last fetched with. */
   preview_v: number;
+  /** Bumped each time the thumbnail file is replaced, so clients' caches (keyed by its URL) refetch it. */
+  thumb_v: number;
   meta: "pending" | "done" | "failed";
   note: string;
   added_by: string;
@@ -179,7 +181,8 @@ function migrateToV5(db: Database) {
   db.transaction(() => {
     const have = new Set((db.query("PRAGMA table_info(links)").all() as { name: string }[]).map((c) => c.name));
     for (const [name, type] of [["description", "TEXT"], ["site_name", "TEXT"], ["thumb_w", "INTEGER"],
-                                ["thumb_h", "INTEGER"], ["preview_v", "INTEGER NOT NULL DEFAULT 0"]]) {
+                                ["thumb_h", "INTEGER"], ["preview_v", "INTEGER NOT NULL DEFAULT 0"],
+                                ["thumb_v", "INTEGER NOT NULL DEFAULT 0"]]) {
       if (!have.has(name!)) db.run(`ALTER TABLE links ADD COLUMN ${name} ${type}`);
     }
     db.run("PRAGMA user_version = 5");

@@ -94,7 +94,7 @@ struct LinksProvider: AppIntentTimelineProvider {
         }
         var items: [WidgetItem] = []
         for link in links.prefix(limit) {
-            let data = fetch ? await ThumbnailStore.shared.data(for: link, client: client) : ThumbnailStore.cached(link.id)
+            let data = fetch ? await ThumbnailStore.shared.data(for: link, client: client) : ThumbnailStore.cached(link)
             let others = state.seenByOthers(link)
             items.append(WidgetItem(
                 id: link.id,

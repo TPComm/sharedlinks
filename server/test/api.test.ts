@@ -240,7 +240,7 @@ describe("links", () => {
     const { data } = await call("/api/state", { token });
     const link = data.links.find((l: any) => l.id === add.data.link.id);
     expect(link).toMatchObject({
-      title: "Cats & Dogs", author: "PetTube", meta: "done", thumb: `/thumbs/${link.id}`,
+      title: "Cats & Dogs", author: "PetTube", meta: "done", thumb: `/thumbs/${link.id}?v=1`,
       description: "Two pets", site_name: "PetTube", thumb_w: 1, thumb_h: 1,
     });
 
@@ -370,7 +370,7 @@ describe("deleting an account", () => {
     expect(data.users.map((u: any) => u.id)).not.toContain(janeId);
     expect(data.users.map((u: any) => u.id)).not.toContain("deleted");
     const kept = data.links.find((l: any) => l.id === sent.id);
-    expect(kept).toMatchObject({ added_by: "deleted", note: "from jane", thumb: `/thumbs/${sent.id}` });
+    expect(kept).toMatchObject({ added_by: "deleted", note: "from jane", thumb: `/thumbs/${sent.id}?v=1` });
     expect(Object.keys(kept.seen)).toEqual([friendId]);
     expect(kept.reactions).toEqual({ [friendId]: "🔥" });
     expect(existsSync(join(dataDir, "thumbs", String(sent.id)))).toBe(true);

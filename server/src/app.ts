@@ -104,7 +104,7 @@ export function createApp(config: Config) {
     return {
       id: r.id, url: r.url, platform: r.platform, title: r.title, author: r.author, note: r.note,
       description: r.description, site_name: r.site_name,
-      thumb: r.thumb_type ? `/thumbs/${r.id}` : null, thumb_w: r.thumb_w, thumb_h: r.thumb_h, meta: r.meta, added_by: r.added_by, added_at: r.added_at,
+      thumb: r.thumb_type ? `/thumbs/${r.id}${r.thumb_v ? `?v=${r.thumb_v}` : ""}` : null, thumb_w: r.thumb_w, thumb_h: r.thumb_h, meta: r.meta, added_by: r.added_by, added_at: r.added_at,
       seen: {} as Record<string, number>, reactions: {} as Record<string, string>,
     };
   }
