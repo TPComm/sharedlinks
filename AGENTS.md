@@ -30,6 +30,19 @@ touches `ios/`, `assets/icon/` or `.github/workflows/ios.yml`.
 - Keep server-only and iOS changes in separate PRs where that's natural, so server PRs skip the
   macOS job.
 
+## main is protected
+
+Changes reach `main` only through pull requests, and a PR merges only once these checks pass:
+"Typecheck, test and build", "LinksKit tests, app build and UI tests", "ShellCheck" and "setup.sh
+and deploy.sh as root on Ubuntu 24.04" (the ruleset in Settings → Rules → Rulesets).
+
+- Every workflow runs on every PR. Its `changes` job decides whether the real job runs; when the
+  PR doesn't touch that area, the job reports "skipped", which counts as passing.
+- When a workflow should watch other paths, update both the pattern in its `changes` job (PRs)
+  and its `push: paths` (main).
+- Renaming one of those jobs (its `name:`) leaves the ruleset waiting for a check that never
+  comes. Update the ruleset in the same change.
+
 ## Conventions
 
 - Commit subjects are one plain sentence saying what changes, in the imperative, with no
@@ -57,7 +70,8 @@ bun run build:x64 && LINKS_BINARY=dist/links-server-linux-x64 bun run test:e2e
 
 Paths below are under `server/`:
 
-- `src/main.ts`: entry point and the admin CLI (`mint-session`, `delete-user`, `reports`, `backup`)
+- `src/main.ts`: entry point and the admin CLI (`mint-session`, `delete-user`, `reports`, `backup`,
+  `version`)
 - `src/app.ts`: routes; auth is checked per route, and anything unmatched is the public 404
 - `src/config.ts`: every environment variable, with its default
 - `src/db.ts`: schema and migrations
@@ -122,6 +136,6 @@ browsers can't pass; leave that test to a person.
 
 ## Production
 
-links.tpcomm.co runs the server. To tell which build it runs without signing in, request a route:
-one the build has answers 401 without a token, one it lacks falls through to 404 (for example
-`curl -X DELETE https://links.tpcomm.co/api/me`). Only `deploy/deploy.sh` ships to it.
+links.tpcomm.co runs the server. `curl https://links.tpcomm.co/version` says which commit it was
+built from, no sign-in needed (`deploy/deploy.sh` compiles it in; a local build says `dev`). Only
+`deploy/deploy.sh` ships to it, and only from a clean `main` that matches `origin/main`.
