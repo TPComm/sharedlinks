@@ -46,6 +46,48 @@ function supportPage(email: string): string {
 `;
 }
 
+/** Paths that open the app (universal links), claimed before the features that use them ship,
+ *  since phones only recheck the file about once a week. */
+export const APP_PATHS = ["/l/", "/invite/", "/g/"] as const;
+
+/** The apple-app-site-association file: which apps may open which paths on this host. */
+export function appSiteAssociation(appIds: string[]) {
+  return {
+    applinks: {
+      details: [{
+        appIDs: appIds,
+        // The first match wins, so the excludes go first.
+        components: [
+          { "/": "/api/*", exclude: true, comment: "JSON API" },
+          { "/": "/auth/*", exclude: true, comment: "sign-in redirects" },
+          { "/": "/thumbs/*", exclude: true, comment: "thumbnails" },
+          { "/": "/l/*", comment: "a link's page" },
+          { "/": "/invite/*", comment: "invites" },
+          { "/": "/g/*", comment: "chats" },
+        ],
+      }],
+    },
+    webcredentials: { apps: appIds },
+  };
+}
+
+const TOKEN = /^[A-Za-z0-9_-]{1,64}$/;
+
+/** Shown in a browser for a universal link when the app isn't installed (or Safari kept it). */
+function openInAppPage(pageUrl: string, appStoreId: string): string {
+  const banner = appStoreId
+    ? `<meta name="apple-itunes-app" content="app-id=${escapeHtml(appStoreId)}, app-argument=${escapeHtml(pageUrl)}">`
+    : "";
+  const store = appStoreId
+    ? `<p><a href="https://apps.apple.com/app/id${escapeHtml(appStoreId)}">Get Links on the App Store</a>, then open this link again.</p>`
+    : "<p>Ask whoever sent it how to get the app, then open this link again.</p>";
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+${banner}<title>Open in Links</title><style>body{font:17px/1.5 -apple-system,system-ui,sans-serif;max-width:36em;margin:3em auto;padding:0 1em}</style></head>
+<body><h1>Open this in the Links app</h1><p>This link opens in Links on an iPhone that has the app.</p>${store}
+</body></html>
+`;
+}
+
 /**
  * The privacy policy (guideline 5.1.1(i)): the App Store listing's Privacy Policy URL, and the app's
  * account menu and sign-in screen. Keep it in step with ios/Links/PrivacyInfo.xcprivacy.
@@ -322,6 +364,10 @@ export function createApp(config: Config) {
   const pub = { public: true };
   type WithId = Request & { params: { id: string } };
 
+  // Absent when unset, so the fallback 404s it.
+  const appSiteRoute: Record<string, Response> = config.appleAppIds.length
+    ? { "/.well-known/apple-app-site-association": Response.json(appSiteAssociation(config.appleAppIds)) }
+    : {};
   const routes = {
     "/": new Response("Links API. Open the Links app to use it.\n", { headers: { "Content-Type": "text/plain; charset=utf-8" } }),
     "/healthz": new Response("ok\n"),
@@ -381,6 +427,14 @@ export function createApp(config: Config) {
       }),
     },
 
+    ...appSiteRoute,
+    ...Object.fromEntries(APP_PATHS.map((prefix) => [`${prefix}:token`, {
+      GET: route<Request & { params: { token: string } }>((req) => {
+        if (!TOKEN.test(req.params.token)) throw new NotFound("Not found");
+        return new Response(openInAppPage(`${config.publicUrl}${prefix}${req.params.token}`, config.appStoreId),
+                            { headers: { "Content-Type": "text/html; charset=utf-8" } });
+      }, pub),
+    }])),
     "/support": new Response(supportPage(config.supportEmail), { headers: { "Content-Type": "text/html; charset=utf-8" } }),
     "/privacy": new Response(privacyPage(config.supportEmail, config.sessionDays), { headers: { "Content-Type": "text/html; charset=utf-8" } }),
 

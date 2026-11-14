@@ -19,6 +19,8 @@ describe("configFromEnv", () => {
       logRequests: true,
       supportEmail: "support@tpcomm.co",
       previewBackfillMs: 5000,
+      appleAppIds: [],
+      appStoreId: "",
     });
   });
 
@@ -60,6 +62,19 @@ describe("configFromEnv", () => {
     [" , , ", []],
   ])("ALLOWED_EMAILS %p -> %p", (value, want) => {
     expect(configFromEnv({ ALLOWED_EMAILS: value }).allowedEmails).toEqual(want);
+  });
+
+  test.each([
+    [" ABCDE12345.com.yourname.links , ,FGHIJ67890.co.Example.Links,, ", ["ABCDE12345.com.yourname.links", "FGHIJ67890.co.Example.Links"]],
+    ["ABCDE12345.com.yourname.links", ["ABCDE12345.com.yourname.links"]],
+    ["", []],
+    [" , ", []],
+  ])("APPLE_APP_IDS %p -> %p (case kept)", (value, want) => {
+    expect(configFromEnv({ APPLE_APP_IDS: value }).appleAppIds).toEqual(want);
+  });
+
+  test("APP_STORE_ID is trimmed", () => {
+    expect(configFromEnv({ APP_STORE_ID: " 6700000000 " }).appStoreId).toBe("6700000000");
   });
 
   test.each([

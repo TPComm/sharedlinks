@@ -206,6 +206,19 @@ check_api() {
   ok "a minted session reads /api/state and adds a link through https://$DOMAIN; ALLOWED_EMAILS is enforced"
 }
 
+# The apple-app-site-association file through Caddy: Apple's CDN fetches it over HTTPS and
+# follows no redirects, so it must be a straight 200 with JSON naming the app.
+check_aasa() {
+  local code type
+  read -r code type < <(curl -sS -k --max-time 15 -o "$STATE/body.json" -w '%{http_code} %{content_type}\n' \
+    "https://$DOMAIN/.well-known/apple-app-site-association") || fail "GET apple-app-site-association failed"
+  [ "$code" = 200 ] || fail "apple-app-site-association: HTTP $code (want 200, no redirect) $(body)"
+  [[ $type == application/json* ]] || fail "apple-app-site-association is $type, want application/json"
+  jq -e --arg id "$1" '(.applinks.details[0].appIDs | index($id)) and (.webcredentials.apps | index($id))' \
+    "$STATE/body.json" >/dev/null || fail "apple-app-site-association doesn't name $1: $(body)"
+  ok "https://$DOMAIN/.well-known/apple-app-site-association is served for $1"
+}
+
 # The link check_api added is still in the inbox for the same session: deploys keep the database.
 check_data() {
   local code
@@ -367,6 +380,7 @@ case $command in
   service-env) check_service_env "$@" ;;
   firewall) check_firewall "$@" ;;
   api) check_api ;;
+  aasa) check_aasa "$@" ;;
   data) check_data ;;
   backup) check_backup ;;
   checksum) record_checksum "$@" ;;

@@ -84,7 +84,7 @@ jobs:
       - name: setup.sh, first run
         timeout-minutes: 12
         run: |
-          WORKOS_CLIENT_ID=client_E2E ALLOWED_EMAILS=e2e@example.com \
+          WORKOS_CLIENT_ID=client_E2E ALLOWED_EMAILS=e2e@example.com APPLE_APP_IDS=ABCDE12345.com.example.links \
             deploy/setup.sh root@localhost localhost 2>&1 | tee "$RUNNER_TEMP/setup-1.log" \
             || { echo "::error::setup.sh exited $? after: $(tail -n 1 "$RUNNER_TEMP/setup-1.log")"; exit 1; }
 
@@ -95,9 +95,10 @@ jobs:
           deploy/test/e2e.sh stack
           deploy/test/e2e.sh trust-caddy
           deploy/test/e2e.sh env-file PUBLIC_URL=https://localhost WORKOS_CLIENT_ID=client_E2E \
-            ALLOWED_EMAILS=e2e@example.com -WORKOS_API_KEY
+            ALLOWED_EMAILS=e2e@example.com APPLE_APP_IDS=ABCDE12345.com.example.links -WORKOS_API_KEY -APP_STORE_ID
           deploy/test/e2e.sh firewall "$RUNNER_TEMP/setup-1.log"
           deploy/test/e2e.sh api
+          deploy/test/e2e.sh aasa ABCDE12345.com.example.links
           deploy/test/e2e.sh backup
           deploy/test/e2e.sh first-deploy
           deploy/test/e2e.sh tidy
@@ -115,7 +116,7 @@ jobs:
         run: |
           deploy/test/e2e.sh finished "$RUNNER_TEMP/setup-2.log" live
           deploy/test/e2e.sh env-file PUBLIC_URL=https://localhost WORKOS_CLIENT_ID=client_E2E \
-            ALLOWED_EMAILS=e2e@example.com WORKOS_API_KEY=sk_test_e2e
+            ALLOWED_EMAILS=e2e@example.com WORKOS_API_KEY=sk_test_e2e APPLE_APP_IDS=ABCDE12345.com.example.links
           deploy/test/e2e.sh service-env WORKOS_API_KEY=sk_test_e2e ALLOWED_EMAILS=e2e@example.com
           deploy/test/e2e.sh stack
           deploy/test/e2e.sh data
