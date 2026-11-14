@@ -104,6 +104,16 @@ export class Accounts {
     return row.user_id;
   }
 
+  /** How a session is stored (its token's hash), for rows that belong to it, like device tokens. */
+  sessionHash(token: string): string {
+    return sha256(token);
+  }
+
+  /** Sessions used within SESSION_DAYS, of people still on the guest list: the ones pushes go to. */
+  isLive(lastUsed: number, email: string | null): boolean {
+    return now() - lastUsed <= this.config.sessionDays * 86400 && this.emailAllowed(email);
+  }
+
   endSession(token: string) {
     this.db.run("DELETE FROM sessions WHERE token_hash = ?", [sha256(token)]);
   }

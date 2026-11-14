@@ -6,6 +6,7 @@ import { deleteLink, now, openDatabase, type LinkRow, type UserRow } from "./db.
 import { BadRequest, canonical, clipText, extractUrl } from "./links.ts";
 import { REPORT_REASONS } from "./moderation.ts";
 import { fetchMetadata, PREVIEW_VERSION } from "./previews.ts";
+import { Pusher, type PushOptions } from "./push.ts";
 
 export const EMOJIS = new Set(["❤️", "😂", "🔥", "😮", "😭", "👎"]);
 
@@ -50,11 +51,21 @@ function bearer(req: Request): string | null {
   return auth.slice(0, 7).toLowerCase() === "bearer " ? auth.slice(7).trim() || null : null;
 }
 
-export function createApp(config: Config) {
+export interface AppOptions extends PushOptions {
+  /** How long a new link's push waits for its preview (title) before going out without it. */
+  previewWaitMs?: number;
+}
+
+export function createApp(config: Config, opts: AppOptions = {}) {
   const db = openDatabase(config.dataDir);
   const accounts = new Accounts(db, config);
   const fetchOpts = { allowPrivateNetwork: config.allowPrivateNetwork };
   const pending = new Set<Promise<void>>();
+  function track(task: Promise<void>) {
+    const settled: Promise<void> = task.catch((e) => console.error(`push: ${e}`)).finally(() => pending.delete(settled));
+    pending.add(settled);
+  }
+  const push = new Pusher(db, config, accounts, track, opts);
 
   // One fetch per link at a time (a retry during the backfill, an edit mid-fetch): the next waits its turn.
   const latest = new Map<number, Promise<void>>();
@@ -66,11 +77,12 @@ export function createApp(config: Config) {
     return run;
   }
 
-  function startMetadataFetch(id: number, url: string, platform: string) {
+  function startMetadataFetch(id: number, url: string, platform: string): Promise<void> {
     const task = queueFetch(id, url, platform)
       .catch((e) => console.error(`metadata ${id}: ${e}`))
       .finally(() => pending.delete(task));
     pending.add(task);
+    return task;
   }
 
   // Previews that were mid-fetch when the server last stopped get retried.
@@ -194,7 +206,9 @@ export function createApp(config: Config) {
       [url, platform, cleanNote, by, now()],
     ));
     const id = Number(lastInsertRowid);
-    startMetadataFetch(id, url, platform);
+    const preview = startMetadataFetch(id, url, platform);
+    // Wait (briefly) for the preview, so the notification can show the link's title.
+    if (push.enabled) track(Promise.race([preview, Bun.sleep(opts.previewWaitMs ?? 5000)]).then(() => push.newLink(id)));
     return { link: getLink(id, by)!, duplicate: false };
   }
 
@@ -300,6 +314,32 @@ export function createApp(config: Config) {
       }),
     },
 
+    // The app's APNs token for this session. Signing out (which ends the session) removes it, and
+    // registering it again (another account signing in on that phone) moves it.
+    "/api/devices": {
+      POST: route(async (req, me) => {
+        const data = await readJson(req);
+        const token = typeof data.token === "string" ? data.token.trim().toLowerCase() : "";
+        if (!/^[0-9a-f]{16,400}$/.test(token) || token.length % 2) throw new BadRequest("That isn't a device token.");
+        if (data.env !== "sandbox" && data.env !== "production") throw new BadRequest("env must be sandbox or production.");
+        const session = accounts.sessionHash(bearer(req)!);
+        const t = now();
+        asUser(me, () => db.run(
+          `INSERT INTO device_tokens (token, user_id, session_hash, env, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)
+             ON CONFLICT (token) DO UPDATE SET user_id = excluded.user_id, session_hash = excluded.session_hash,
+               env = excluded.env, updated_at = excluded.updated_at`,
+          [token, me, session, data.env, t, t],
+        ));
+        return json({ ok: true });
+      }),
+    },
+    "/api/devices/:token": {
+      DELETE: route<Request & { params: { token: string } }>((req, me) => {
+        db.run("DELETE FROM device_tokens WHERE token = ? AND user_id = ?", [decodeURIComponent(req.params.token).toLowerCase(), me]);
+        return json({ ok: true });
+      }),
+    },
+
     "/api/me": {
       GET: route((_req, me) => json(accounts.mePayload(me))),
       PATCH: route(async (req, me) => {
@@ -390,7 +430,9 @@ export function createApp(config: Config) {
       DELETE: route<WithId>((req, me) => {
         const id = linkId(req, me);
         if (hasBlocked(sender(id), me)) throw new AuthError("You can't delete this link.", 403);
+        const badgesChange = push.enabled ? push.unwatchedBy(id) : [];
         deleteLink(db, config.dataDir, id);
+        push.badges(badgesChange);
         return json({ ok: true });
       }),
     },
@@ -416,6 +458,7 @@ export function createApp(config: Config) {
             db.run("DELETE FROM seen WHERE link_id = ? AND person = ?", [id, me]);
           }
         });
+        push.badges([me]);
         return json({ link: getLink(id, me) });
       }),
     },
@@ -423,13 +466,16 @@ export function createApp(config: Config) {
       POST: route<WithId>(async (req, me) => {
         const id = linkId(req, me);
         const emoji = (await readJson(req)).emoji;
-        asUser(me, () => {
+        const changed = asUser(me, () => {
           if (typeof emoji === "string" && EMOJIS.has(emoji)) {
+            const before = db.query("SELECT emoji FROM reactions WHERE link_id = ? AND person = ?").get(id, me) as { emoji: string } | null;
             db.run("INSERT OR REPLACE INTO reactions (link_id, person, emoji) VALUES (?, ?, ?)", [id, me, emoji]);
-          } else {
-            db.run("DELETE FROM reactions WHERE link_id = ? AND person = ?", [id, me]);
+            return before?.emoji !== emoji;
           }
+          db.run("DELETE FROM reactions WHERE link_id = ? AND person = ?", [id, me]);
+          return false;
         });
+        if (changed && push.enabled) track(push.reaction(id, me, emoji));
         return json({ link: getLink(id, me) });
       }),
     },
@@ -454,14 +500,15 @@ export function createApp(config: Config) {
     db,
     accounts,
     routes,
-    /** Resolves once in-flight preview fetches finish (tests use this). */
-    idle: () => Promise.all([...pending]).then(() => {}),
+    push,
+    /** Resolves once in-flight preview fetches and pushes finish (tests use this). */
+    idle: async () => { while (pending.size) await Promise.all([...pending]); },
     fallback: route(() => { throw new NotFound("Not found"); }, pub),
   };
 }
 
-export function startServer(config: Config) {
-  const app = createApp(config);
+export function startServer(config: Config, opts: AppOptions = {}) {
+  const app = createApp(config, opts);
   const server = Bun.serve({
     port: config.port,
     hostname: config.hostname,

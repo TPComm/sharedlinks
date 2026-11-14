@@ -12,7 +12,9 @@
  * In development, `bun src/main.ts ...` does the same as the compiled `links-server`.
  *
  * Env: WORKOS_CLIENT_ID (required for sign-in), WORKOS_API_KEY (optional with PKCE),
- *      PUBLIC_URL, ALLOWED_EMAILS, SUPPORT_EMAIL, APP_SCHEME, PORT, HOST, DATA_DIR, SESSION_DAYS
+ *      PUBLIC_URL, ALLOWED_EMAILS, SUPPORT_EMAIL, APP_SCHEME, PORT, HOST, DATA_DIR, SESSION_DAYS,
+ *      APNS_TEAM_ID, APNS_TOPIC (the app's bundle id), APNS_KEY_ID + APNS_KEY_FILE (production .p8),
+ *      APNS_SANDBOX_KEY_ID + APNS_SANDBOX_KEY_FILE (development builds); push is off without them
  */
 import { mkdirSync, readdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
@@ -21,6 +23,7 @@ import { startServer } from "./app.ts";
 import { configFromEnv } from "./config.ts";
 import { openDatabase } from "./db.ts";
 import { BadRequest } from "./links.ts";
+import { pushEnabled } from "./push.ts";
 import { formatReport, openReports, resolveReport } from "./moderation.ts";
 
 const config = configFromEnv();
@@ -95,6 +98,9 @@ if (command === "mint-session") {
   process.exit(1);
 } else {
   if (!config.workosClientId) console.warn("warning: WORKOS_CLIENT_ID isn't set, so nobody can sign in.");
+  if (!pushEnabled(config)) {
+    console.warn("warning: APNS_TEAM_ID, APNS_TOPIC and an APNs key (APNS_KEY_ID/APNS_KEY_FILE) aren't all set, so push notifications are off.");
+  }
   if (!config.allowedEmails.length) {
     console.warn("warning: ALLOWED_EMAILS isn't set, so anyone who can sign in to your AuthKit can see and add links.");
   }

@@ -91,6 +91,19 @@ export function openDatabase(dataDir: string): Database {
       created_at REAL NOT NULL,
       last_used REAL NOT NULL
     );
+    -- APNs device tokens. Each belongs to the session that registered it, so signing out (or the
+    -- account being deleted) removes it.
+    CREATE TABLE IF NOT EXISTS device_tokens (
+      token TEXT PRIMARY KEY,            -- hex APNs device token
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      session_hash TEXT NOT NULL REFERENCES sessions(token_hash) ON DELETE CASCADE,
+      env TEXT NOT NULL,                 -- 'sandbox' | 'production'
+      kind TEXT NOT NULL DEFAULT 'app',  -- later 'widgets', for WidgetKit push
+      created_at REAL NOT NULL,
+      updated_at REAL NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS device_tokens_user ON device_tokens (user_id);
+    CREATE INDEX IF NOT EXISTS device_tokens_session ON device_tokens (session_hash);
     CREATE TABLE IF NOT EXISTS reports (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       reporter TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
