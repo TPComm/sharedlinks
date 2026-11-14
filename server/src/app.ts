@@ -1,7 +1,7 @@
 import type { Database } from "bun:sqlite";
 import { rmSync } from "node:fs";
 import { join } from "node:path";
-import { Accounts, AuthError, INVITE_TOKEN_RE, publicUser } from "./accounts.ts";
+import { Accounts, AuthError, INVITE_TOKEN_RE, MAX_GROUP_MEMBERS, publicUser } from "./accounts.ts";
 import type { Config } from "./config.ts";
 import { defaultGroup, deleteEmptyGroups, deleteLink, now, openDatabase, type GroupRow, type LinkRow, type UserRow } from "./db.ts";
 import { BadRequest, canonical, clipText, extractUrl } from "./links.ts";
@@ -17,8 +17,6 @@ export const EMOJIS = new Set(["❤️", "😂", "🔥", "😮", "😭", "👎"]
 class NotFound extends Error {}
 
 const MAX_GROUP_NAME = 60;
-const MAX_GROUP_MEMBERS = 50;
-
 const json = (body: unknown, status = 200) =>
   Response.json(body, { status, headers: { "Cache-Control": "no-store" } });
 
@@ -298,6 +296,21 @@ export function createApp(config: Config, opts: AppOptions = {}) {
    * `me`'s view: the chats they're in and those chats' links (just one chat's with `groupId`), with no
    * hidden links, and no seen marks or reactions from people they blocked.
    */
+  /**
+   * Who `me` may see (#75): people they share a chat with, plus anyone named on a link in their chats
+   * (a sender, seen mark or reaction from someone who has since left) and people they blocked, so the
+   * app can still name them under Blocked People. Takes `me` as ?1.
+   */
+  const PEOPLE = `SELECT ?1
+    UNION SELECT b.user_id FROM group_members a JOIN group_members b ON b.group_id = a.group_id WHERE a.user_id = ?1
+    UNION SELECT l.added_by FROM links l JOIN group_members m ON m.group_id = l.group_id AND m.user_id = ?1
+    UNION SELECT s.person FROM seen s JOIN links l ON l.id = s.link_id JOIN group_members m ON m.group_id = l.group_id AND m.user_id = ?1
+    UNION SELECT r.person FROM reactions r JOIN links l ON l.id = r.link_id JOIN group_members m ON m.group_id = l.group_id AND m.user_id = ?1
+    UNION SELECT blocked FROM blocks WHERE blocker = ?1`;
+
+  const sees = (me: string, id: string) =>
+    !!db.query(`SELECT 1 WHERE ?2 IN (${PEOPLE})`).get(me, id);
+
   function getState(me: string, groupId?: number) {
     const blocked = blockedBy(me);
     const links = new Map<number, ReturnType<typeof toLink>>();
@@ -315,8 +328,7 @@ export function createApp(config: Config, opts: AppOptions = {}) {
       const link = links.get(r.link_id);
       if (link && !blocked.has(r.person)) link.reactions[r.person] = r.emoji;
     }
-    // Blocked people stay in `users`, so the app can name them under Blocked People.
-    const users = (db.query("SELECT * FROM users ORDER BY created_at").all() as UserRow[]).map(publicUser);
+    const users = (db.query(`SELECT * FROM users WHERE id IN (${PEOPLE}) ORDER BY created_at`).all(me) as UserRow[]).map(publicUser);
     return { me, users, groups: groupsOf(me), links: [...links.values()], blocked: [...blocked] };
   }
 
@@ -433,7 +445,7 @@ export function createApp(config: Config, opts: AppOptions = {}) {
       const id = String(data.user_id);
       if (id === me) throw new BadRequest("You can't report yourself.");
       const user = db.query("SELECT * FROM users WHERE id = ?").get(id) as UserRow | null;
-      if (!user) throw new NotFound("That person isn't in Links anymore.");
+      if (!user || !sees(me, id)) throw new NotFound("That person isn't in Links anymore.");
       return {
         link_id: null, user_id: id, label: `person ${id}`,
         snapshot: { name: user.name, avatar: user.avatar, email: user.email },
@@ -450,14 +462,14 @@ export function createApp(config: Config, opts: AppOptions = {}) {
 
   /**
    * People to add to a chat that already has `have`: user ids of members of Links (not legacy or
-   * deleted people). Unknown ids are an error, so the app doesn't think it added someone it didn't.
+   * deleted people) whom `me` can see. Unknown ids are an error, so the app doesn't think it added someone it didn't.
    */
   function newMembers(ids: unknown, me: string, have: string[]): string[] {
     if (ids === undefined || ids === null) ids = [];
     if (!Array.isArray(ids) || !ids.every((id) => typeof id === "string")) throw new BadRequest("Pick the people to add.");
     const add = [...new Set(ids as string[])].filter((id) => id !== me && !have.includes(id));
     for (const id of add) {
-      if (!accounts.isMember(id)) throw new BadRequest("Someone you picked isn't in Links anymore.");
+      if (!accounts.isMember(id) || !sees(me, id)) throw new BadRequest("Someone you picked isn't in Links anymore.");
     }
     if (Math.max(have.length, 1) + add.length > MAX_GROUP_MEMBERS) {
       throw new BadRequest(`A chat can have up to ${MAX_GROUP_MEMBERS} people.`);
@@ -672,8 +684,9 @@ export function createApp(config: Config, opts: AppOptions = {}) {
     "/api/invites": {
       GET: route((_req, me) => json({ invites: accounts.pendingInvites(me) })),
       POST: route(async (req, me) => {
-        const { email } = await readJson(req);
-        const { invite, token } = asUser(me, () => accounts.createInvite(me, email));
+        const { email, group_id } = await readJson(req);
+        const { invite, token } = asUser(me, () =>
+          accounts.createInvite(me, email, group_id === undefined || group_id === null ? null : groupOf(group_id, me)));
         return json({ invite: { ...invite, url: `${config.publicUrl}/invite/${token}` } }, 201);
       }),
     },

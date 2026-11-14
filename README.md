@@ -276,7 +276,7 @@ All endpoints except sign-in need `Authorization: Bearer <session token>`.
 | DELETE | `/api/devices/:token` | forget one of your device tokens |
 | GET/PATCH/DELETE | `/api/me` | `{user, claimable}`; PATCH `{name}`; DELETE deletes the account, its sessions, watched marks and reactions, and the links it sent (with their notes and thumbnails, for everyone). Also the WorkOS user, given `WORKOS_API_KEY` |
 | POST | `/api/me/claim` | `{id}` of a legacy person |
-| GET | `/api/state` | `{me, users, groups, links, blocked}`: the chats I'm in (`{id, name, created_by, created_at, default, members}`) and their links (each with its `group_id`), without links I reported or that people I blocked sent, and without blocked people's watched marks and reactions; `?group_id=` for one chat's links |
+| GET | `/api/state` | `{me, users, groups, links, blocked}`: `users` is only people I share a chat with, plus anyone named on a link in my chats and people I blocked; the chats I'm in (`{id, name, created_by, created_at, default, members}`) and their links (each with its `group_id`), without links I reported or that people I blocked sent, and without blocked people's watched marks and reactions; `?group_id=` for one chat's links |
 | POST | `/api/links` | `{url, note?, group_id?}`; `url` may be any text containing a link; without `group_id` (apps from before chats) it goes to the default chat, or my only chat if I left that → `{link, duplicate}` (a duplicate only within the same chat) |
 | POST | `/api/groups` | `{name?, members?}` (user ids; I'm added) → 201 `{group}`. An empty name means the app names it after its members; up to 50 people |
 | PATCH | `/api/groups/:id` | `{name}`: any member renames it → `{group}` |
@@ -288,7 +288,7 @@ All endpoints except sign-in need `Authorization: Bearer <session token>`.
 | POST | `/api/reports` | `{link_id \| user_id, reason, details?}`; reason is `spam`, `offensive`, `harassment` or `other` → 201 |
 | POST | `/api/blocks` | `{user_id}` → `{blocked}` |
 | DELETE | `/api/blocks/:user_id` | unblock (URL-encode the id) → `{blocked}` |
-| GET/POST | `/api/invites` | GET → `{invites}` (mine, still pending); POST `{email?}` → 201 `{invite: {id, email, created_at, expires_at, url}}` |
+| GET/POST | `/api/invites` | GET → `{invites}` (mine, still pending); POST `{email?, group_id?}` → 201 `{invite: {id, email, group_id, created_at, expires_at, url}}`; whoever uses it joins only that chat of mine, or with no `group_id` a new chat with just me (an admin's invite joins the default chat) |
 | DELETE | `/api/invites/:id` | cancels a pending invite → `{invites}` |
 | GET | `/invite/:token` | public page for an invite link: who sent it, Open in Links, the Smart App Banner. Loading it never uses the invite up |
 | GET | `/.well-known/apple-app-site-association` | public; which paths open the app (only with `APPLE_APP_IDS`) |

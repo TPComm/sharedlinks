@@ -63,6 +63,8 @@ export interface InviteRow {
   expires_at: number;
   used_by: string | null;
   used_at: number | null;
+  /** The inviter's chat the new member joins; null: a new chat of just the two of them. */
+  group_id: number | null;
 }
 
 /**
@@ -165,6 +167,7 @@ export function openDatabase(dataDir: string, legacyAllowedEmails: string[] = []
   migrateToV6(db, dataDir);
   migrateToV7(db, legacyAllowedEmails);
   migrateToV8(db);
+  migrateToV9(db);
   return db;
 }
 
@@ -381,6 +384,38 @@ function migrateToV8(db: Database) {
   } finally {
     db.exec("PRAGMA foreign_keys = ON");
   }
+}
+
+/**
+ * v9 (#75): people see only who they share a chat with. An invite can name the inviter's chat the new
+ * member joins, and everyone who came in on a friend's invite moves out of the default chat into a
+ * new chat with just that friend. The links they sent stay where they are; people let in before
+ * invites, or by an admin's invite, stay in the default chat.
+ */
+function migrateToV9(db: Database) {
+  const { user_version } = db.query("PRAGMA user_version").get() as { user_version: number };
+  if (user_version >= 9) return;
+  db.transaction(() => {
+    const have = (db.query("PRAGMA table_info(invites)").all() as { name: string }[]).map((c) => c.name);
+    if (!have.includes("group_id")) {
+      db.run("ALTER TABLE invites ADD COLUMN group_id INTEGER REFERENCES groups(id) ON DELETE SET NULL");
+    }
+    const everyone = defaultGroup(db);
+    const invited = db.query(`SELECT i.used_by AS user, i.invited_by AS inviter, i.used_at AS at FROM invites i
+        JOIN users u ON u.id = i.used_by AND u.member = 1
+        JOIN users f ON f.id = i.invited_by AND f.member = 1
+        WHERE i.used_by <> i.invited_by
+        ORDER BY i.used_at, i.id`).all() as { user: string; inviter: string; at: number }[];
+    for (const { user } of invited) {
+      db.run("DELETE FROM group_members WHERE group_id = ? AND user_id = ?", [everyone, user]);
+    }
+    for (const { user, inviter, at } of invited) {
+      const id = Number(db.run("INSERT INTO groups (name, created_by, created_at) VALUES ('', ?, ?)", [inviter, at]).lastInsertRowid);
+      db.run("INSERT OR IGNORE INTO group_members (group_id, user_id, joined_at) VALUES (?, ?, ?), (?, ?, ?)",
+        [id, inviter, at, id, user, at]);
+    }
+    db.run("PRAGMA user_version = 9");
+  })();
 }
 
 /** The chat everyone was in before groups; new members join it (see Accounts.admit). */

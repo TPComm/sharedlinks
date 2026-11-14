@@ -47,6 +47,7 @@ const fakeWorkOS = Bun.serve({
           sol: { id: "user_01SOL", email: "Sol@Else.test", email_verified: true, first_name: "Sol" },
           kit: { id: "user_01KIT", email: "kit@else.test", email_verified: true, first_name: "Kit" },
           pip: { id: "user_01PIP", email: "pip@else.test", email_verified: true, first_name: "Pip" },
+          lee: { id: "user_01LEE", email: "lee@else.test", email_verified: true, first_name: "Lee" },
           unverifiedGuest: { id: "user_01UNVGUEST", email: "unv@else.test", email_verified: false },
         };
         const user = users[body.code];
@@ -325,7 +326,7 @@ describe("links", () => {
     const db = new Database(join(dataDir, "links.db"), { readonly: true });
     const { sql } = db.query("SELECT sql FROM sqlite_master WHERE name = 'links'").get() as { sql: string };
     expect(sql).toContain("AUTOINCREMENT");
-    expect((db.query("PRAGMA user_version").get() as any).user_version).toBe(8);
+    expect((db.query("PRAGMA user_version").get() as any).user_version).toBe(9);
     db.close();
     const { data } = await call("/api/state", { token });
     expect(data.links.map((l: any) => l.url)).toContain("https://de.wikipedia.org/wiki/M%C3%BCnchen");
@@ -795,6 +796,48 @@ describe("group chats", () => {
     expect((await call("/api/groups", { token: ann, body: { members: people } })).status).toBe(400);
   });
 
+  test("people see only who they share a chat with; an invite brings them into the inviter's chat", async () => {
+    const chat = (await call("/api/groups", { token: ann, body: { name: "Invited", members: [boId] } })).data.group;
+    const sent = await call("/api/links", { token: bo, body: { url: `${origin}/plain?n=before-lee`, group_id: chat.id } });
+    expect((await call("/api/invites", { token: cy, body: { group_id: chat.id } })).status).toBe(404); // not cy's chat
+    const made = await call("/api/invites", { token: ann, body: { group_id: chat.id } });
+    expect(made.status).toBe(201);
+    expect(made.data.invite.group_id).toBe(chat.id);
+    const lee = await signIn("lee", VERIFIER, made.data.invite.url.split("/invite/")[1]);
+    expect(lee.status).toBe(200);
+
+    // Lee is only in Ann's chat, not the default one, and sees only its people.
+    const view = await state(lee.data.token);
+    expect(view.groups.map((g: any) => g.id)).toEqual([chat.id]);
+    expect(view.users.map((u: any) => u.id).sort()).toEqual([annId, boId, "user_01LEE"].sort());
+    expect(view.links.map((l: any) => l.id)).toEqual([sent.data.link.id]);
+    const cyView = await state(cy);
+    expect(cyView.users.map((u: any) => u.id)).not.toContain("user_01LEE");
+    expect(cyView.groups.find((g: any) => g.default).members).not.toContain("user_01LEE");
+
+    // Someone Lee can't see can't be added to a chat or reported by Lee.
+    expect((await call("/api/groups", { token: lee.data.token, body: { members: [cyId] } })).data.error)
+      .toBe("Someone you picked isn't in Links anymore.");
+    expect((await call("/api/reports", { token: lee.data.token, body: { user_id: cyId, reason: "spam" } })).status).toBe(404);
+
+    // Someone who left is still named on what they sent there.
+    expect((await call(`/api/groups/${chat.id}`, { method: "DELETE", token: bo })).status).toBe(200);
+    expect((await state(lee.data.token)).users.map((u: any) => u.id)).toContain(boId);
+  });
+
+  test("an invite that names no chat starts one with just the inviter", async () => {
+    const made = await call("/api/invites", { token: cy, body: {} });
+    expect(made.data.invite.group_id).toBeNull();
+    const kit = await signIn("kit", VERIFIER, made.data.invite.url.split("/invite/")[1]);
+    expect(kit.status).toBe(200);
+    const view = await state(kit.data.token);
+    expect(view.groups).toHaveLength(1);
+    expect(view.groups[0]).toMatchObject({ default: false, name: "", created_by: cyId });
+    expect(view.groups[0].members.sort()).toEqual([cyId, "user_01KIT"].sort());
+    expect(view.users.map((u: any) => u.id).sort()).toEqual([cyId, "user_01KIT"].sort());
+    expect((await state(cy)).groups.map((g: any) => g.id)).toContain(view.groups[0].id);
+  });
+
   test("an app from before groups sends to the default chat, or the only chat left", async () => {
     const dee = mint("dee@groups.test", "Dee");
     const everyone = (await state(dee)).groups[0];
@@ -943,7 +986,8 @@ describe("deleting an account", () => {
     const jane = await signIn("domain");
     const friend = await signIn("good");
     const [janeId, token] = [jane.data.user.id, jane.data.token];
-    const link = (await call("/api/links", { token: friend.data.token, body: { url: `${origin}/plain?n=inflight` } })).data.link;
+    const shared = (await call("/api/state", { token })).data.groups.find((g: any) => g.members.includes(friend.data.user.id));
+    const link = (await call("/api/links", { token: friend.data.token, body: { url: `${origin}/plain?n=inflight`, group_id: shared.id } })).data.link;
 
     // Each request sends its headers (and passes the session check), then waits for its body.
     const slow = (method: string, path: string, body: unknown) => {
