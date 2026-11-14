@@ -1,15 +1,25 @@
 // Settings for all three targets. Change these, not the project file.
 
-// Your Apple Developer team (Xcode > Settings > Accounts). Needed for a real device.
-DEVELOPMENT_TEAM =
+// Apple Developer team that owns the app in App Store Connect. Only device and archive builds
+// use it; Simulator builds sign ad hoc.
+DEVELOPMENT_TEAM = 9F2D9SPG9Z
 
-// Base bundle id. The Share Extension and widgets append .share / .widgets, and the
-// App Group is group.$(LINKS_BUNDLE_ID). Use something you own, e.g. com.yourname.links.
-LINKS_BUNDLE_ID = com.example.links
+// Base bundle id, registered in App Store Connect. The Share Extension and widgets append
+// .share / .widgets, and the App Group is group.$(LINKS_BUNDLE_ID). A fork that ships its own
+// build sets its own team and something it owns here, e.g. com.yourname.links.
+LINKS_BUNDLE_ID = com.tpcomm.links
 
-// Where server/ runs. The Simulator can use localhost; a phone needs your VPS's https URL.
+// The version people see, and the build number App Store Connect needs to be higher than the
+// last upload of that version. The app and its extensions must match, so they live here once.
+MARKETING_VERSION = 2.0
+CURRENT_PROJECT_VERSION = 2
+
+// Where server/ runs: Debug builds (the Simulator, UI tests) use a local server, Release builds
+// (archives for TestFlight and the App Store) the production one.
 // ("//" starts a comment in xcconfig files, hence the $() in the middle.)
-LINKS_SERVER_URL = http:/$()/localhost:8000
+LINKS_SERVER_URL_Debug = http:/$()/localhost:8000
+LINKS_SERVER_URL_Release = https:/$()/links.tpcomm.co
+LINKS_SERVER_URL = $(LINKS_SERVER_URL_$(CONFIGURATION))
 
 // Where people reach whoever runs the server (App Store guideline 1.2), shown in the account menu
 // and on the sign-in screen: a mailto: address, or an https: page (written https:/$()/...).
