@@ -90,6 +90,13 @@ Debug builds talk to `http://localhost:8000`, which the Simulator can reach, and
 (archives for TestFlight) to `https://links.tpcomm.co` (`LINKS_SERVER_URL_Debug` /
 `LINKS_SERVER_URL_Release`). Bump `CURRENT_PROJECT_VERSION` there before each TestFlight upload.
 
+TestFlight feedback becomes GitHub issues on its own: every 6 hours
+`.github/workflows/testflight-feedback.yml` files each new screenshot comment or crash report as
+an issue labelled `testflight` (public, like the repo, but without the tester's name or email),
+with its screenshots copied to the `testflight-feedback` branch. It needs the App Store Connect API
+key in the repo's Actions secrets (`ASC_ISSUER_ID`, `ASC_KEY_ID`, `ASC_KEY_P8`); run it from the
+Actions tab to file feedback right away, or with "dry run" to preview.
+
 **Skip WorkOS in the Simulator:** mint a session and hand it to the app.
 
 ```bash
@@ -170,6 +177,21 @@ runtime is inside the binary, so run `bun upgrade && deploy/deploy.sh …` about
   It gives `SUPPORT_EMAIL` for privacy requests. Keep it in step with
   `ios/Links/PrivacyInfo.xcprivacy` and the listing's privacy answers.
 
+**Universal links** (needs a paid Apple Developer membership; free teams can't sign the
+Associated Domains entitlement). With them, `https://YOUR-HOST/l/…`, `/invite/…` and `/g/…` links
+open the app instead of Safari, and show a short "Open this in the Links app" page when it isn't
+installed. The server serves `/.well-known/apple-app-site-association` once you pass
+`APPLE_APP_IDS=TEAMID.com.yourname.links` (comma-separated, case kept; the team ID is on
+developer.apple.com → Membership) to `setup.sh`; `APP_STORE_ID=<number>` adds a Smart App Banner to
+those pages once the app is on the App Store. In `ios/Config.xcconfig` set `LINKS_ASSOCIATED_DOMAIN`
+to the bare host name (no `https://`, no port). Debug builds add `?mode=developer`, so the phone
+reads the file straight from your server instead of Apple's CDN: on the phone turn on Settings →
+Developer → Associated Domains Development, and use Settings → Developer → Universal Links →
+Diagnostics to check a URL. Release builds go through Apple's CDN, which can take a day to pick up
+a change. Test on a real device. It can't be `localhost:8000`: the file must come over HTTPS with a
+valid certificate and no redirect, and the domain can't have a port. A link tapped on a page of the
+same host stays in Safari (Apple's rule); links from Messages, Mail or Notes open the app.
+
 ### Moving over from the old Python web app
 
 SQLite keeps recent writes in a `-wal` file next to the database, so copy a consolidated snapshot
@@ -215,6 +237,8 @@ All endpoints except sign-in need `Authorization: Bearer <session token>`.
 | GET/POST | `/api/invites` | GET → `{invites}` (mine, still pending); POST `{email?}` → 201 `{invite: {id, email, created_at, expires_at, url}}` |
 | DELETE | `/api/invites/:id` | cancels a pending invite → `{invites}` |
 | GET | `/invite/:token` | public page for an invite link: who sent it, Open in Links, the Smart App Banner. Loading it never uses the invite up |
+| GET | `/.well-known/apple-app-site-association` | public; which paths open the app (only with `APPLE_APP_IDS`) |
+| GET | `/l/:token`, `/g/:id` | public "Open this in the Links app" page; universal links into the app (as is `/invite/:token`) |
 | GET | `/privacy` | public privacy policy page, with the same address, for the App Store Privacy Policy URL |
 | GET | `/support` | public page with the support address (`SUPPORT_EMAIL`, default `support@tpcomm.co`), for the App Store Support URL |
 | GET | `/thumbs/:id` | the cached thumbnail |

@@ -49,6 +49,13 @@ public enum LinksConfig {
         return value?.isEmpty == false ? value : nil
     }
 
+    /// The server's host, whose https://HOST/l/, /invite/ and /g/ links open the app (universal links).
+    public static var associatedDomain: String? {
+        let value = (Bundle.main.object(forInfoDictionaryKey: "LinksAssociatedDomain") as? String)?
+            .trimmingCharacters(in: .whitespaces)
+        return value?.isEmpty == false ? value : nil
+    }
+
     /// Must match the server's APP_SCHEME. Also used for widget deep links.
     public static let urlScheme = "sharedlinks"
 
@@ -67,36 +74,42 @@ public enum LinksConfig {
 
 /// Deep links the widgets use to open the app.
 public enum DeepLink: Equatable, Sendable {
-    /// Shows that link's page in the app, on the tab whose list has it. It doesn't jump on to
-    /// TikTok: from the page that's one tap, and coming back lands on the page to react and mark
-    /// it watched. (A widget's ✓ button marks it watched without opening anything.)
     case open(linkID: Int)
     case add
     case inbox
-    /// An invite to this Links (#5): the token goes with the sign-in. Either
-    /// `sharedlinks://invite/<token>` (the invite page's Open in Links) or the server's own
-    /// `https://<server>/invite/<token>`, the link people send (a universal link once the app
-    /// claims the domain).
+    /// `https://HOST/l/<token>`: a link's page.
+    case link(token: String)
+    /// `https://HOST/invite/<token>`.
     case invite(token: String)
+    /// `https://HOST/g/<id>`: a chat.
+    case group(id: String)
 
-    /// `webHost` is the server's: an https link only counts when it's the server's invite page.
-    public init?(url: URL, webHost: String? = LinksConfig.serverURL.host()) {
-        if url.scheme?.lowercased() == "https" {
-            let parts = url.pathComponents.filter { $0 != "/" }
-            guard let webHost, url.host()?.lowercased() == webHost.lowercased(), parts.count >= 2,
-                  parts[parts.count - 2] == "invite", Self.isInviteToken(parts[parts.count - 1]) else { return nil }
-            self = .invite(token: parts[parts.count - 1])
-            return
+    /// Parses `sharedlinks://…` and the universal links on `associatedDomain`
+    /// (any other https URL, including the server's /api and /auth ones, is nil).
+    public init?(url: URL, associatedDomain: String? = LinksConfig.associatedDomain) {
+        let parts: [String]
+        switch url.scheme?.lowercased() {
+        case LinksConfig.urlScheme:
+            parts = [url.host()].compactMap { $0 } + url.pathComponents.filter { $0 != "/" }
+        case "https":
+            guard let associatedDomain, !associatedDomain.isEmpty, url.port == nil,
+                  url.host()?.lowercased() == associatedDomain.lowercased() else { return nil }
+            parts = url.pathComponents.filter { $0 != "/" }
+            guard ["l", "invite", "g"].contains(parts.first) else { return nil }
+        default:
+            return nil
         }
-        guard url.scheme == LinksConfig.urlScheme else { return nil }
-        let parts = [url.host()].compactMap { $0 } + url.pathComponents.filter { $0 != "/" }
         switch parts.first {
-        case "invite":
-            guard parts.count > 1, Self.isInviteToken(parts[1]) else { return nil }
-            self = .invite(token: parts[1])
         case "open": self = parts.count > 1 ? Int(parts[1]).map { .open(linkID: $0) } ?? .inbox : .inbox
         case "add": self = .add
         case "inbox": self = .inbox
+        case "l", "invite", "g":
+            guard parts.count == 2, Self.isToken(parts[1]) else { return nil }
+            switch parts[0] {
+            case "l": self = .link(token: parts[1])
+            case "invite": self = .invite(token: parts[1])
+            default: self = .group(id: parts[1])
+            }
         default: return nil
         }
     }
@@ -106,14 +119,14 @@ public enum DeepLink: Equatable, Sendable {
         case .open(let id): URL(string: "\(LinksConfig.urlScheme)://open/\(id)")!
         case .add: URL(string: "\(LinksConfig.urlScheme)://add")!
         case .inbox: URL(string: "\(LinksConfig.urlScheme)://inbox")!
+        case .link(let token): URL(string: "\(LinksConfig.urlScheme)://l/\(token)")!
         case .invite(let token): URL(string: "\(LinksConfig.urlScheme)://invite/\(token)")!
+        case .group(let id): URL(string: "\(LinksConfig.urlScheme)://g/\(id)")!
         }
     }
 
-    /// The server's invite tokens: 32 random bytes, base64url (server/src/accounts.ts).
-    static func isInviteToken(_ s: String) -> Bool {
-        s.count == 43 && s.unicodeScalars.allSatisfy {
-            $0.isASCII && (CharacterSet.alphanumerics.contains($0) || $0 == "-" || $0 == "_")
-        }
+    /// The server's rule for /l/, /invite/ and /g/ parameters.
+    static func isToken(_ s: String) -> Bool {
+        (1...64).contains(s.count) && s.allSatisfy { $0.isASCII && ($0.isLetter || $0.isNumber || $0 == "-" || $0 == "_") }
     }
 }

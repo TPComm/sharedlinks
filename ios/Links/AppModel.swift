@@ -510,7 +510,8 @@ final class AppModel {
                 pendingInvite = invite
                 errorMessage = nil
             }
-        case .inbox, nil:
+        // The server's universal links, handled once link pages and chats ship.
+        case .inbox, .link, .group, nil:
             break
         }
     }
