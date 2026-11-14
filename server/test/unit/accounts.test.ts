@@ -156,9 +156,9 @@ describe("claimLegacy", () => {
     addUser("legacy:Sam", null, "Sam", 1);
     addUser("legacy:Alex", null, "Alex", 2);
     db.exec(`
-      INSERT INTO links (id, url, platform, added_by, added_at) VALUES
-        (1, 'https://a.com/1', 'web', 'legacy:Sam', 1), (2, 'https://a.com/2', 'web', 'legacy:Alex', 1),
-        (3, 'https://a.com/3', 'web', 'user_A', 1);
+      INSERT INTO links (group_id, id, url, platform, added_by, added_at) VALUES
+        (1, 1, 'https://a.com/1', 'web', 'legacy:Sam', 1), (1, 2, 'https://a.com/2', 'web', 'legacy:Alex', 1),
+        (1, 3, 'https://a.com/3', 'web', 'user_A', 1);
       INSERT INTO seen VALUES (1, 'legacy:Sam', 5), (2, 'legacy:Sam', 6), (2, 'user_A', 7), (2, 'legacy:Alex', 8);
       INSERT INTO reactions VALUES (1, 'legacy:Sam', '🔥'), (3, 'legacy:Sam', '😂'), (3, 'user_A', '❤️'), (1, 'legacy:Alex', '😮');
     `);
@@ -293,9 +293,9 @@ describe("deleteUser", () => {
     addUser("user_A", "a@x.com", "Riley");
     addUser("user_B", "b@x.com", "Bo");
     db.exec(`
-      INSERT INTO links (id, url, platform, thumb_type, added_by, added_at) VALUES
-        (1, 'https://a.com/1', 'web', 'image/png', 'user_A', 1), (2, 'https://a.com/2', 'web', NULL, 'user_A', 1),
-        (3, 'https://a.com/3', 'web', 'image/png', 'user_B', 1);
+      INSERT INTO links (group_id, id, url, platform, thumb_type, added_by, added_at) VALUES
+        (1, 1, 'https://a.com/1', 'web', 'image/png', 'user_A', 1), (1, 2, 'https://a.com/2', 'web', NULL, 'user_A', 1),
+        (1, 3, 'https://a.com/3', 'web', 'image/png', 'user_B', 1);
       INSERT INTO seen VALUES (1, 'user_B', 5), (3, 'user_A', 6), (3, 'user_B', 7);
       INSERT INTO reactions VALUES (1, 'user_B', '🔥'), (3, 'user_A', '😂'), (3, 'user_B', '❤️');
     `);

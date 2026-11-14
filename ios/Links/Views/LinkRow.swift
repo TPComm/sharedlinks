@@ -16,7 +16,7 @@ struct LinkRow: View {
     @State private var reporting = false
     @State private var blocking = false
     /// The react button grows with Dynamic Type (to a point) and stays centred on the top line.
-    @ScaledMetric(relativeTo: .footnote) private var scaledReactGlyph: CGFloat = 18
+    @ScaledMetric(relativeTo: .footnote) private var scaledReactGlyph: CGFloat = 20
     @ScaledMetric(relativeTo: .footnote) private var topLineCenter: CGFloat = 9
 
     private var reactGlyph: CGFloat { min(scaledReactGlyph, 30) }
@@ -51,13 +51,16 @@ struct LinkRow: View {
         }
         // After the accessibility settings above, so it isn't merged into the row's element.
         .overlay(alignment: .topTrailing) {
-            // Centred on the top line (below the 10pt padding), its capsule ending where the text
-            // column does: the tap frame is wider than the capsule, by `slack` on each side.
-            let slack = (ReactButton.frameWidth(reactGlyph) - ReactButton.capsule(reactGlyph).width) / 2
-            ReactButton(link: link, glyph: reactGlyph)
+            // The capsule is centred on the top line (below the 10pt padding) and ends where the
+            // text column does. Its tap area runs from the row's top to its trailing edge and is
+            // at least 48pt tall, all inside the row: taps above a row's top go to the row above.
+            let capsule = ReactButton.capsule(reactGlyph)
+            let top = 10 + topLineCenter - capsule.height / 2
+            ReactButton(link: link, glyph: reactGlyph,
+                        tapInsets: EdgeInsets(top: top, leading: 12,
+                                              bottom: max(8, 48 - top - capsule.height),
+                                              trailing: Self.trailingInset))
                 .gestureTip(gestureTip as? ReactTip)
-                .offset(x: slack - Self.trailingInset,
-                        y: 10 + topLineCenter - ReactButton.frameHeight(reactGlyph) / 2)
         }
         .gestureTip(gestureTip is ReactTip ? nil : gestureTip)
         .listRowInsets(EdgeInsets())
@@ -322,18 +325,17 @@ struct LinkPreviewCard: View {
 private struct ReactButton: View {
     @Environment(AppModel.self) private var model
     let link: SharedLink
-    /// The smiley's point size (18 at the default text size); the rest is in proportion.
+    /// The smiley's point size (20 at the default text size); the rest is in proportion.
     let glyph: CGFloat
+    /// Space around the capsule that still takes the tap.
+    let tapInsets: EdgeInsets
     @State private var picking = false
     /// Counts this button's picks, for the haptic: not every change (a reaction from another
     /// device, a rollback) is one the person just made here.
     @State private var picks = 0
 
-    /// The visible capsule: 32x26 at the default size.
+    /// The visible capsule: 36x29 at the default size.
     static func capsule(_ glyph: CGFloat) -> CGSize { CGSize(width: glyph * 16 / 9, height: glyph * 13 / 9) }
-    /// The tap area: 6pt either side of the capsule, and at least 44pt each way.
-    static func frameWidth(_ glyph: CGFloat) -> CGFloat { max(44, capsule(glyph).width + 12) }
-    static func frameHeight(_ glyph: CGFloat) -> CGFloat { max(44, capsule(glyph).height) }
 
     var body: some View {
         let current = link.reactions[model.inbox.me]
@@ -356,7 +358,7 @@ private struct ReactButton: View {
                         .frame(width: capsule.width, height: capsule.height)
                 }
             }
-            .frame(width: Self.frameWidth(glyph), height: Self.frameHeight(glyph))
+            .padding(tapInsets)
             .contentShape(.rect)
         }
         .buttonStyle(.borderless)

@@ -306,7 +306,7 @@ check_first_deploy() {
 
 check_tidy() {
   local f
-  for f in "$BIN.new" "$BIN.fallback" /tmp/links-server.gz /tmp/links-setup; do
+  for f in "$BIN.new" "$BIN.fallback" /tmp/links-server.gz /tmp/links-setup /tmp/links-monitoring; do
     [ ! -e "$f" ] || fail "$f was left behind"
   done
   ok "no temporary files left behind"
@@ -354,6 +354,67 @@ check_rolled_back() {
   ok "deploy.sh exited $rc after systemd ran the broken build, and reported the rollback"
 }
 
+# deploy/monitoring.sh against grafana-stub.py on loopback: Fluent Bit installs, runs unprivileged,
+# keeps the token root-only and ships the Links journal, host metrics and unit states with the
+# right labels and credentials. Run twice, as a token rotation would.
+check_monitoring() {
+  local port=3999 log="$STATE/grafana.log" run token auth
+  : > "$log"
+  python3 "$(dirname "$0")/grafana-stub.py" "$port" "$log" &
+  local stub=$!
+  trap 'kill "$stub" 2>/dev/null || true' RETURN
+  for run in 1 2; do
+    token=glc_e2e_$run
+    GRAFANA_CLOUD_TOKEN=$token LOKI_URL=http://127.0.0.1:$port LOKI_USER=111 \
+      PROM_URL=http://127.0.0.1:$port/api/prom/push PROM_USER=222 \
+      deploy/monitoring.sh root@localhost 2>&1 | tee "$STATE/monitoring-$run.log" \
+      || fail "monitoring.sh exited $? on run $run after: $(tail -n 1 "$STATE/monitoring-$run.log")"
+    grep -q '^    monitoring ready for ' "$STATE/monitoring-$run.log" || fail "monitoring.sh run $run didn't finish"
+  done
+  ok "monitoring.sh installs Fluent Bit and runs again cleanly"
+
+  [ "$(sudo stat -c '%a %U' /etc/fluent-bit/links.env)" = "600 root" ] || fail "/etc/fluent-bit/links.env isn't 600 root"
+  sudo grep -qx "GRAFANA_CLOUD_TOKEN=$token" /etc/fluent-bit/links.env || fail "the second run didn't replace the token"
+  [ ! -e /tmp/links-monitoring ] || fail "/tmp/links-monitoring (with the token in it) was left behind"
+  local uid
+  uid=$(ps -o uid= -C fluent-bit | head -n 1 | tr -d ' ')
+  [ -n "$uid" ] && [ "$uid" != 0 ] || fail "fluent-bit runs as uid '${uid:-nothing}', not a throwaway user"
+  [ "$(systemctl show -p MemoryMax --value fluent-bit)" = $((80 * 1024 * 1024)) ] || fail "fluent-bit has no 80M memory cap"
+  if sudo ss -ltnH 'sport = :2020' | grep -v '127.0.0.1:2020' | grep -q .; then fail "Fluent Bit's HTTP port listens beyond loopback"; fi
+  ok "Fluent Bit runs as uid $uid under an 80M cap, with the token root-only"
+
+  # Logs only ship once a unit logs, so make Links log something.
+  sudo systemctl restart links
+  auth="Basic $(printf '111:%s' "$token" | base64 -w0)"
+  local i
+  for i in $(seq 30); do
+    python3 - "$log" "$auth" <<'PY' && break
+import json, sys
+pushes = [json.loads(l) for l in open(sys.argv[1])]
+sys.exit(not any(p["auth"] == sys.argv[2] and p["path"] == "/loki/api/v1/push"
+                 and any(s.get("systemd_unit") == "links.service" and s.get("job") == "links" and s.get("host")
+                         for s in p["streams"]) for p in pushes))
+PY
+    [ "$i" -lt 30 ] || fail "no links.service journal lines reached Loki with job=links, a host and the new token"
+    sleep 2
+  done
+  ok "the Links journal reaches Loki, labelled job=links, host and systemd_unit"
+
+  # The unit states come from systemd over D-Bus, which a sandbox can cut off without an error.
+  auth="Basic $(printf '222:%s' "$token" | base64 -w0)"
+  python3 - "$log" "$auth" <<'PY' || fail "remote write is missing node memory or links.service's state, labelled job=links and instance, with the new token"
+import json, sys
+series = [s for l in open(sys.argv[1]) for p in [json.loads(l)]
+          if p["auth"] == sys.argv[2] and p["path"] == "/api/prom/push" for s in p["series"]]
+def has(**want):
+    return any(s.get("job") == "links" and s.get("instance") and all(s.get(k) == v for k, v in want.items())
+               for s in series)
+sys.exit(not (has(__name__="node_memory_MemAvailable_bytes")
+              and has(__name__="node_systemd_unit_state", name="links.service", state="active")))
+PY
+  ok "host metrics and the Links units' systemd state reach Prometheus remote write, labelled job and instance"
+}
+
 diagnostics() {
   set +e
   echo "== failed units"
@@ -365,6 +426,8 @@ diagnostics() {
   sudo journalctl -u links -u caddy --no-pager -n 100
   echo "== journalctl -u links-backup -u ssh"
   sudo journalctl -u links-backup -u ssh --no-pager -n 30
+  echo "== journalctl -u fluent-bit"
+  sudo journalctl -u fluent-bit --no-pager -n 30
   echo "== listening sockets"
   sudo ss -ltnp
   echo "== ufw"
@@ -406,12 +469,13 @@ case $command in
   trust-caddy) trust_caddy ;;
   finished) check_finished "$@" ;;
   rolled-back) check_rolled_back "$@" ;;
+  monitoring) check_monitoring ;;
   diagnostics) diagnostics ;;
   *)
     echo "usage: deploy/test/e2e.sh ssh-root | cloud-init | stack | env-file KEY=VALUE... -KEY... | apns-key |" \
          "service-env KEY=VALUE... | firewall LOG | api | data | backup | checksum NAME [FILE] |" \
          "same-binary NAME [FILE] | same-file NAME FILE | new-file NAME FILE | first-deploy | tidy |" \
-         "trust-caddy | finished LOG [live] | rolled-back CODE LOG | diagnostics" >&2
+         "trust-caddy | finished LOG [live] | rolled-back CODE LOG | monitoring | diagnostics" >&2
     exit 2
     ;;
 esac

@@ -45,19 +45,19 @@ const linksSql = (db: Database) =>
 const urls = (db: Database) => (db.query("SELECT id, url FROM links ORDER BY id").all() as { id: number; url: string }[])
   .map((r) => [r.id, r.url]);
 const addLink = (db: Database, url: string) =>
-  Number(db.run("INSERT INTO links (url, platform, added_by, added_at) VALUES (?, 'web', 'u', 1)", [url]).lastInsertRowid);
+  Number(db.run("INSERT INTO links (group_id, url, platform, added_by, added_at) VALUES (1, ?, 'web', 'u', 1)", [url]).lastInsertRowid);
 
 describe("openDatabase", () => {
-  test("creates a v7 database (and its folders) in an empty directory", () => {
+  test("creates a v8 database (and its folders) in an empty directory", () => {
     const dir = join(tmp.dir, "nested", "data");
     const db = openDatabase(dir);
     expect(existsSync(join(dir, "thumbs"))).toBe(true);
     expect(existsSync(join(dir, "links.db"))).toBe(true);
-    expect(pragma(db, "user_version")).toBe(7);
+    expect(pragma(db, "user_version")).toBe(8);
     expect(pragma(db, "foreign_keys")).toBe(1);
     expect(pragma(db, "journal_mode")).toBe("wal");
     expect(db.query("SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name").all().map((r: any) => r.name))
-      .toEqual(["blocks", "device_tokens", "invites", "links", "reactions", "reports", "seen", "sessions", "sqlite_sequence", "users"]);
+      .toEqual(["blocks", "device_tokens", "group_members", "groups", "invites", "links", "reactions", "reports", "seen", "sessions", "sqlite_sequence", "users"]);
     expect(linksSql(db)).toContain("AUTOINCREMENT");
     db.close();
   });
@@ -87,13 +87,13 @@ describe("openDatabase", () => {
     db.close();
   });
 
-  test("reopening a v7 database changes nothing (re-spelling only runs on upgrade)", () => {
+  test("reopening a v8 database changes nothing (re-spelling only runs on upgrade)", () => {
     let db = openDatabase(tmp.dir);
     addLink(db, "https://youtube.com/watch?v=1&si=x"); // not today's spelling, on purpose
     db.close();
     db = openDatabase(tmp.dir);
     expect(urls(db)).toEqual([[1, "https://youtube.com/watch?v=1&si=x"]]);
-    expect(pragma(db, "user_version")).toBe(7);
+    expect(pragma(db, "user_version")).toBe(8);
     db.close();
   });
 });
@@ -132,7 +132,7 @@ describe("migrations", () => {
       [2, "https://de.wikipedia.org/wiki/M%C3%BCnchen"],
       [3, POST],
     ]);
-    expect(pragma(db, "user_version")).toBe(7);
+    expect(pragma(db, "user_version")).toBe(8);
     db.close();
   });
 
@@ -163,7 +163,7 @@ describe("migrations", () => {
     expect(db.query("SELECT user_id FROM sessions").all()).toEqual([{ user_id: "user_A" }]);
     expect(pragma(db, "foreign_keys")).toBe(1);
     expect(db.query("PRAGMA foreign_key_check").all()).toEqual([]);
-    expect(pragma(db, "user_version")).toBe(7);
+    expect(pragma(db, "user_version")).toBe(8);
 
     // The rebuilt table is still the one seen/reactions cascade from.
     db.run("DELETE FROM links WHERE id = 5");
@@ -214,7 +214,7 @@ describe("migrations", () => {
       [6, "ftp://example.com/x"],
       [7, "https://www.youtube.com/watch?v=1"],
     ]);
-    expect(pragma(db, "user_version")).toBe(7);
+    expect(pragma(db, "user_version")).toBe(8);
     expect(addLink(db, "https://example.com/new")).toBe(21); // sqlite_sequence kept: no rebuild
     db.close();
   });
@@ -236,7 +236,7 @@ describe("migrations", () => {
       [3, "https://youtu.be/abc?t=10"],
       [4, "https://blog.example.com/?s=pasta"],
     ]);
-    expect(pragma(db, "user_version")).toBe(7);
+    expect(pragma(db, "user_version")).toBe(8);
     db.close();
   });
 
@@ -254,7 +254,7 @@ describe("migrations", () => {
         { id: 1, title: "A", meta: "done", description: null, site_name: null, thumb_w: null, thumb_h: null, preview_v: 0, thumb_v: 0 },
         { id: 2, title: null, meta: "failed", description: null, site_name: null, thumb_w: null, thumb_h: null, preview_v: 0, thumb_v: 0 },
       ]);
-    expect(pragma(db, "user_version")).toBe(7);
+    expect(pragma(db, "user_version")).toBe(8);
     db.close();
     // Reopening runs nothing again.
     openDatabase(tmp.dir).close();
@@ -263,10 +263,10 @@ describe("migrations", () => {
   test("v5: Instagram links with the login wall's logo and \"Instagram\" byline are cleared for the backfill", () => {
     let db = openDatabase(tmp.dir);
     db.exec(`
-      INSERT INTO links (id, url, platform, title, author, thumb_type, thumb_w, thumb_h, thumb_v, preview_v, meta, added_by, added_at) VALUES
-        (1, 'https://www.instagram.com/reel/a/', 'instagram', 'beach day', 'Instagram', 'image/png', 150, 150, 2, 1, 'done', 'u', 1),
-        (2, 'https://www.instagram.com/reel/b/', 'instagram', 'hike', '@samlee', 'image/jpeg', 640, 1136, 1, 1, 'done', 'u', 2),
-        (3, 'https://example.com/instagram', 'web', 'About Instagram', 'Instagram', 'image/png', 10, 10, 1, 1, 'done', 'u', 3);
+      INSERT INTO links (group_id, id, url, platform, title, author, thumb_type, thumb_w, thumb_h, thumb_v, preview_v, meta, added_by, added_at) VALUES
+        (1, 1, 'https://www.instagram.com/reel/a/', 'instagram', 'beach day', 'Instagram', 'image/png', 150, 150, 2, 1, 'done', 'u', 1),
+        (1, 2, 'https://www.instagram.com/reel/b/', 'instagram', 'hike', '@samlee', 'image/jpeg', 640, 1136, 1, 1, 'done', 'u', 2),
+        (1, 3, 'https://example.com/instagram', 'web', 'About Instagram', 'Instagram', 'image/png', 10, 10, 1, 1, 'done', 'u', 3);
       PRAGMA user_version = 5;
     `);
     db.close();
@@ -279,7 +279,7 @@ describe("migrations", () => {
         { id: 3, title: "About Instagram", author: "Instagram", thumb_type: "image/png", thumb_w: 10, thumb_h: 10, thumb_v: 1, preview_v: 1 },
       ]);
     expect([1, 2, 3].map((id) => existsSync(join(tmp.dir, "thumbs", String(id))))).toEqual([false, true, true]);
-    expect(pragma(db, "user_version")).toBe(7);
+    expect(pragma(db, "user_version")).toBe(8);
     db.close();
   });
 
@@ -304,7 +304,7 @@ describe("migrations", () => {
       v6();
       const db = openDatabase(tmp.dir);
       expect(members(db)).toEqual(["local_e", "user_a", "user_b", "user_c", "user_d"]);
-      expect(pragma(db, "user_version")).toBe(7);
+      expect(pragma(db, "user_version")).toBe(8);
       db.close();
     });
 

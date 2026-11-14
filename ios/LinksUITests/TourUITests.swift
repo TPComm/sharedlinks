@@ -21,6 +21,7 @@ final class TourUITests: XCTestCase {
         launch(firstRun: true)
 
         XCTAssert(waitForPage("Welcome to Links", timeout: 20), "no tour on the first launch")
+        XCTAssert(app.descendants(matching: .any)["trademarkNotice"].exists, "no trademark notice in the tour")
         app.buttons["tour.continue"].tap()
 
         // The share-sheet step: practise in a real share sheet, through the real Share Extension.

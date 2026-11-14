@@ -176,6 +176,23 @@ at startup and sends nothing.
 
 **Backups off the box:** `rsync -a root@203.0.113.7:/var/lib/links/backups/ ./backups/`
 
+**Logs and metrics in Grafana Cloud** (its free tier covers them). `deploy/monitoring.sh` installs
+[Fluent Bit](https://fluentbit.io) (~25 MB of RAM, capped at 80 MB) to ship the journal of `links`,
+`links-backup` and Caddy to Loki and host CPU, memory, disk, network and unit metrics to Prometheus
+once a minute, labelled `job="links"`. Get the URLs and numeric users from the stack's Loki and
+Prometheus **Details** pages on grafana.com, and an access policy token with `logs:write` and
+`metrics:write`; the token goes to a root-only `/etc/fluent-bit/links.env`, never a command line:
+
+```bash
+read -rs 'GRAFANA_CLOUD_TOKEN?Grafana Cloud token: ' && export GRAFANA_CLOUD_TOKEN   # zsh
+LOKI_URL=https://logs-prod-000.grafana.net LOKI_USER=123456 \
+PROM_URL=https://prometheus-prod-00-prod-us-east-0.grafana.net/api/prom/push PROM_USER=654321 \
+  deploy/monitoring.sh root@203.0.113.7
+```
+
+It checks both pushes before it finishes and is safe to re-run, for example with a new token. In
+Grafana's Explore: `{job="links"}` for logs, `node_memory_MemAvailable_bytes{job="links"}` for metrics.
+
 **Reports and moderation** (App Store guideline 1.2). Whoever runs the server reads the reports:
 
 - People report a link or a person from its long-press menu or its page. A reported link is hidden
@@ -197,6 +214,10 @@ at startup and sends nothing.
   the listing's Privacy Policy URL. The app opens it from the account menu and the sign-in screen.
   It gives `SUPPORT_EMAIL` for privacy requests. Keep it in step with
   `ios/Links/PrivacyInfo.xcprivacy` and the listing's privacy answers.
+- Trademarks (App Store guideline 5.2): the sign-in screen and the tour say TikTok and Instagram
+  are their owners' trademarks and that Links isn't affiliated with them, and **About Links** in
+  the account menu lists every platform the app names (`Platform.trademarkOwner` in
+  `ios/LinksKit`). Add an owner there when you add a platform.
 
 **Universal links** (needs a paid Apple Developer membership; free teams can't sign the
 Associated Domains entitlement). With them, `https://YOUR-HOST/l/…`, `/invite/…` and `/g/…` links
@@ -249,8 +270,12 @@ All endpoints except sign-in need `Authorization: Bearer <session token>`.
 | DELETE | `/api/devices/:token` | forget one of your device tokens |
 | GET/PATCH/DELETE | `/api/me` | `{user, claimable}`; PATCH `{name}`; DELETE deletes the account, its sessions, watched marks and reactions, and the links it sent (with their notes and thumbnails, for everyone). Also the WorkOS user, given `WORKOS_API_KEY` |
 | POST | `/api/me/claim` | `{id}` of a legacy person |
-| GET | `/api/state` | `{me, users, links, blocked}`: without links I reported or that people I blocked sent, and without blocked people's watched marks and reactions |
-| POST | `/api/links` | `{url, note?}`; `url` may be any text containing a link → `{link, duplicate}` |
+| GET | `/api/state` | `{me, users, groups, links, blocked}`: the chats I'm in (`{id, name, created_by, created_at, default, members}`) and their links (each with its `group_id`), without links I reported or that people I blocked sent, and without blocked people's watched marks and reactions; `?group_id=` for one chat's links |
+| POST | `/api/links` | `{url, note?, group_id?}`; `url` may be any text containing a link; without `group_id` (apps from before chats) it goes to the default chat, or my only chat if I left that → `{link, duplicate}` (a duplicate only within the same chat) |
+| POST | `/api/groups` | `{name?, members?}` (user ids; I'm added) → 201 `{group}`. An empty name means the app names it after its members; up to 50 people |
+| PATCH | `/api/groups/:id` | `{name}`: any member renames it → `{group}` |
+| POST | `/api/groups/:id/members` | `{members}`: any member adds people who are in Links → `{group}`. Nobody removes anyone else |
+| DELETE | `/api/groups/:id` | Leave the chat; the links I sent stay in it. The last one out deletes it and its links (never the default chat) |
 | POST | `/api/links/:id/seen` | `{seen: true/false}` |
 | POST | `/api/links/:id/react` | `{emoji}` (`null` removes) |
 | PATCH / DELETE | `/api/links/:id` | `{note}` (sender only) / –; 403 if the sender blocked you |

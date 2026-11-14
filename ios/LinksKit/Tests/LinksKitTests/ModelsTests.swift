@@ -46,6 +46,22 @@ struct PlatformTests {
         #expect(Set(Platform.allCases.map(\.label)).count == Platform.allCases.count)
     }
 
+    @Test func trademarkNoticeNamesEveryPlatformAndItsOwner() {
+        let notice = Platform.trademarkNotice()
+        #expect(notice.hasPrefix("TikTok is a trademark of ByteDance Ltd. Instagram is a trademark of Instagram, LLC."))
+        for platform in Platform.allCases where platform != .web {
+            #expect(notice.contains("\(platform.label) is a trademark of \(platform.trademarkOwner!)"))
+        }
+        #expect(Platform.web.trademarkOwner == nil)
+        #expect(!notice.contains(".."))
+        #expect(notice.hasSuffix("Links isn't affiliated with or endorsed by any of them."))
+    }
+
+    @Test func shortTrademarkNoticeNamesTikTokAndInstagram() {
+        #expect(Platform.shortTrademarkNotice == "TikTok is a trademark of ByteDance Ltd. "
+            + "Instagram is a trademark of Instagram, LLC. Links isn't affiliated with or endorsed by either.")
+    }
+
     @Test(arguments: [
         (Platform.tiktok, "Watch in TikTok"), (.instagram, "Watch in Instagram"), (.youtube, "Watch in YouTube"),
         (.x, "Open in X"), (.reddit, "Open in Reddit"), (.facebook, "Open in Facebook"), (.web, "Open in Browser"),
