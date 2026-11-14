@@ -80,12 +80,12 @@ struct ChatSheetView: View {
 
     private var inbox: InboxState { model.inbox }
 
-    /// The people to pick from: everyone in Links for a new chat, everyone not in it yet otherwise.
+    /// The people to pick from: everyone I share a chat with for a new chat, those not in it yet otherwise.
     private var people: [LinkUser] {
         switch sheet {
         case .start: inbox.otherPeople.filter { !inbox.isBlocked($0.id) }
         case .rename: []
-        case .addPeople(let group): inbox.addable(to: group).filter { !inbox.isBlocked($0.id) }
+        case .addPeople(let group): inbox.addable(to: group)
         }
     }
 

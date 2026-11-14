@@ -387,7 +387,7 @@ public extension InboxState {
             .map { name(of: $0.key) }
     }
 
-    /// Everyone who has signed in, except me: who a new chat can have in it.
+    /// The people the server lists for me (those I share a chat with), except me: who a new chat can have in it.
     var otherPeople: [LinkUser] { users.filter { $0.id != me && !$0.isLegacy } }
 
     // MARK: Chats
@@ -434,9 +434,9 @@ public extension InboxState {
     /// The chat a new link goes to unless I pick another: the default one, else my first.
     var preferredGroup: LinkGroup? { defaultGroup ?? groups.first }
 
-    /// People in Links who aren't in this chat yet, to add.
+    /// People I know who aren't in this chat yet and whom I haven't blocked, to add.
     func addable(to group: LinkGroup) -> [LinkUser] {
-        otherPeople.filter { !group.members.contains($0.id) }
+        otherPeople.filter { !group.members.contains($0.id) && !isBlocked($0.id) }
     }
 
     /// Links in one chat; `nil` is all of them.

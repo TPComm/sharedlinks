@@ -181,8 +181,12 @@ public struct APIClient: Sendable {
     }
 
     /// A new invite, with its link. `email` lets that person in even if the link gets lost.
-    public func createInvite(email: String? = nil) async throws -> Invite {
-        let r: InviteEnvelope = try await send("POST", "api/invites", json: email.map { ["email": $0] } ?? [:])
+    /// `groupID` is the chat they join; without it they get a chat with just me.
+    public func createInvite(email: String? = nil, groupID: Int? = nil) async throws -> Invite {
+        var body: [String: Any] = [:]
+        if let email { body["email"] = email }
+        if let groupID { body["group_id"] = groupID }
+        let r: InviteEnvelope = try await send("POST", "api/invites", json: body)
         return r.invite
     }
 

@@ -6,7 +6,7 @@ import Testing
 enum Endpoint: String, CaseIterable, Sendable {
     case exchange, signOut, me, rename, claim, deleteAccount, state, add, seen, unseen, react, unreact, note, delete, thumbnail
     case reportLink, reportPerson, block, unblock
-    case exchangeWithInvite, invites, createInvite, createEmailInvite, revokeInvite
+    case exchangeWithInvite, invites, createInvite, createEmailInvite, createChatInvite, revokeInvite
     case addToGroup, createGroup, renameGroup, addMembers, leaveGroup
 
     var method: String {
@@ -36,7 +36,7 @@ enum Endpoint: String, CaseIterable, Sendable {
         case .reportLink, .reportPerson: "/api/reports"
         case .block: "/api/blocks"
         case .unblock: "/api/blocks/user_01SAM"
-        case .invites, .createInvite, .createEmailInvite: "/api/invites"
+        case .invites, .createInvite, .createEmailInvite, .createChatInvite: "/api/invites"
         case .revokeInvite: "/api/invites/3"
         }
     }
@@ -48,6 +48,7 @@ enum Endpoint: String, CaseIterable, Sendable {
         case .exchangeWithInvite: #"{"code":"code_abc","code_verifier":"ver_xyz","invite":"inv_tok"}"#
         case .createInvite: #"{}"#
         case .createEmailInvite: #"{"email":"pal@x.com"}"#
+        case .createChatInvite: #"{"email":"pal@x.com","group_id":5}"#
         case .rename: #"{"name":"Sam L"}"#
         case .claim: #"{"id":"legacy:Jo"}"#
         case .add: #"{"note":"for you","url":"lol https://vm.tiktok.com/ZMabc/"}"#
@@ -71,7 +72,7 @@ enum Endpoint: String, CaseIterable, Sendable {
         switch self {
         case .exchange, .exchangeWithInvite: .json(#"{"token": "tok_new", "user": \#(Fixture.sam), "claimable": []}"#)
         case .invites, .revokeInvite: .json(#"{"invites": [{"id": 3, "email": null, "created_at": 1700000000, "expires_at": 1700604800}]}"#)
-        case .createInvite, .createEmailInvite:
+        case .createInvite, .createEmailInvite, .createChatInvite:
             .json(#"{"invite": {"id": 4, "email": "pal@x.com", "created_at": 1700000000, "expires_at": 1700604800, "url": "https://links.test/invite/abc"}}"#, status: 201)
         case .signOut, .delete, .deleteAccount, .leaveGroup: .json(#"{"ok": true}"#)
         case .createGroup: .json(#"{"group": \#(Fixture.group())}"#, status: 201)
@@ -117,6 +118,7 @@ enum Endpoint: String, CaseIterable, Sendable {
             #expect(invites.first?.url == nil)
         case .createInvite: #expect(try await client.createInvite().url == URL(string: "https://links.test/invite/abc"))
         case .createEmailInvite: #expect(try await client.createInvite(email: "pal@x.com").email == "pal@x.com")
+        case .createChatInvite: _ = try await client.createInvite(email: "pal@x.com", groupID: 5)
         case .revokeInvite: #expect(try await client.revokeInvite(3).map(\.id) == [3])
         case .addToGroup:
             #expect(try await client.add("https://vm.tiktok.com/ZMabc/", groupID: 5).link.groupID == 1)

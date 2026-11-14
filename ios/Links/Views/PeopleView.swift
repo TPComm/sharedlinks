@@ -1,7 +1,7 @@
 import LinksKit
 import SwiftUI
 
-/// Profile → People: everyone in this Links, the invites I sent that nobody has used yet, and
+/// Profile → People: the people I share a chat with, the invites I sent that nobody has used yet, and
 /// Invite a Friend (#5).
 struct PeopleList: View {
     @Environment(AppModel.self) private var model
@@ -19,7 +19,7 @@ struct PeopleList: View {
                     Text("It’s just you here. Invite someone to start sharing.")
                 }
             }
-            Section("In This Links") {
+            Section("In Your Chats") {
                 ForEach(people) { user in
                     HStack(spacing: 12) {
                         AvatarView(user: user, size: 32)
@@ -76,6 +76,11 @@ struct InviteSheet: View {
     @State private var failure: String?
 
     private var inviter: String { model.me?.name ?? "A friend" }
+    /// The chat picked in the inbox; from All Chats there is none, and the server starts one with just us two.
+    private var chat: LinkGroup? { model.inbox.group(model.chat) }
+    private var joining: String {
+        if let chat { "They’ll join \(model.inbox.title(of: chat))." } else { "Starts a chat with just you two." }
+    }
 
     var body: some View {
         NavigationStack {
@@ -91,9 +96,9 @@ struct InviteSheet: View {
                         .accessibilityIdentifier("sendInvite")
                     } footer: {
                         if let email = invite.email {
-                            Text("The link works once, for a week. \(email) can also get in just by signing in with that address.")
+                            Text("\(joining) The link works once, for a week. \(email) can also get in just by signing in with that address.")
                         } else {
-                            Text("The link works once, for a week.")
+                            Text("\(joining) The link works once, for a week.")
                         }
                     }
                 } else {
@@ -105,6 +110,12 @@ struct InviteSheet: View {
                             .autocorrectionDisabled()
                     } footer: {
                         Text("With their email, they can get in even if the link gets lost while they install Links.")
+                    }
+                    Section {
+                        LabeledContent("Chat", value: chat.map(model.inbox.title(of:)) ?? "Just You Two")
+                            .accessibilityIdentifier("invite.chat")
+                    } footer: {
+                        Text(joining)
                     }
                     Section {
                         Button {
@@ -135,7 +146,7 @@ struct InviteSheet: View {
         failure = nil
         defer { creating = false }
         do {
-            invite = try await model.createInvite(email: email)
+            invite = try await model.createInvite(email: email, groupID: chat?.id)
         } catch {
             failure = error.localizedDescription
         }

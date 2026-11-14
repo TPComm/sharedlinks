@@ -214,10 +214,10 @@ final class AppModel {
     }
 
     /// Throws so the invite sheet can say what went wrong where the person is looking.
-    func createInvite(email: String) async throws -> Invite {
+    func createInvite(email: String, groupID: Int?) async throws -> Invite {
         let email = email.trimmingCharacters(in: .whitespacesAndNewlines)
         do {
-            let invite = try await client.createInvite(email: email.isEmpty ? nil : email)
+            let invite = try await client.createInvite(email: email.isEmpty ? nil : email, groupID: groupID)
             invites.insert(invite, at: 0)
             return invite
         } catch APIError.signedOut {

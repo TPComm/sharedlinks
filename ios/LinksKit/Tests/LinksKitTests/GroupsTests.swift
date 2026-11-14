@@ -103,6 +103,9 @@ struct GroupsTests {
     @Test func addsOnlyPeopleNotInTheChat() throws {
         #expect(state.addable(to: try #require(state.group(2))).map(\.id) == ["user_ALEX"])
         #expect(state.addable(to: try #require(state.group(1))).isEmpty)
+        var blocking = state
+        blocking.blocked = ["user_ALEX"]
+        #expect(blocking.addable(to: try #require(blocking.group(2))).isEmpty)
     }
 
     @Test func newLinksGoToTheDefaultChat() {

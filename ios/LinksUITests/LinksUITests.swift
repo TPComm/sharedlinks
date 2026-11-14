@@ -322,6 +322,7 @@ final class LinksUITests: XCTestCase {
         let invite = app.buttons["inviteFriend"]
         XCTAssert(invite.waitForExistence(timeout: 5), "no Invite a Friend")
         invite.tap()
+        XCTAssert(app.staticTexts["Starts a chat with just you two."].waitForExistence(timeout: 5), "All Chats invites someone into a chat with just me")
         app.buttons["createInvite"].tap()
         XCTAssert(app.buttons["sendInvite"].waitForExistence(timeout: 10), "no invite link to send")
         app.buttons["Done"].firstMatch.tap()
@@ -523,6 +524,14 @@ final class LinksUITests: XCTestCase {
         pickChat(name)
         XCTAssert(row(everyone, in: "toWatch").waitForNonExistence(timeout: 5), "a link from another chat still shows")
         XCTAssert(row(inChat, in: "toWatch").exists)
+
+        // An invite from here is into this chat.
+        app.buttons["account"].tap()
+        app.buttons["People"].tap()
+        app.buttons["inviteFriend"].tap()
+        XCTAssert(app.staticTexts["They’ll join \(name)."].waitForExistence(timeout: 5), "the invite isn't into the picked chat")
+        app.buttons["Cancel"].tap()
+        app.buttons["Done"].tap()
 
         // Every tab shows the same chat.
         app.tabBars.buttons["Search"].tap()
