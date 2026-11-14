@@ -99,6 +99,7 @@ beforeAll(() => {
     allowPrivateNetwork: true,
     logRequests: false,
     previewBackfillMs: 0,
+    appleAppIds: ["ABCDE12345.com.yourname.links"],
   };
   baseConfig = config;
   const { app, server } = startServer(config);
@@ -488,6 +489,70 @@ describe("reports, blocks and the word list", () => {
     expect(res.headers.get("content-type")).toContain("text/html");
     expect(res.data).toContain("Links Support");
     expect(res.data).toContain('<a href="mailto:support@tpcomm.co">support@tpcomm.co</a>');
+  });
+});
+
+describe("universal links", () => {
+  const AASA = "/.well-known/apple-app-site-association";
+
+  test("the association file is public JSON for any User-Agent, with the excludes first", async () => {
+    for (const agent of ["", "MyAgent-Bot/*", "AASA-Bot/1.0.0"]) {
+      const res = await fetch(api + AASA, { redirect: "manual", headers: agent ? { "User-Agent": agent } : {} });
+      expect(res.status).toBe(200);
+      expect(res.headers.get("content-type")).toContain("application/json");
+      const body = await res.json() as any;
+      expect(body.webcredentials).toEqual({ apps: ["ABCDE12345.com.yourname.links"] });
+      expect(body.applinks.details).toHaveLength(1);
+      const [details] = body.applinks.details;
+      expect(details.appIDs).toEqual(["ABCDE12345.com.yourname.links"]);
+      expect(details.components.map((c: any) => [c["/"], c.exclude ?? false])).toEqual([
+        ["/api/*", true], ["/auth/*", true], ["/thumbs/*", true],
+        ["/l/*", false], ["/invite/*", false], ["/g/*", false],
+      ]);
+    }
+  });
+
+  test("without APPLE_APP_IDS there's no association file", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "links-aasa-"));
+    const { server } = startServer({ ...baseConfig, appleAppIds: [], dataDir: dir });
+    try {
+      expect((await fetch(server.url.origin + AASA)).status).toBe(404);
+    } finally {
+      server.stop(true);
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test.each(["/l/x", "/invite/x", "/g/x", "/l/AbC-_09", `/invite/${"a".repeat(64)}`])("%p is a placeholder page", async (path) => {
+    const res = await call(path);
+    expect(res.status).toBe(200);
+    expect(res.headers.get("content-type")).toContain("text/html");
+    expect(res.data).toContain("Open this in the Links app");
+    expect(res.data).not.toContain("apple-itunes-app");
+  });
+
+  test.each(["/l/a.b", "/l/%3Cscript%3E", "/invite/a%20b", `/g/${"a".repeat(65)}`, "/l/", "/l/x/y"])("%p is a 404", async (path) => {
+    expect((await call(path)).status).toBe(404);
+  });
+
+  test("the pages show no inbox data, even to someone signed in", async () => {
+    const riley = await signIn("good");
+    const res = await call("/l/x", { token: riley.data.token });
+    expect(res.data).not.toContain("Riley");
+    expect(res.data).not.toContain("friend@example.com");
+  });
+
+  test("with APP_STORE_ID, the pages have a Smart App Banner pointing back at themselves", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "links-banner-"));
+    const { server } = startServer({ ...baseConfig, appStoreId: "6700000000", dataDir: dir });
+    try {
+      const html = await (await fetch(server.url.origin + "/invite/tok_1")).text();
+      expect(html).toContain('<meta name="apple-itunes-app" content="app-id=6700000000, app-argument=https://links.example.com/invite/tok_1">');
+      expect(html).toContain("https://apps.apple.com/app/id6700000000");
+    } finally {
+      server.stop(true);
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });
 

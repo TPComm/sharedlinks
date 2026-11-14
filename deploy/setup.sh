@@ -35,7 +35,7 @@ sed "s/links.example.com/$DOMAIN/" "$HERE/Caddyfile" | ssh "$HOST" 'cat > /tmp/l
 # with just WORKOS_API_KEY=... keeps your ALLOWED_EMAILS.
 {
   echo "PUBLIC_URL=https://$DOMAIN"
-  for key in WORKOS_CLIENT_ID WORKOS_API_KEY ALLOWED_EMAILS SUPPORT_EMAIL; do
+  for key in WORKOS_CLIENT_ID WORKOS_API_KEY ALLOWED_EMAILS SUPPORT_EMAIL APPLE_APP_IDS APP_STORE_ID; do
     # An if, not &&: a trailing failed test would fail the pipeline and stop the script.
     if [[ -n "${!key:-}" ]]; then echo "$key=${!key}"; fi
   done

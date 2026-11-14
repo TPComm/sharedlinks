@@ -137,7 +137,22 @@ runtime is inside the binary, so run `bun upgrade && deploy/deploy.sh …` about
   `ios/Config.xcconfig`) in the account menu and on the sign-in screen. A different server can set
   its own with `SUPPORT_EMAIL` (pass it to `setup.sh`), along with `LINKS_SUPPORT_URL`.
 
-### Moving over from the old Python web app
+**Universal links** (needs a paid Apple Developer membership; free teams can't sign the
+Associated Domains entitlement). With them, `https://YOUR-HOST/l/…`, `/invite/…` and `/g/…` links
+open the app instead of Safari, and show a short "Open this in the Links app" page when it isn't
+installed. The server serves `/.well-known/apple-app-site-association` once you pass
+`APPLE_APP_IDS=TEAMID.com.yourname.links` (comma-separated, case kept; the team ID is on
+developer.apple.com → Membership) to `setup.sh`; `APP_STORE_ID=<number>` adds a Smart App Banner to
+those pages once the app is on the App Store. In `ios/Config.xcconfig` set `LINKS_ASSOCIATED_DOMAIN`
+to the bare host name (no `https://`, no port). Debug builds add `?mode=developer`, so the phone
+reads the file straight from your server instead of Apple's CDN: on the phone turn on Settings →
+Developer → Associated Domains Development, and use Settings → Developer → Universal Links →
+Diagnostics to check a URL. Release builds go through Apple's CDN, which can take a day to pick up
+a change. Test on a real device. It can't be `localhost:8000`: the file must come over HTTPS with a
+valid certificate and no redirect, and the domain can't have a port. A link tapped on a page of the
+same host stays in Safari (Apple's rule); links from Messages, Mail or Notes open the app.
+
+
 
 SQLite keeps recent writes in a `-wal` file next to the database, so copy a consolidated snapshot
 rather than the raw file, and stop the new service while you swap it in:
@@ -179,6 +194,8 @@ All endpoints except sign-in need `Authorization: Bearer <session token>`.
 | POST | `/api/reports` | `{link_id \| user_id, reason, details?}`; reason is `spam`, `offensive`, `harassment` or `other` → 201 |
 | POST | `/api/blocks` | `{user_id}` → `{blocked}` |
 | DELETE | `/api/blocks/:user_id` | unblock (URL-encode the id) → `{blocked}` |
+| GET | `/.well-known/apple-app-site-association` | public; which paths open the app (only with `APPLE_APP_IDS`) |
+| GET | `/l/:token`, `/invite/:token`, `/g/:id` | public "Open this in the Links app" page; universal links into the app |
 | GET | `/support` | public page with the support address (`SUPPORT_EMAIL`, default `support@tpcomm.co`), for the App Store Support URL |
 | GET | `/thumbs/:id` | the cached thumbnail |
 

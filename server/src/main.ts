@@ -12,7 +12,8 @@
  * In development, `bun src/main.ts ...` does the same as the compiled `links-server`.
  *
  * Env: WORKOS_CLIENT_ID (required for sign-in), WORKOS_API_KEY (optional with PKCE),
- *      PUBLIC_URL, ALLOWED_EMAILS, SUPPORT_EMAIL, APP_SCHEME, PORT, HOST, DATA_DIR, SESSION_DAYS
+ *      PUBLIC_URL, ALLOWED_EMAILS, SUPPORT_EMAIL, APPLE_APP_IDS, APP_STORE_ID, APP_SCHEME, PORT, HOST,
+ *      DATA_DIR, SESSION_DAYS
  */
 import { mkdirSync, readdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
