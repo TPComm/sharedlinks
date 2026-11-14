@@ -117,8 +117,10 @@ export class Accounts {
 
   mePayload(userId: string) {
     const user = this.db.query("SELECT * FROM users WHERE id = ?").get(userId) as UserRow;
-    const claimable = (this.db.query("SELECT * FROM users WHERE id LIKE ? ORDER BY created_at")
-      .all(`${LEGACY}%`) as UserRow[]).map(publicUser);
+    // Legacy people's history is in the default chat, so only its members can see or claim them.
+    const claimable = this.inDefault(userId)
+      ? (this.db.query("SELECT * FROM users WHERE id LIKE ? ORDER BY created_at").all(`${LEGACY}%`) as UserRow[]).map(publicUser)
+      : [];
     return { user: { ...publicUser(user), email: user.email }, claimable };
   }
 
@@ -198,7 +200,7 @@ export class Accounts {
     this.db.transaction(() => {
       const legacy = this.db.query("SELECT name FROM users WHERE id = ? AND id LIKE ?")
         .get(legacyId, `${LEGACY}%`) as { name: string } | null;
-      if (!legacy) throw new BadRequest("That person was already claimed.");
+      if (!legacy || !this.inDefault(userId)) throw new BadRequest("That person was already claimed.");
       this.db.run("UPDATE links SET added_by = ? WHERE added_by = ?", [userId, legacyId]);
       this.db.run("UPDATE OR IGNORE group_members SET user_id = ? WHERE user_id = ?", [userId, legacyId]);
       for (const table of ["seen", "reactions"]) {
@@ -334,6 +336,8 @@ export class Accounts {
    */
   private admit(userId: string, invite?: InviteRow) {
     this.db.run("UPDATE users SET member = 1 WHERE id = ?", [userId]);
+    // An account from before invites that wasn't let in was still put in the default chat by v8.
+    this.db.run("DELETE FROM group_members WHERE user_id = ?", [userId]);
     const at = now();
     const inviter = invite?.invited_by ?? null;
     let group = defaultGroup(this.db);
@@ -351,6 +355,10 @@ export class Accounts {
       }
     }
     this.db.run("INSERT OR IGNORE INTO group_members (group_id, user_id, joined_at) VALUES (?, ?, ?)", [group, userId, at]);
+  }
+
+  private inDefault(userId: string): boolean {
+    return !!this.db.query("SELECT 1 FROM group_members WHERE group_id = ? AND user_id = ?").get(defaultGroup(this.db), userId);
   }
 
   /** Signed-in people (not legacy ones) with this email, for the admin commands. */

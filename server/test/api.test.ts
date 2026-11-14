@@ -48,6 +48,8 @@ const fakeWorkOS = Bun.serve({
           kit: { id: "user_01KIT", email: "kit@else.test", email_verified: true, first_name: "Kit" },
           pip: { id: "user_01PIP", email: "pip@else.test", email_verified: true, first_name: "Pip" },
           lee: { id: "user_01LEE", email: "lee@else.test", email_verified: true, first_name: "Lee" },
+          max: { id: "user_01MAX", email: "max@else.test", email_verified: true, first_name: "Max" },
+          ida: { id: "user_01IDA", email: "ida@else.test", email_verified: true, first_name: "Ida" },
           unverifiedGuest: { id: "user_01UNVGUEST", email: "unv@else.test", email_verified: false },
         };
         const user = users[body.code];
@@ -601,11 +603,13 @@ describe("reports, blocks and the word list", () => {
     const id = "legacy:100%";
     const db = new Database(join(dataDir, "links.db"));
     db.run("INSERT INTO users (id, name, created_at) VALUES (?, '100%', 1)", [id]);
+    db.run("INSERT INTO group_members (group_id, user_id, joined_at) VALUES (1, ?, 1)", [id]); // as v8 put legacy people
     try {
       expect((await call("/api/blocks", { token: bea.token, body: { user_id: id } })).data).toEqual({ blocked: [id] });
       expect((await call(`/api/blocks/${encodeURIComponent(id)}`, { method: "DELETE", token: bea.token })).data).toEqual({ blocked: [] });
     } finally {
       db.run("DELETE FROM blocks WHERE blocked = ?", [id]);
+      db.run("DELETE FROM group_members WHERE user_id = ?", [id]);
       db.run("DELETE FROM users WHERE id = ?", [id]);
       db.close();
     }
@@ -819,6 +823,11 @@ describe("group chats", () => {
     expect((await call("/api/groups", { token: lee.data.token, body: { members: [cyId] } })).data.error)
       .toBe("Someone you picked isn't in Links anymore.");
     expect((await call("/api/reports", { token: lee.data.token, body: { user_id: cyId, reason: "spam" } })).status).toBe(404);
+    expect((await call("/api/blocks", { token: lee.data.token, body: { user_id: cyId } })).status).toBe(404);
+    expect((await state(lee.data.token)).users.map((u: any) => u.id)).not.toContain(cyId);
+    // Legacy people's history is in the default chat, which Lee isn't in.
+    expect((await call("/api/me", { token: lee.data.token })).data.claimable).toEqual([]);
+    expect((await call("/api/me/claim", { token: lee.data.token, body: { id: "legacy:Sam" } })).status).toBe(400);
 
     // Someone who left is still named on what they sent there.
     expect((await call(`/api/groups/${chat.id}`, { method: "DELETE", token: bo })).status).toBe(200);
@@ -836,6 +845,35 @@ describe("group chats", () => {
     expect(view.groups[0].members.sort()).toEqual([cyId, "user_01KIT"].sort());
     expect(view.users.map((u: any) => u.id).sort()).toEqual([cyId, "user_01KIT"].sort());
     expect((await state(cy)).groups.map((g: any) => g.id)).toContain(view.groups[0].id);
+  });
+
+  test("an invite whose chat is gone, or that its sender left, starts a chat with just the two of them", async () => {
+    const gone = (await call("/api/groups", { token: ann, body: { name: "Gone" } })).data.group;
+    const left = (await call("/api/groups", { token: ann, body: { name: "Left", members: [boId] } })).data.group;
+    const toGone = await call("/api/invites", { token: ann, body: { group_id: gone.id } });
+    const toLeft = await call("/api/invites", { token: ann, body: { group_id: left.id } });
+    await call(`/api/groups/${gone.id}`, { method: "DELETE", token: ann });
+    await call(`/api/groups/${left.id}`, { method: "DELETE", token: ann });
+    for (const [code, made] of [["max", toGone], ["ida", toLeft]] as const) {
+      const them = await signIn(code, VERIFIER, made.data.invite.url.split("/invite/")[1]);
+      const view = await state(them.data.token);
+      expect(view.groups).toHaveLength(1);
+      expect(view.groups[0].id).not.toBe(left.id);
+      expect(view.groups[0].members.sort()).toEqual([annId, them.data.user.id].sort());
+    }
+  });
+
+  test("someone from before invites who wasn't let in joins only their friend's chat", async () => {
+    const raw = new Database(join(dataDir, "links.db"));
+    raw.run("INSERT INTO users (id, email, name, created_at, member) VALUES ('user_01STRANGER', 'stranger@evil.test', 'S', 1, 0)");
+    raw.run("INSERT INTO group_members (group_id, user_id, joined_at) VALUES (1, 'user_01STRANGER', 1)"); // as v8 did
+    raw.close();
+    await call("/api/invites", { token: cy, body: { email: "stranger@evil.test" } });
+    const them = await signIn("stranger");
+    expect(them.status).toBe(200);
+    const view = await state(them.data.token);
+    expect(view.groups.map((g: any) => g.default)).toEqual([false]);
+    expect(view.groups[0].members.sort()).toEqual([cyId, "user_01STRANGER"].sort());
   });
 
   test("an app from before groups sends to the default chat, or the only chat left", async () => {

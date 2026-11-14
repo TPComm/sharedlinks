@@ -159,6 +159,7 @@ describe("claimLegacy", () => {
       INSERT INTO links (group_id, id, url, platform, added_by, added_at) VALUES
         (1, 1, 'https://a.com/1', 'web', 'legacy:Sam', 1), (1, 2, 'https://a.com/2', 'web', 'legacy:Alex', 1),
         (1, 3, 'https://a.com/3', 'web', 'user_A', 1);
+      INSERT INTO group_members (group_id, user_id, joined_at) VALUES (1, 'user_A', 1), (1, 'user_B', 1);
       INSERT INTO seen VALUES (1, 'legacy:Sam', 5), (2, 'legacy:Sam', 6), (2, 'user_A', 7), (2, 'legacy:Alex', 8);
       INSERT INTO reactions VALUES (1, 'legacy:Sam', '🔥'), (3, 'legacy:Sam', '😂'), (3, 'user_A', '❤️'), (1, 'legacy:Alex', '😮');
     `);

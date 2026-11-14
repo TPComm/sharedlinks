@@ -743,7 +743,8 @@ export function createApp(config: Config, opts: AppOptions = {}) {
         const id = String((await readJson(req)).user_id ?? "");
         if (id === me) throw new BadRequest("You can't block yourself.");
         asUser(me, () => {
-          if (!db.query("SELECT 1 FROM users WHERE id = ?").get(id)) throw new NotFound("That person isn't in Links anymore.");
+          // Only someone I can see: a block is how blocked people stay in my `users`.
+          if (!db.query("SELECT 1 FROM users WHERE id = ?").get(id) || !sees(me, id)) throw new NotFound("That person isn't in Links anymore.");
           db.run("INSERT OR IGNORE INTO blocks (blocker, blocked, created_at) VALUES (?, ?, ?)", [me, id, now()]);
         });
         push.badges([me]);
