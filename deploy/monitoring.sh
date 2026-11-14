@@ -86,6 +86,12 @@ install -m 644 /tmp/links-monitoring/fluent-bit.conf /etc/fluent-bit/links.conf
 rm -f /etc/fluent-bit/links.env.tmp   # a leftover would keep its old mode
 (umask 077 && { cat /tmp/links-monitoring/links.env; echo "LINKS_HOST=$LABEL"; } > /etc/fluent-bit/links.env.tmp)
 mv /etc/fluent-bit/links.env.tmp /etc/fluent-bit/links.env
+# Its own system user (fluent-bit-links.conf says why not DynamicUser). An earlier install ran it
+# as a dynamic user of the same name, which only frees the name once it stops.
+if ! grep -q '^fluent-bit:' /etc/passwd; then
+  systemctl stop fluent-bit 2>/dev/null || true
+  useradd --system --user-group --no-create-home --home-dir /nonexistent --shell /usr/sbin/nologin fluent-bit
+fi
 install -d -m 755 /etc/systemd/system/fluent-bit.service.d
 install -m 644 /tmp/links-monitoring/fluent-bit-links.conf /etc/systemd/system/fluent-bit.service.d/links.conf
 systemctl daemon-reload

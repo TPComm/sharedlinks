@@ -355,8 +355,8 @@ check_rolled_back() {
 }
 
 # deploy/monitoring.sh against grafana-stub.py on loopback: Fluent Bit installs, runs unprivileged,
-# keeps the token root-only and ships the Links journal and host metrics with the right labels and
-# credentials. Run twice, as a token rotation would.
+# keeps the token root-only and ships the Links journal, host metrics and unit states with the
+# right labels and credentials. Run twice, as a token rotation would.
 check_monitoring() {
   local port=3999 log="$STATE/grafana.log" run token auth
   : > "$log"
@@ -400,10 +400,19 @@ PY
   done
   ok "the Links journal reaches Loki, labelled job=links, host and systemd_unit"
 
+  # The unit states come from systemd over D-Bus, which a sandbox can cut off without an error.
   auth="Basic $(printf '222:%s' "$token" | base64 -w0)"
-  grep -F '"path": "/api/prom/push"' "$log" | grep -qF "\"auth\": \"$auth\"" \
-    || fail "no metrics reached Prometheus remote write with the new token"
-  ok "host metrics reach Prometheus remote write"
+  python3 - "$log" "$auth" <<'PY' || fail "remote write is missing node memory or links.service's state, labelled job=links and instance, with the new token"
+import json, sys
+series = [s for l in open(sys.argv[1]) for p in [json.loads(l)]
+          if p["auth"] == sys.argv[2] and p["path"] == "/api/prom/push" for s in p["series"]]
+def has(**want):
+    return any(s.get("job") == "links" and s.get("instance") and all(s.get(k) == v for k, v in want.items())
+               for s in series)
+sys.exit(not (has(__name__="node_memory_MemAvailable_bytes")
+              and has(__name__="node_systemd_unit_state", name="links.service", state="active")))
+PY
+  ok "host metrics and the Links units' systemd state reach Prometheus remote write, labelled job and instance"
 }
 
 diagnostics() {
