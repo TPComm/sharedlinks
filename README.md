@@ -119,6 +119,24 @@ runtime is inside the binary, so run `bun upgrade && deploy/deploy.sh …` about
 
 **Backups off the box:** `rsync -a root@203.0.113.7:/var/lib/links/backups/ ./backups/`
 
+**Reports and moderation** (App Store guideline 1.2). Whoever runs the server reads the reports:
+
+- People report a link or a person from its long-press menu or its page. A reported link is hidden
+  for the reporter at once, and everyone else still sees it. Each report logs a line
+  (`journalctl -u links | grep report`).
+- `links-server reports` (as the `links` user: `sudo -u links env DATA_DIR=/var/lib/links /opt/links/links-server reports`)
+  lists open reports, each with a copy of what was reported then. `links-server reports resolve <id>`
+  marks one handled; `--remove` also deletes the link and its thumbnail for everyone. To remove a
+  person, `links-server delete-user <email>` and take them out of `ALLOWED_EMAILS`.
+- Blocking is one-way and only for the blocker: they stop seeing the blocked person's links,
+  watched marks and reactions. Notes can only be changed by the link's sender.
+- Notes and display names with a word on the list in `server/src/moderation.ts` are refused. Add
+  your own, one per line, to `/var/lib/links/blocked-words.txt` and restart (`systemctl restart links`).
+- The support address, `support@tpcomm.co`, is shown on `https://YOUR-HOST/support`: use that page as
+  the App Store listing's Support URL. The app shows the same address (`LINKS_SUPPORT_URL` in
+  `ios/Config.xcconfig`) in the account menu and on the sign-in screen. A different server can set
+  its own with `SUPPORT_EMAIL` (pass it to `setup.sh`), along with `LINKS_SUPPORT_URL`.
+
 ### Moving over from the old Python web app
 
 SQLite keeps recent writes in a `-wal` file next to the database, so copy a consolidated snapshot
@@ -153,15 +171,19 @@ All endpoints except sign-in need `Authorization: Bearer <session token>`.
 | POST | `/api/auth/logout` | ends this session |
 | GET/PATCH/DELETE | `/api/me` | `{user, claimable}`; PATCH `{name}`; DELETE deletes the account, its sessions, watched marks and reactions; the links it sent stay, from `deleted` ("Deleted user"). Also the WorkOS user, given `WORKOS_API_KEY` |
 | POST | `/api/me/claim` | `{id}` of a legacy person |
-| GET | `/api/state` | `{me, users, links}` |
+| GET | `/api/state` | `{me, users, links, blocked}`: without links I reported or that people I blocked sent, and without blocked people's watched marks and reactions |
 | POST | `/api/links` | `{url, note?}`; `url` may be any text containing a link → `{link, duplicate}` |
 | POST | `/api/links/:id/seen` | `{seen: true/false}` |
 | POST | `/api/links/:id/react` | `{emoji}` (`null` removes) |
-| PATCH / DELETE | `/api/links/:id` | `{note}` / – |
+| PATCH / DELETE | `/api/links/:id` | `{note}` (sender only) / –; 403 if the sender blocked you |
+| POST | `/api/reports` | `{link_id \| user_id, reason, details?}`; reason is `spam`, `offensive`, `harassment` or `other` → 201 |
+| POST | `/api/blocks` | `{user_id}` → `{blocked}` |
+| DELETE | `/api/blocks/:user_id` | unblock (URL-encode the id) → `{blocked}` |
+| GET | `/support` | public page with the support address (`SUPPORT_EMAIL`, default `support@tpcomm.co`), for the App Store Support URL |
 | GET | `/thumbs/:id` | the cached thumbnail |
 
-Admin: `links-server mint-session <email> [name]`, `links-server delete-user <email>` (what the app's Delete Account does)
-and `links-server backup [dir]`.
+Admin: `links-server mint-session <email> [name]`, `links-server delete-user <email>` (what the app's Delete Account does),
+`links-server reports`, `links-server reports resolve <id> [--remove]` and `links-server backup [dir]`.
 
 The app icon is `assets/icon/SharedLinks.icon`, a layered Icon Composer document the Xcode project uses
 directly; open it in Icon Composer to edit. `assets/icon/README.md` has previews and the alternate design.

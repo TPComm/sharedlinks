@@ -245,9 +245,11 @@ final class LinksUITests: XCTestCase {
     }
 
     func testReactingAndEditingTheNote() throws {
-        let link = try seed(by: server.friend)
+        // On my own link: only the sender can write a link's note.
+        let link = try seed(by: server.me)
         launch()
-        let row = waitForRow(link, in: "toWatch")
+        app.tabBars.buttons["Sent"].tap()
+        let row = waitForRow(link, in: "sent")
         let me = try server.state(as: server.me).me
 
         menu(on: row, item: "❤️").tap()
@@ -267,6 +269,54 @@ final class LinksUITests: XCTestCase {
             try server.state(as: server.friend).link(link.id)?.note == note ? true : nil
         }
         waitFor(row, labelContaining: note)
+    }
+
+    func testAFriendsLinkHasNoNoteEditing() throws {
+        let link = try seed(by: server.friend)
+        launch()
+        let row = waitForRow(link, in: "toWatch")
+        XCTAssert(menu(on: row, item: "Report…").exists)
+        XCTAssertFalse(app.buttons["Add Note"].exists)
+    }
+
+    // MARK: Reports and blocks
+
+    func testReportingALinkHidesItForMeOnly() throws {
+        let link = try seed(by: server.friend)
+        launch()
+        let row = waitForRow(link, in: "toWatch")
+        menu(on: row, item: "Report…").tap()
+        let reason = app.buttons["Offensive or Inappropriate"]
+        XCTAssert(reason.waitForExistence(timeout: 5), "no report reasons")
+        reason.tap()
+        XCTAssert(row.waitForNonExistence(timeout: 5), "still in To Watch")
+        try server.eventually("hidden for me") { try server.state(as: server.me).link(link.id) == nil ? true : nil }
+        XCTAssertNotNil(try server.state(as: server.friend).link(link.id), "hidden for the sender too")
+    }
+
+    func testBlockingAndUnblockingSomeone() throws {
+        let link = try seed(by: server.friend)
+        let friendID = try server.state(as: server.friend).me
+        let api = server!
+        addTeardownBlock { try? api.unblock(friendID, as: api.me) }
+        launch()
+        let row = waitForRow(link, in: "toWatch")
+        menu(on: row, item: "Block Friend…").tap()
+        let block = app.alerts["Block Friend?"].buttons["Block"]
+        XCTAssert(block.waitForExistence(timeout: 5), "no block confirmation")
+        block.tap()
+        XCTAssert(row.waitForNonExistence(timeout: 5), "still in To Watch")
+        try server.eventually("blocked") { try server.state(as: server.me).blocked == [friendID] ? true : nil }
+
+        app.buttons["account"].tap()
+        app.buttons["Blocked People…"].tap()
+        let unblock = app.buttons["unblock.\(friendID)"]
+        XCTAssert(unblock.waitForExistence(timeout: 5), "not under Blocked People")
+        unblock.tap()
+        XCTAssert(app.staticTexts["No One Blocked"].waitForExistence(timeout: 5))
+        app.buttons["Done"].tap()
+        XCTAssert(row.waitForExistence(timeout: 10), "their link didn't come back")
+        XCTAssertEqual(try server.state(as: server.me).blocked, [])
     }
 
     func testReactingFromTheFeed() throws {

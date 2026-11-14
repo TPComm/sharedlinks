@@ -44,6 +44,7 @@ struct LinksServer: Sendable {
         /// The id of whoever's token asked.
         let me: String
         let links: [Link]
+        let blocked: [String]
 
         func link(_ id: Int) -> Link? { links.first { $0.id == id } }
     }
@@ -66,6 +67,10 @@ struct LinksServer: Sendable {
 
     func delete(_ id: Int, as token: String) throws {
         _ = try send("DELETE", "api/links/\(id)", as: token)
+    }
+
+    func unblock(_ id: String, as token: String) throws {
+        _ = try send("DELETE", "api/blocks/\(id)", as: token)
     }
 
     func state(as token: String) throws -> State {

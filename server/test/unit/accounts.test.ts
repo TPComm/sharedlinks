@@ -206,6 +206,30 @@ describe("claimLegacy", () => {
     ]);
   });
 
+  test("keeps the blocks and reports on the legacy person, skipping a block of themselves", () => {
+    const a = setup();
+    db.exec(`
+      INSERT INTO blocks VALUES ('user_B', 'legacy:Sam', 1), ('legacy:Sam', 'user_A', 2), ('user_A', 'legacy:Sam', 3);
+      INSERT INTO reports (reporter, user_id, reason, snapshot, created_at) VALUES ('user_B', 'legacy:Sam', 'spam', '{}', 1);
+      INSERT INTO reports (reporter, link_id, reason, snapshot, created_at) VALUES ('legacy:Sam', 2, 'other', '{}', 2);
+    `);
+    a.claimLegacy("user_A", "legacy:Sam");
+    expect(rows("SELECT blocker, blocked FROM blocks ORDER BY created_at")).toEqual([{ blocker: "user_B", blocked: "user_A" }]);
+    expect(rows("SELECT reporter, link_id, user_id FROM reports ORDER BY created_at")).toEqual([
+      { reporter: "user_B", link_id: null, user_id: "user_A" },
+      { reporter: "user_A", link_id: 2, user_id: null },
+    ]);
+  });
+
+  test("a name with a listed word is refused when renaming, not at sign-in", () => {
+    addUser("user_A");
+    const a = accounts();
+    expect(() => a.rename("user_A", "the faggot")).toThrow(BadRequest);
+    a.upsertUser("user_C", "c@x.com", "Faggot", null); // sign-in keeps WorkOS's name rather than failing
+    a.rename("user_A", "Scunthorpe Fan");
+    expect(rows("SELECT name FROM users WHERE id = 'user_A'")).toEqual([{ name: "Scunthorpe Fan" }]);
+  });
+
   test("refuses a second claim, a real account, or nobody", () => {
     const a = setup();
     a.claimLegacy("user_A", "legacy:Sam");

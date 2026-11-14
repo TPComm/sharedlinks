@@ -235,14 +235,18 @@ public struct InboxState: Codable, Sendable, Hashable {
     public var me: String
     public var users: [LinkUser]
     public var links: [SharedLink]
+    /// The people I've blocked. The server already leaves out their links, seen marks and
+    /// reactions; they stay in `users` so Blocked People can name them.
+    public var blocked: [String]
 
-    public init(me: String, users: [LinkUser], links: [SharedLink]) {
+    public init(me: String, users: [LinkUser], links: [SharedLink], blocked: [String] = []) {
         self.me = me
         self.users = users
         self.links = links
+        self.blocked = blocked
     }
 
-    enum CodingKeys: String, CodingKey { case me, users, links }
+    enum CodingKeys: String, CodingKey { case me, users, links, blocked }
 
     /// One bad row must not take down the whole inbox: undecodable users and links are skipped.
     public init(from decoder: Decoder) throws {
@@ -250,6 +254,8 @@ public struct InboxState: Codable, Sendable, Hashable {
         me = try c.decode(String.self, forKey: .me)
         users = try c.decode([Lossy<LinkUser>].self, forKey: .users).compactMap(\.value)
         links = try c.decode([Lossy<SharedLink>].self, forKey: .links).compactMap(\.value)
+        // Older servers and cached snapshots have no `blocked`.
+        blocked = try c.decodeIfPresent([String].self, forKey: .blocked) ?? []
     }
 
     public static let empty = InboxState(me: "", users: [], links: [])
@@ -303,6 +309,40 @@ public extension InboxState {
     /// The people a new link goes to: everyone who has signed in, except me.
     var otherPeople: [LinkUser] { users.filter { $0.id != me && !$0.isLegacy } }
 
+    func isBlocked(_ id: String) -> Bool { blocked.contains(id) }
+
+    /// Blocked People, in the order I blocked them.
+    var blockedPeople: [LinkUser] { blocked.compactMap(user) }
+
+    /// Someone else who's still in Links (not "Deleted user") and not blocked already.
+    func canBlock(_ id: String) -> Bool { id != me && user(id) != nil && !isBlocked(id) }
+
+    /// What the server shows once I've reported a link: the same, without it.
+    func hiding(link id: Int) -> InboxState {
+        var state = self
+        state.links.removeAll { $0.id == id }
+        return state
+    }
+
+    /// What the server shows once I've blocked someone: none of their links, marks or reactions.
+    func blocking(_ id: String) -> InboxState {
+        var state = self
+        if !state.blocked.contains(id) { state.blocked.append(id) }
+        state.links = links.filter { $0.addedBy != id }.map { link in
+            var link = link
+            link.seen[id] = nil
+            link.reactions[id] = nil
+            return link
+        }
+        return state
+    }
+
+    func unblocking(_ id: String) -> InboxState {
+        var state = self
+        state.blocked.removeAll { $0 == id }
+        return state
+    }
+
     func links(for filter: InboxFilter, matching query: String = "") -> [SharedLink] {
         let words = query.lowercased().split(whereSeparator: \.isWhitespace)
         return links.filter { link in
@@ -338,6 +378,21 @@ public struct AddResult: Codable, Sendable {
 }
 
 public let reactionEmojis = ["❤️", "😂", "🔥", "😮", "😭", "👎"]
+
+/// Why something was reported (REPORT_REASONS in server/src/moderation.ts).
+public enum ReportReason: String, CaseIterable, Sendable, Identifiable {
+    case spam, offensive, harassment, other
+    public var id: Self { self }
+
+    public var title: String {
+        switch self {
+        case .spam: "Spam"
+        case .offensive: "Offensive or Inappropriate"
+        case .harassment: "Harassment or Bullying"
+        case .other: "Something Else"
+        }
+    }
+}
 
 /// Decodes an element if it can, or yields nil instead of failing the whole array.
 struct Lossy<T: Decodable>: Decodable {

@@ -396,6 +396,42 @@ final class AppModel {
         await perform { try await self.client.delete(link.id) }
     }
 
+    // MARK: Reports and blocks
+
+    /// Shows the server's view after a report or block straight away (lists, badge, widgets).
+    private func applyLocally(_ change: (InboxState) -> InboxState) {
+        localEdits += 1
+        setInbox(change(inbox))
+    }
+
+    /// Reports someone else's link. It's hidden for me only; the server's owner reads the report.
+    func report(_ link: SharedLink, reason: ReportReason) async {
+        applyLocally { $0.hiding(link: link.id) }
+        await perform {
+            try await self.client.report(link: link.id, reason: reason)
+            self.toast = "Reported. It's hidden for you."
+        }
+    }
+
+    /// One-way: I stop seeing their links, marks and reactions. They aren't told.
+    func block(_ person: LinkUser, alsoReport: Bool) async {
+        applyLocally { $0.blocking(person.id) }
+        await perform {
+            if alsoReport { try await self.client.report(person: person.id, reason: .other) }
+            _ = try await self.client.block(person.id)
+            self.toast = alsoReport ? "Blocked and reported \(person.name)" : "Blocked \(person.name)"
+        }
+    }
+
+    func unblock(_ person: LinkUser) async {
+        applyLocally { $0.unblocking(person.id) }
+        await perform {
+            _ = try await self.client.unblock(person.id)
+            self.toast = "Unblocked \(person.name)"
+        }
+        await refresh() // brings their links, marks and reactions back
+    }
+
     /// "Watch in TikTok" on a link's page: opens it (universal links) without marking it watched.
     /// The page stays underneath, and asks "Watched it?" when the app comes back.
     func watch(_ link: SharedLink, with openURL: OpenURLAction) {

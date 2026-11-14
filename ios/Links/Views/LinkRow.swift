@@ -13,6 +13,8 @@ struct LinkRow: View {
     @State private var editingNote = false
     @State private var noteDraft = ""
     @State private var confirmingDelete = false
+    @State private var reporting = false
+    @State private var blocking = false
     /// The react button grows with Dynamic Type (to a point) and stays centred on the top line.
     @ScaledMetric(relativeTo: .footnote) private var scaledReactGlyph: CGFloat = 18
     @ScaledMetric(relativeTo: .footnote) private var topLineCenter: CGFloat = 9
@@ -87,6 +89,7 @@ struct LinkRow: View {
         .contextMenu { menu } preview: { LinkPreviewCard(link: link).environment(model) }
         .linkDeleteConfirmation(link, isPresented: $confirmingDelete) { Task { await model.delete(link) } }
         .linkNoteEditor(link, isPresented: $editingNote, draft: $noteDraft)
+        .linkModeration(link, reporting: $reporting, blocking: $blocking) { work in Task { await work() } }
     }
 
     private var content: some View {
@@ -222,11 +225,14 @@ struct LinkRow: View {
                     Label(seen ? "Mark as Not Watched" : "Mark as Watched", systemImage: seen ? "circle" : "checkmark.circle")
                 }
             }
-            Button {
-                noteDraft = link.note
-                editingNote = true
-            } label: {
-                Label(link.note.isEmpty ? "Add Note" : "Edit Note", systemImage: "note.text")
+            // Notes are the sender's (the server refuses anyone else's edit).
+            if mine {
+                Button {
+                    noteDraft = link.note
+                    editingNote = true
+                } label: {
+                    Label(link.note.isEmpty ? "Add Note" : "Edit Note", systemImage: "note.text")
+                }
             }
         }
 
@@ -235,6 +241,12 @@ struct LinkRow: View {
                 Label("Share…", systemImage: "square.and.arrow.up")
             }
             CopyLinkButton(link: link)
+        }
+
+        if !mine {
+            Section {
+                LinkModerationButtons(link: link, reporting: $reporting, blocking: $blocking)
+            }
         }
 
         Button(role: .destructive) { confirmingDelete = true } label: {

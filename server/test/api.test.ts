@@ -1,6 +1,6 @@
 import { Database } from "bun:sqlite";
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { existsSync, mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { startServer } from "../src/app.ts";
@@ -39,6 +39,8 @@ const fakeWorkOS = Bun.serve({
           domain: { id: "user_01TEAM", email: "jane.doe@team.test", email_verified: true, first_name: "", profile_picture_url: null },
           stranger: { id: "user_01STRANGER", email: "stranger@evil.test", email_verified: true },
           unverified: { id: "user_01UNVERIFIED", email: "friend2@team.test", email_verified: false },
+          rude: { id: "user_01RUDE", email: "rude.person@team.test", email_verified: true, first_name: "Zonk" },
+          blocker: { id: "user_01BLOCKER", email: "blocker@team.test", email_verified: true, first_name: "Bea" },
         };
         const user = users[body.code];
         if (!user) return Response.json({ error: "invalid_grant", error_description: "Invalid authorization code." }, { status: 400 });
@@ -82,6 +84,8 @@ beforeAll(() => {
     INSERT INTO reactions VALUES (1, 'Alex', '🔥');
   `);
   legacy.close();
+  // The owner's own additions to the moderation word list.
+  writeFileSync(join(dataDir, "blocked-words.txt"), "# extra words\nzonk\n");
 
   const config = {
     ...configFromEnv({}),
@@ -289,8 +293,13 @@ describe("links", () => {
     expect(r.data.link.reactions[friendId]).toBe("😂");
     r = await call("/api/links/1/react", { token, body: { emoji: "💩" } }); // not allowed -> removes
     expect(r.data.link.reactions[friendId]).toBeUndefined();
-    r = await call("/api/links/1", { method: "PATCH", token, body: { note: "x".repeat(600) } });
+    // Notes are the sender's: link 1 is Sam's (still unclaimed).
+    r = await call("/api/links/1", { method: "PATCH", token, body: { note: "mine now" } });
+    expect(r.status).toBe(403);
+    const own = (await call("/api/links", { token, body: { url: `${origin}/plain?n=note` } })).data.link;
+    r = await call(`/api/links/${own.id}`, { method: "PATCH", token, body: { note: "x".repeat(600) } });
     expect(r.data.link.note.length).toBe(500);
+    await idle();
     expect((await call("/api/links/999/seen", { token, body: {} })).status).toBe(404);
     expect((await call("/api/links/abc", { method: "DELETE", token })).status).toBe(404);
     const invalid = await fetch(`${api}/api/links/1`, {
@@ -326,6 +335,159 @@ describe("links", () => {
     expect((await call("/api/auth/logout", { method: "POST", token: data.token })).data).toEqual({ ok: true });
     expect((await call("/api/me", { token: data.token })).status).toBe(401);
     expect((await call("/api/me", { token })).status).toBe(200); // other sessions unaffected
+  });
+});
+
+describe("reports, blocks and the word list", () => {
+  // Riley sends; Bea reports and blocks. Jane is the bystander who still sees everything.
+  let riley: { id: string; token: string };
+  let bea: { id: string; token: string };
+  let jane: { id: string; token: string };
+  beforeAll(async () => {
+    const who = async (code: string) => {
+      const { data } = await signIn(code);
+      return { id: data.user.id as string, token: data.token as string };
+    };
+    [riley, bea, jane] = [await who("good"), await who("blocker"), await who("domain")];
+  });
+  const state = async (t: { token: string }) => (await call("/api/state", { token: t.token })).data;
+  const send = async (n: string) =>
+    (await call("/api/links", { token: riley.token, body: { url: `${origin}/video?id=${n}`, note: n } })).data.link;
+
+  test("a report hides the link for the reporter only; reporting it again is a no-op", async () => {
+    const link = await send("reported");
+    await idle();
+    const report = { link_id: link.id, reason: "offensive", details: "not nice" };
+    const logged: string[] = [];
+    const log = console.log;
+    console.log = (line: string) => logged.push(line);
+    try {
+      expect((await call("/api/reports", { token: bea.token, body: report })).status).toBe(201);
+      expect((await call("/api/reports", { token: bea.token, body: { ...report, reason: "spam" } })).status).toBe(201);
+    } finally {
+      console.log = log;
+    }
+    expect(logged).toEqual([expect.stringMatching(new RegExp(`^report \\d+: offensive, link ${link.id}, by ${bea.id}$`))]);
+
+    expect((await state(bea)).links.some((l: any) => l.id === link.id)).toBe(false);
+    for (const [path, body] of [[`/api/links/${link.id}/seen`, { seen: true }], [`/api/links/${link.id}/react`, { emoji: "🔥" }]] as const) {
+      expect((await call(path, { token: bea.token, body })).status).toBe(404);
+    }
+    expect((await call(`/thumbs/${link.id}/1`, { token: bea.token })).status).toBe(404);
+    expect((await call(`/api/links/${link.id}`, { method: "DELETE", token: bea.token })).status).toBe(404);
+    // Sharing it again doesn't hand it back.
+    const again = await call("/api/links", { token: bea.token, body: { url: `${origin}/video?id=reported` } });
+    expect(again).toMatchObject({ status: 400, data: { error: "That link was already shared." } });
+
+    for (const t of [riley, jane]) expect((await state(t)).links.some((l: any) => l.id === link.id)).toBe(true);
+    expect((await call(`/thumbs/${link.id}/1`, { token: jane.token })).status).toBe(200);
+
+    const db = new Database(join(dataDir, "links.db"), { readonly: true });
+    try {
+      const rows = db.query("SELECT * FROM reports WHERE link_id = ?").all(link.id) as any[];
+      expect(rows).toHaveLength(1);
+      expect(rows[0]).toMatchObject({ reporter: bea.id, reason: "offensive", details: "not nice", resolved_at: null });
+      expect(JSON.parse(rows[0].snapshot)).toMatchObject({ url: link.url, note: "reported", sender: riley.id });
+    } finally {
+      db.close();
+    }
+  });
+
+  test("bad reports", async () => {
+    const link = await send("bad-reports");
+    const report = (body: object, t = bea) => call("/api/reports", { token: t.token, body });
+    expect((await report({ link_id: link.id, reason: "offensive" }, riley)).status).toBe(400); // own link
+    expect((await report({ user_id: bea.id, reason: "spam" })).status).toBe(400);              // yourself
+    expect((await report({ link_id: link.id, reason: "boring" })).status).toBe(400);
+    expect((await report({ link_id: link.id })).status).toBe(400);
+    expect((await report({ reason: "spam" })).status).toBe(400);
+    expect((await report({ link_id: link.id, user_id: riley.id, reason: "spam" })).status).toBe(400);
+    expect((await report({ link_id: 99999, reason: "spam" })).status).toBe(404);
+    expect((await report({ link_id: "1", reason: "spam" })).status).toBe(404);
+    expect((await report({ user_id: "user_NOBODY", reason: "spam" })).status).toBe(404);
+    expect((await report({ comment_id: 1, reason: "spam" })).status).toBe(404);
+    expect((await report({ user_id: riley.id, reason: "harassment" })).status).toBe(201);
+    expect((await call("/api/reports", { body: { link_id: link.id, reason: "spam" } })).status).toBe(401);
+    // Reporting a person hides nothing by itself.
+    expect((await state(bea)).links.some((l: any) => l.id === link.id)).toBe(true);
+    await call(`/api/links/${link.id}`, { method: "DELETE", token: riley.token });
+    await idle();
+  });
+
+  test("a block hides their links, marks and reactions for the blocker only, until unblocked", async () => {
+    const rileys = await send("blocked");
+    const beas = (await call("/api/links", { token: bea.token, body: { url: `${origin}/plain?n=beas` } })).data.link;
+    for (const t of [riley, jane]) {
+      await call(`/api/links/${beas.id}/seen`, { token: t.token, body: { seen: true } });
+      await call(`/api/links/${beas.id}/react`, { token: t.token, body: { emoji: "😂" } });
+    }
+    await idle();
+
+    expect((await call("/api/blocks", { token: bea.token, body: { user_id: riley.id } })).data).toEqual({ blocked: [riley.id] });
+    let mine = await state(bea);
+    expect(mine.blocked).toEqual([riley.id]);
+    expect(mine.users.some((u: any) => u.id === riley.id)).toBe(true); // to name under Blocked People
+    expect(mine.links.some((l: any) => l.added_by === riley.id)).toBe(false);
+    const seenByBea = mine.links.find((l: any) => l.id === beas.id);
+    expect(Object.keys(seenByBea.seen)).toEqual([jane.id]);
+    expect(seenByBea.reactions).toEqual({ [jane.id]: "😂" });
+    // The link that seen and react hand back is filtered the same way.
+    const reacted = await call(`/api/links/${beas.id}/react`, { token: bea.token, body: { emoji: "❤️" } });
+    expect(reacted.data.link.reactions).toEqual({ [jane.id]: "😂", [bea.id]: "❤️" });
+    const seen = await call(`/api/links/${beas.id}/seen`, { token: bea.token, body: { seen: true } });
+    expect(Object.keys(seen.data.link.seen).sort()).toEqual([jane.id, bea.id].sort());
+    expect((await call(`/api/links/${rileys.id}/seen`, { token: bea.token, body: { seen: true } })).status).toBe(404);
+
+    // Nobody else sees a change, and Riley isn't told.
+    const theirs = await state(riley);
+    expect(theirs.blocked).toEqual([]);
+    expect(theirs.links.find((l: any) => l.id === beas.id).reactions).toEqual({ [riley.id]: "😂", [jane.id]: "😂", [bea.id]: "❤️" });
+    expect((await state(jane)).links.some((l: any) => l.id === rileys.id)).toBe(true);
+
+    // Riley can't touch Bea's link any more.
+    expect((await call(`/api/links/${beas.id}`, { method: "PATCH", token: riley.token, body: { note: "hi" } })).status).toBe(403);
+    expect((await call(`/api/links/${beas.id}`, { method: "DELETE", token: riley.token })).status).toBe(403);
+    expect((await call(`/api/links/${beas.id}`, { method: "PATCH", token: jane.token, body: { note: "hi" } })).status).toBe(403);
+
+    expect((await call(`/api/blocks/${encodeURIComponent(riley.id)}`, { method: "DELETE", token: bea.token })).data).toEqual({ blocked: [] });
+    mine = await state(bea);
+    expect(mine.blocked).toEqual([]);
+    expect(mine.links.some((l: any) => l.id === rileys.id)).toBe(true);
+    expect(mine.links.find((l: any) => l.id === beas.id).reactions[riley.id]).toBe("😂");
+
+    for (const [t, id] of [[riley, rileys.id], [bea, beas.id]] as const) {
+      expect((await call(`/api/links/${id}`, { method: "DELETE", token: t.token })).status).toBe(200);
+    }
+  });
+
+  test("blocks: yourself, unknown people, legacy ids in the path", async () => {
+    expect((await call("/api/blocks", { token: bea.token, body: { user_id: bea.id } })).status).toBe(400);
+    expect((await call("/api/blocks", { token: bea.token, body: { user_id: "user_NOBODY" } })).status).toBe(404);
+    expect((await call("/api/blocks", { token: bea.token, body: { user_id: "legacy:Alex" } })).data).toEqual({ blocked: ["legacy:Alex"] });
+    expect((await call("/api/blocks/legacy%3AAlex", { method: "DELETE", token: bea.token })).data).toEqual({ blocked: [] });
+  });
+
+  test("a listed word in a note or a name is refused; a WorkOS name with one still signs in", async () => {
+    const add = await call("/api/links", { token: riley.token, body: { url: `${origin}/plain?n=words`, note: "what a ZONK!" } });
+    expect(add).toMatchObject({ status: 400, data: { error: expect.stringContaining("note") } });
+    const link = (await call("/api/links", { token: riley.token, body: { url: `${origin}/plain?n=words`, note: "fine" } })).data.link;
+    expect((await call(`/api/links/${link.id}`, { method: "PATCH", token: riley.token, body: { note: "zonks" } })).status).toBe(400);
+    expect((await call(`/api/links/${link.id}`, { method: "PATCH", token: riley.token, body: { note: "Scunthonk" } })).status).toBe(200);
+    expect((await call("/api/me", { method: "PATCH", token: riley.token, body: { name: "Mr Zonk" } })).status).toBe(400);
+    await call(`/api/links/${link.id}`, { method: "DELETE", token: riley.token });
+
+    const rude = await signIn("rude");
+    expect(rude.status).toBe(200);
+    expect(rude.data.user.name).toBe("Rude Person");
+    await idle();
+  });
+
+  test("/support shows the contact address", async () => {
+    const res = await call("/support");
+    expect(res.status).toBe(200);
+    expect(res.headers.get("content-type")).toContain("text/html");
+    expect(res.data).toContain("Links Support");
+    expect(res.data).toContain('<a href="mailto:support@tpcomm.co">support@tpcomm.co</a>');
   });
 });
 

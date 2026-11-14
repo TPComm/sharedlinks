@@ -111,6 +111,29 @@ public struct APIClient: Sendable {
         let _: [String: Bool] = try await send("DELETE", "api/links/\(linkID)")
     }
 
+    // MARK: Reports and blocks
+
+    /// Reports a link to whoever runs the server; it's hidden for me from then on.
+    public func report(link linkID: Int, reason: ReportReason) async throws {
+        let _: [String: Bool] = try await send("POST", "api/reports", json: ["link_id": linkID, "reason": reason.rawValue])
+    }
+
+    /// Reports a person (their name or photo).
+    public func report(person userID: String, reason: ReportReason) async throws {
+        let _: [String: Bool] = try await send("POST", "api/reports", json: ["user_id": userID, "reason": reason.rawValue])
+    }
+
+    /// Returns everyone I've blocked now.
+    public func block(_ userID: String) async throws -> [String] {
+        let r: BlockedEnvelope = try await send("POST", "api/blocks", json: ["user_id": userID])
+        return r.blocked
+    }
+
+    public func unblock(_ userID: String) async throws -> [String] {
+        let r: BlockedEnvelope = try await send("DELETE", "api/blocks", component: userID)
+        return r.blocked
+    }
+
     public func thumbnail(_ link: SharedLink) async throws -> Data {
         guard let path = link.thumb else { throw APIError.server("No thumbnail.") }
         let (data, response) = try await perform(request("GET", String(path.drop(while: { $0 == "/" }))))
@@ -121,10 +144,14 @@ public struct APIClient: Sendable {
     // MARK: Plumbing
 
     struct LinkEnvelope: Decodable { var link: SharedLink }
+    struct BlockedEnvelope: Decodable { var blocked: [String] }
     struct ErrorBody: Decodable { var error: String }
 
-    func request(_ method: String, _ path: String, json: [String: Any]? = nil) -> URLRequest {
-        var req = URLRequest(url: baseURL.appending(path: path))
+    /// `component` is one more path segment, escaped (an id with a "/" in it stays one segment).
+    func request(_ method: String, _ path: String, component: String? = nil, json: [String: Any]? = nil) -> URLRequest {
+        var url = baseURL.appending(path: path)
+        if let component { url = url.appending(component: component) }
+        var req = URLRequest(url: url)
         req.httpMethod = method
         req.timeoutInterval = 20
         req.setValue("application/json", forHTTPHeaderField: "Accept")
@@ -136,8 +163,9 @@ public struct APIClient: Sendable {
         return req
     }
 
-    func send<T: Decodable>(_ method: String, _ path: String, json: [String: Any]? = nil) async throws -> T {
-        let (data, response) = try await perform(request(method, path, json: json))
+    func send<T: Decodable>(_ method: String, _ path: String, component: String? = nil,
+                            json: [String: Any]? = nil) async throws -> T {
+        let (data, response) = try await perform(request(method, path, component: component, json: json))
         try check(response, data)
         return try Self.decoder.decode(T.self, from: data)
     }

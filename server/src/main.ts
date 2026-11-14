@@ -6,11 +6,13 @@
  *   links-server mint-session you@example.com [Name]   print a session token (admin / Simulator)
  *   links-server delete-user you@example.com         delete an account (its links stay, from "Deleted user")
  *   links-server backup [dir]                        snapshot the database (keeps the newest 14)
+ *   links-server reports                             list open reports (what was reported, by whom)
+ *   links-server reports resolve <id> [--remove]     mark one handled; --remove deletes the link for everyone
  *
  * In development, `bun src/main.ts ...` does the same as the compiled `links-server`.
  *
  * Env: WORKOS_CLIENT_ID (required for sign-in), WORKOS_API_KEY (optional with PKCE),
- *      PUBLIC_URL, ALLOWED_EMAILS, APP_SCHEME, PORT, HOST, DATA_DIR, SESSION_DAYS
+ *      PUBLIC_URL, ALLOWED_EMAILS, SUPPORT_EMAIL, APP_SCHEME, PORT, HOST, DATA_DIR, SESSION_DAYS
  */
 import { mkdirSync, readdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
@@ -18,6 +20,8 @@ import { Accounts } from "./accounts.ts";
 import { startServer } from "./app.ts";
 import { configFromEnv } from "./config.ts";
 import { openDatabase } from "./db.ts";
+import { BadRequest } from "./links.ts";
+import { formatReport, openReports, resolveReport } from "./moderation.ts";
 
 const config = configFromEnv();
 const [command, ...rest] = process.argv.slice(2);
@@ -62,6 +66,30 @@ if (command === "mint-session") {
   const old = readdirSync(dir).filter((f) => /^links-\d{4}-\d{2}-\d{2}\.db$/.test(f)).sort().slice(0, -14);
   for (const f of old) rmSync(join(dir, f));
   console.log(`backed up to ${file}`);
+} else if (command === "reports") {
+  // App Store guideline 1.2: "timely responses" to reports. Each new one is also logged (journalctl -u links).
+  const db = openDatabase(config.dataDir);
+  try {
+    if (!rest.length) {
+      const reports = openReports(db);
+      console.log(reports.length ? reports.map(formatReport).join("\n\n") : "no open reports");
+    } else {
+      const [sub, id, ...flags] = rest;
+      const remove = flags.includes("--remove");
+      if (sub !== "resolve" || !/^\d+$/.test(id ?? "") || flags.some((f) => f !== "--remove")) {
+        console.error("usage: links-server reports [resolve <id> [--remove]]");
+        process.exit(1);
+      }
+      const report = resolveReport(db, config.dataDir, Number(id), remove);
+      console.log(`report #${report.id} resolved: ${report.resolution}${remove ? ` (link ${report.link_id} deleted)` : ""}`);
+    }
+  } catch (e) {
+    if (!(e instanceof BadRequest)) throw e;
+    console.error(e.message);
+    process.exit(1);
+  } finally {
+    db.close();
+  }
 } else if (command) {
   console.error(`unknown command: ${command}`);
   process.exit(1);

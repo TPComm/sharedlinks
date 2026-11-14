@@ -120,3 +120,70 @@ struct InboxStateTests {
         #expect(again == state)
     }
 }
+
+@Suite("Blocking and reporting")
+struct ModerationStateTests {
+    let state = household
+
+    @Test func decodesWithAndWithoutBlocked() throws {
+        let without = try APIClient.decoder.decode(InboxState.self, from: Data(stateJSON.utf8))
+        #expect(without.blocked == [])
+        let json = stateJSON.replacingOccurrences(of: #""me": "user_01ME","#, with: #""me": "user_01ME", "blocked": ["user_01SAM"],"#)
+        let with = try APIClient.decoder.decode(InboxState.self, from: Data(json.utf8))
+        #expect(with.blocked == ["user_01SAM"])
+        #expect(with.isBlocked("user_01SAM") && !with.isBlocked("legacy:Jo"))
+        #expect(with.blockedPeople.map(\.name) == ["Sam"])
+        // The snapshot keeps it.
+        #expect(try APIClient.decoder.decode(InboxState.self, from: APIClient.encoder.encode(with)).blocked == ["user_01SAM"])
+    }
+
+    @Test func blockingDropsTheirLinksMarksAndReactions() {
+        var withReaction = state
+        withReaction.links[1].reactions["user_SAM"] = "🔥"
+        let blocked = withReaction.blocking("user_SAM")
+        #expect(blocked.blocked == ["user_SAM"])
+        #expect(blocked.links.map(\.id) == [4, 3, 2])
+        #expect(blocked.links.allSatisfy { $0.seen["user_SAM"] == nil && $0.reactions["user_SAM"] == nil })
+        #expect(blocked.links.first { $0.id == 3 }?.seen.keys.sorted() == ["legacy:Jo", "user_ALEX"])
+        #expect(blocked.blocking("user_SAM").blocked == ["user_SAM"])
+        #expect(blocked.unblocking("user_SAM").blocked == [])
+        #expect(!blocked.canBlock("user_SAM"))
+    }
+
+    @Test func whoCanBeBlocked() {
+        #expect(state.canBlock("user_SAM") && state.canBlock("legacy:Jo"))
+        #expect(!state.canBlock("user_ME"))
+        #expect(!state.canBlock("user_GONE"))   // not in users: a deleted account
+        #expect(!state.canBlock(LinkUser.deletedID))
+    }
+
+    @Test func hidingALink() {
+        #expect(state.hiding(link: 4).links.map(\.id) == [5, 3, 2, 1])
+        #expect(state.hiding(link: 99) == state)
+    }
+
+    @Test func reportReasonsMatchTheServer() {
+        #expect(ReportReason.allCases.map(\.rawValue) == ["spam", "offensive", "harassment", "other"])
+        #expect(Set(ReportReason.allCases.map(\.title)).count == 4)
+    }
+}
+
+@Suite("Support address")
+struct SupportAddressTests {
+    @Test(arguments: [
+        ("mailto:help@example.com", "help@example.com"),
+        ("mailto:help@example.com?subject=Links", "help@example.com"),
+        ("https://www.example.com/support", "example.com/support"),
+        ("https://links.example.com/", "links.example.com"),
+    ])
+    func readable(_ raw: String, _ address: String) throws {
+        let url = try #require(LinksConfig.parseSupportURL(raw))
+        #expect(LinksConfig.supportAddress(url) == address)
+    }
+
+    @Test func unsetOrUnusable() {
+        for raw in [nil, "", "  ", "example.com", "javascript:alert(1)", "ftp://example.com"] {
+            #expect(LinksConfig.parseSupportURL(raw) == nil, "\(raw ?? "nil")")
+        }
+    }
+}
