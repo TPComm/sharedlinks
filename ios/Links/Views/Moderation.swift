@@ -122,12 +122,8 @@ struct ContactSupportButton: View {
                 model.toast = "Copied \(address)"
             }
         } label: {
-            Label {
-                Text("Contact Support")
-                Text(address)
-            } icon: {
-                Image(systemName: "envelope")
-            }
+            Label("Contact Support", systemImage: "envelope")
+            Text(address)
         }
     }
 }
