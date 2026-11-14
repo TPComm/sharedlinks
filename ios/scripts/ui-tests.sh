@@ -102,7 +102,7 @@ if [[ -n "${LINKS_UI_TEST_SHARD:-}" ]]; then
       shard_args+=("-skip-testing:$test")
     fi
     i=$((i + 1))
-  done < <(find "$ios/LinksUITests" -name '*.swift' | LC_ALL=C sort | xargs awk '
+  done < <(find "$ios/LinksUITests" -name '*.swift' -print0 | LC_ALL=C sort -z | xargs -0 awk '
     FNR == 1 { class = "" }
     /(^|[^A-Za-z0-9_])class[[:space:]]+[A-Za-z0-9_]+[[:space:]]*:[[:space:]]*XCTestCase/ {
       sub(/.*class[[:space:]]+/, ""); sub(/[[:space:]]*:.*/, ""); class = $0; next
