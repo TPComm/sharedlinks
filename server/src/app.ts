@@ -1,7 +1,7 @@
 import type { Database } from "bun:sqlite";
 import { join } from "node:path";
 import { Accounts, AuthError, publicUser } from "./accounts.ts";
-import type { Config } from "./config.ts";
+import type { ApnsEnv, Config } from "./config.ts";
 import { deleteLink, now, openDatabase, type LinkRow, type UserRow } from "./db.ts";
 import { BadRequest, canonical, clipText, extractUrl } from "./links.ts";
 import { REPORT_REASONS } from "./moderation.ts";
@@ -331,7 +331,7 @@ export function createApp(config: Config, opts: AppOptions = {}) {
           [token, me, session, data.env, t, t],
         ));
         // `push`: whether this server sends any, so the app knows it can poll less often.
-        return json({ ok: true, push: push.enabled });
+        return json({ ok: true, push: push.enabled && !!config.apnsKeys[data.env as ApnsEnv] });
       }),
     },
     "/api/devices/:token": {
@@ -385,7 +385,10 @@ export function createApp(config: Config, opts: AppOptions = {}) {
           );
           return { id: changes ? Number(lastInsertRowid) : null, label: target.label };
         });
-        if (id !== null) console.log(`report ${id}: ${data.reason}, ${label}, by ${me}`);
+        if (id !== null) {
+          console.log(`report ${id}: ${data.reason}, ${label}, by ${me}`);
+          push.badges([me]); // a reported link leaves To Watch
+        }
         return json({ ok: true }, 201);
       }),
     },
@@ -400,6 +403,7 @@ export function createApp(config: Config, opts: AppOptions = {}) {
           if (!db.query("SELECT 1 FROM users WHERE id = ?").get(id)) throw new NotFound("That person isn't in Links anymore.");
           db.run("INSERT OR IGNORE INTO blocks (blocker, blocked, created_at) VALUES (?, ?, ?)", [me, id, now()]);
         });
+        push.badges([me]);
         return json({ blocked: [...blockedBy(me)] });
       }),
     },
@@ -407,6 +411,7 @@ export function createApp(config: Config, opts: AppOptions = {}) {
     "/api/blocks/:user_id": {
       DELETE: route<Request & { params: { user_id: string } }>((req, me) => {
         db.run("DELETE FROM blocks WHERE blocker = ? AND blocked = ?", [me, decodeURIComponent(req.params.user_id)]);
+        push.badges([me]);
         return json({ blocked: [...blockedBy(me)] });
       }),
     },
