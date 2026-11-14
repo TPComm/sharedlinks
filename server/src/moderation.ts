@@ -34,8 +34,11 @@ export function loadBlockedWords(dataDir: string): Set<string> {
 export function findBlockedWord(text: string, words: Set<string>): string | null {
   for (const token of fold(text).split(/[^\p{L}\p{N}]+/u)) {
     if (!token) continue;
-    // "dykes" -> "dyke", "fags" -> "fag", "bitches" -> "bitch".
-    for (const form of [token, token.replace(/s$/, ""), token.replace(/es$/, "")]) if (words.has(form)) return form;
+    // "dykes" -> "dyke", "fags" -> "fag", "bitches" -> "bitch". Only a sibilant takes -es, so
+    // "spices" isn't "spic" + es.
+    for (const form of [token, token.replace(/s$/, ""), token.replace(/(s|x|z|ch|sh)es$/, "$1")]) {
+      if (words.has(form)) return form;
+    }
   }
   return null;
 }

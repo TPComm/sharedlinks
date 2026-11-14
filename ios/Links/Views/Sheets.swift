@@ -94,10 +94,10 @@ struct AccountMenu: View {
         let sent = model.inbox.links(for: .sent).count
         let links = switch sent {
         case 0: ""
-        case 1: " The link you sent stays for your friends, from “Deleted user”. Delete it first if you’d rather it went too."
-        default: " The \(sent) links you sent stay for your friends, from “Deleted user”. Delete them first if you’d rather they went too."
+        case 1: ", the link you sent and its note (your friends lose it too)"
+        default: ", the \(sent) links you sent and their notes (your friends lose them too)"
         }
-        return "This permanently deletes your Links account, your watched marks and your reactions.\(links) "
+        return "This permanently deletes your Links account\(links), your watched marks and your reactions. "
             + "This can't be undone."
     }
 
@@ -134,6 +134,9 @@ struct AccountMenu: View {
                 }
                 if let support = LinksConfig.supportURL {
                     ContactSupportButton(url: support)
+                }
+                Link(destination: LinksConfig.privacyPolicyURL) {
+                    Label("Privacy Policy", systemImage: "lock.shield")
                 }
             }
             Button("Sign Out", systemImage: "rectangle.portrait.and.arrow.right", role: .destructive) {

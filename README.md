@@ -34,8 +34,10 @@ itself off, and TipKit tips then point out the gestures once each.
 
 ## Set up WorkOS (once)
 
-1. Create a WorkOS account and enable **AuthKit** (email + password, Google, Apple, passkeys,
-   whatever you like).
+1. Create a WorkOS account and enable **AuthKit** (email + password, passkeys, Apple…). If you turn
+   on **Google** (or any other social login), turn on **Sign in with Apple** too: App Store guideline
+   4.8 asks for an equivalent login next to a social one. Email + password and passkeys alone don't
+   need it.
 2. **Redirects**: add `https://YOUR-HOST/auth/callback`. For local development (staging environment)
    also add `http://localhost:8000/auth/callback`.
 3. Copy the **Client ID** (and optionally an **API key**; the code exchange also works with PKCE
@@ -48,6 +50,21 @@ itself off, and TipKit tips then point out the gestures once each.
    (verified) address in without the link. People who join by invite stay in whatever
    `ALLOWED_EMAILS` says. Set `APP_STORE_ID` (the app's numeric App Store ID) to show a Smart
    App Banner on invite pages.
+
+**Sign in with Apple and the guest list.** Someone who picks *Hide My Email* signs in with a relay
+address (`…@privaterelay.appleid.com`, and `…@private.icloud.com` for new ones from late 2026), not
+the email on your guest list, so the server turns them away ("isn't on the guest list"). Send them
+an invite link without an email address (**People → Invite a Friend**), which lets in whatever
+verified address they sign in with, or ask them to choose *Share My Email*. Never
+add the relay domains to `ALLOWED_EMAILS`: that would let in anyone with an Apple Account who hides
+their email.
+
+Deleting an account (`DELETE /api/me` with `WORKOS_API_KEY` set) deletes the WorkOS user too.
+WorkOS's docs don't say whether that also revokes the person's Sign in with Apple tokens, and
+Links never sees those tokens (WorkOS keeps them). If it doesn't, Apple's
+[TN3194](https://developer.apple.com/documentation/technotes/tn3194-handling-account-deletions-and-revoking-tokens-for-sign-in-with-apple)
+covers it: once the account data is gone, the person can stop using Sign in with Apple with Links
+in their Apple Account settings.
 
 How it fits together: the app opens `/auth/authorize` in `ASWebAuthenticationSession` with a PKCE
 challenge; the server forwards to AuthKit; AuthKit redirects back to `/auth/callback`, which hands
@@ -65,9 +82,12 @@ WORKOS_CLIENT_ID=client_... bun run dev          # http://localhost:8000
 bun test                                         # API tests (offline: WorkOS is stubbed)
 ```
 
-Then open `ios/Links.xcodeproj`. In `ios/Config.xcconfig` set `DEVELOPMENT_TEAM` and
-`LINKS_BUNDLE_ID` (something you own, e.g. `com.yourname.links`); the App Group becomes
-`group.<that>`. `LINKS_SERVER_URL` defaults to `http://localhost:8000`, which the Simulator can reach.
+Then open `ios/Links.xcodeproj`. `ios/Config.xcconfig` holds the shipped app's team
+(`DEVELOPMENT_TEAM`) and bundle id (`LINKS_BUNDLE_ID = com.tpcomm.links`; the App Group is
+`group.<that>`); a fork that runs on its own devices sets its own team and an id it owns there.
+Debug builds talk to `http://localhost:8000`, which the Simulator can reach, and Release builds
+(archives for TestFlight) to `https://links.tpcomm.co` (`LINKS_SERVER_URL_Debug` /
+`LINKS_SERVER_URL_Release`). Bump `CURRENT_PROJECT_VERSION` there before each TestFlight upload.
 
 **Skip WorkOS in the Simulator:** mint a session and hand it to the app.
 
@@ -115,7 +135,7 @@ WORKOS_CLIENT_ID=client_... ALLOWED_EMAILS=you@x.com,friend@y.com \
 That adds swap on small boxes, installs Caddy and automatic security updates, creates a locked-down
 `links` service and a daily database backup (`/var/lib/links/backups`, newest 14), opens only
 SSH/80/443, then builds the right binary for the VPS's CPU on your Mac and deploys it. Finally set
-`LINKS_SERVER_URL = https:/$()/links.example.com` in `ios/Config.xcconfig`.
+`LINKS_SERVER_URL_Release = https:/$()/links.example.com` in `ios/Config.xcconfig`.
 
 **Updates:** `deploy/deploy.sh root@203.0.113.7` tests, builds, uploads, swaps and health-checks.
 It only ships a clean `main` that matches `origin/main`, and compiles the commit in: `curl
@@ -144,6 +164,10 @@ runtime is inside the binary, so run `bun upgrade && deploy/deploy.sh …` about
   the App Store listing's Support URL. The app shows the same address (`LINKS_SUPPORT_URL` in
   `ios/Config.xcconfig`) in the account menu and on the sign-in screen. A different server can set
   its own with `SUPPORT_EMAIL` (pass it to `setup.sh`), along with `LINKS_SUPPORT_URL`.
+- The privacy policy (App Store guideline 5.1.1) is on `https://YOUR-HOST/privacy`: use that page as
+  the listing's Privacy Policy URL. The app opens it from the account menu and the sign-in screen.
+  It gives `SUPPORT_EMAIL` for privacy requests. Keep it in step with
+  `ios/Links/PrivacyInfo.xcprivacy` and the listing's privacy answers.
 
 ### Moving over from the old Python web app
 
@@ -177,7 +201,7 @@ All endpoints except sign-in need `Authorization: Bearer <session token>`.
 | GET | `/auth/callback` | AuthKit's redirect; bounces to `sharedlinks://auth/callback?code=…` |
 | POST | `/api/auth/token` | `{code, code_verifier, invite?}` → `{token, user, claimable}`; `invite` is the token from an invite link, used up here (and only here) |
 | POST | `/api/auth/logout` | ends this session |
-| GET/PATCH/DELETE | `/api/me` | `{user, claimable}`; PATCH `{name}`; DELETE deletes the account, its sessions, watched marks and reactions; the links it sent stay, from `deleted` ("Deleted user"). Also the WorkOS user, given `WORKOS_API_KEY` |
+| GET/PATCH/DELETE | `/api/me` | `{user, claimable}`; PATCH `{name}`; DELETE deletes the account, its sessions, watched marks and reactions, and the links it sent (with their notes and thumbnails, for everyone). Also the WorkOS user, given `WORKOS_API_KEY` |
 | POST | `/api/me/claim` | `{id}` of a legacy person |
 | GET | `/api/state` | `{me, users, links, blocked}`: without links I reported or that people I blocked sent, and without blocked people's watched marks and reactions |
 | POST | `/api/links` | `{url, note?}`; `url` may be any text containing a link → `{link, duplicate}` |
@@ -190,11 +214,14 @@ All endpoints except sign-in need `Authorization: Bearer <session token>`.
 | GET/POST | `/api/invites` | GET → `{invites}` (mine, still pending); POST `{email?}` → 201 `{invite: {id, email, created_at, expires_at, url}}` |
 | DELETE | `/api/invites/:id` | cancels a pending invite → `{invites}` |
 | GET | `/invite/:token` | public page for an invite link: who sent it, Open in Links, the Smart App Banner. Loading it never uses the invite up |
+| GET | `/privacy` | public privacy policy page, with the same address, for the App Store Privacy Policy URL |
 | GET | `/support` | public page with the support address (`SUPPORT_EMAIL`, default `support@tpcomm.co`), for the App Store Support URL |
 | GET | `/thumbs/:id` | the cached thumbnail |
+| GET | `/version` | public: `{commit}`, the git commit the server was built from (`dev` unless built by `deploy/deploy.sh`) |
 
 Admin: `links-server mint-session <email> [name]`, `links-server delete-user <email>` (what the app's Delete Account does),
-`links-server reports`, `links-server reports resolve <id> [--remove]` and `links-server backup [dir]`.
+`links-server reports`, `links-server reports resolve <id> [--remove]`, `links-server backup [dir]` and
+`links-server version` (the commit it was built from).
 
 The app icon is `assets/icon/SharedLinks.icon`, a layered Icon Composer document the Xcode project uses
 directly; open it in Icon Composer to edit. `assets/icon/README.md` has previews and the alternate design.

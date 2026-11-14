@@ -391,9 +391,12 @@ final class LinksUITests: XCTestCase {
     func testSigningOutReturnsToSignIn() throws {
         launch(as: server.spare)
         app.buttons["account"].tap()
+        XCTAssert(app.descendants(matching: .any)["Privacy Policy"].waitForExistence(timeout: 5),
+                  "no Privacy Policy in the account menu")
         app.buttons["Sign Out"].tap()
         let signIn = app.buttons["signIn"]
         XCTAssert(signIn.waitForExistence(timeout: 10))
+        XCTAssert(app.descendants(matching: .any)["signIn.privacy"].exists, "no Privacy Policy on the sign-in screen")
         XCTAssertFalse(app.tabBars.firstMatch.exists)
         XCTAssertEqual(app.buttons["Create Account"].frame.width, signIn.frame.width, accuracy: 1,
                        "the sign-in buttons differ in width")
@@ -403,10 +406,11 @@ final class LinksUITests: XCTestCase {
         }
     }
 
-    func testDeletingTheAccountSignsOutAndLeavesItsLinksFromDeletedUser() throws {
+    func testDeletingTheAccountSignsOutAndDeletesTheLinksItSent() throws {
         // An account of its own: deleting "Me" would sign every later test out.
         let sent = try seed(by: server.deletable, note: "Mine \(shortID())")
         let friends = try seed(by: server.friend)
+        let others = try seed(by: server.me)
         try server.setSeen(friends.id, true, as: server.deletable)
         let deleted = try server.state(as: server.deletable).me
         launch(as: server.deletable)
@@ -417,7 +421,7 @@ final class LinksUITests: XCTestCase {
         app.buttons["Delete Account…"].tap()
         let alert = app.alerts["Delete Your Account?"]
         XCTAssert(alert.waitForExistence(timeout: 5), "no confirmation")
-        let warning = NSPredicate(format: "label CONTAINS %@", "The link you sent stays for your friends, from “Deleted user”.")
+        let warning = NSPredicate(format: "label CONTAINS %@", "the link you sent and its note (your friends lose it too)")
         XCTAssert(alert.staticTexts.matching(warning).firstMatch.exists, "the warning doesn't say what goes")
         alert.buttons["Delete Account"].tap()
 
@@ -425,13 +429,14 @@ final class LinksUITests: XCTestCase {
         XCTAssertFalse(app.tabBars.firstMatch.exists)
         XCTAssertEqual(try server.status("GET", "api/state", as: server.deletable), 401)
         let state = try server.state(as: server.friend)
-        XCTAssertEqual(try XCTUnwrap(state.link(sent.id), "the link they sent went").addedBy, "deleted")
+        XCTAssertNil(state.link(sent.id), "the link they sent is still there")
         let kept = try XCTUnwrap(state.link(friends.id), "the friend's link went")
         XCTAssertNil(kept.seen[deleted], "their watched mark is still there")
 
-        // The friend sees it as from "Deleted user".
+        // The friend no longer has it to watch.
         launch(as: server.friend)
-        waitFor(waitForRow(sent, in: "toWatch"), labelContaining: "Deleted user")
+        waitForRow(others, in: "toWatch")
+        XCTAssertFalse(row(sent, in: "toWatch").exists, "the friend still has it")
     }
 
     // MARK: Helpers
