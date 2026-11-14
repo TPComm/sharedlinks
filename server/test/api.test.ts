@@ -499,6 +499,13 @@ describe("reports, blocks and the word list", () => {
     expect(res.data).toContain("Delete Account");
     expect(res.data).toContain("newest 14 days");
   });
+
+  test("/version says which commit is running, without signing in", async () => {
+    const res = await call("/version");
+    expect(res.status).toBe(200);
+    expect(res.headers.get("content-type")).toContain("application/json");
+    expect(res.data).toEqual({ commit: "dev" });
+  });
 });
 
 describe("deleting an account", () => {

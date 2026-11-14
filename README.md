@@ -129,6 +129,8 @@ SSH/80/443, then builds the right binary for the VPS's CPU on your Mac and deplo
 `LINKS_SERVER_URL = https:/$()/links.example.com` in `ios/Config.xcconfig`.
 
 **Updates:** `deploy/deploy.sh root@203.0.113.7` tests, builds, uploads, swaps and health-checks.
+It only ships a clean `main` that matches `origin/main`, and compiles the commit in: `curl
+https://links.example.com/version` says what's live, and `/opt/links/deploys.log` lists each deploy.
 A build that doesn't come up healthy is rolled back automatically; the last good one is kept as
 `links-server.prev`. Re-running `setup.sh` only changes the settings you pass. The OS and Caddy patch themselves; Bun's
 runtime is inside the binary, so run `bun upgrade && deploy/deploy.sh …` about once a month.
