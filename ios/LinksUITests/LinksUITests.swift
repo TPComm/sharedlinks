@@ -509,18 +509,6 @@ final class LinksUITests: XCTestCase {
         return button
     }
 
-    /// Taps a text field and types once it has the keyboard focus. A slow CI Simulator can still
-    /// be animating the field in (an alert, a sheet) when the tap lands, and typeText fails on a
-    /// field without focus, so tap again until it takes.
-    private func type(_ text: String, into field: XCUIElement) {
-        for _ in 1...3 {
-            field.tap()
-            let focused = XCTNSPredicateExpectation(predicate: NSPredicate(format: "hasKeyboardFocus == true"), object: field)
-            if XCTWaiter().wait(for: [focused], timeout: 5) == .completed { break }
-        }
-        field.typeText(text)
-    }
-
     /// A change made on the server shows up at the app's next inbox poll, up to 8 seconds away, and
     /// on a slow CI Simulator a single accessibility query can take another 15.
     private func waitFor(_ element: XCUIElement, labelContaining text: String, timeout: TimeInterval = 30) {
@@ -542,5 +530,19 @@ final class LinksUITests: XCTestCase {
     private func deleteAfterwards(_ id: Int) {
         let server = server!
         addTeardownBlock { try? server.delete(id, as: server.friend) }
+    }
+}
+
+extension XCTestCase {
+    /// Taps a text field and types once it has the keyboard focus. A slow CI Simulator can still
+    /// be animating the field in (an alert, a sheet) when the tap lands, and typeText fails on a
+    /// field without focus, so tap again until it takes.
+    func type(_ text: String, into field: XCUIElement) {
+        for _ in 1...3 {
+            field.tap()
+            let focused = XCTNSPredicateExpectation(predicate: NSPredicate(format: "hasKeyboardFocus == true"), object: field)
+            if XCTWaiter().wait(for: [focused], timeout: 5) == .completed { break }
+        }
+        field.typeText(text)
     }
 }
