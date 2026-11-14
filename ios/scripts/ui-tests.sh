@@ -44,9 +44,8 @@ command -v bun >/dev/null || { echo "error: bun isn't installed (https://bun.sh)
 # -- server: a free port (8000 is usually the dev server), a throwaway database.
 port="$(bun -e 'const s = Bun.serve({ port: 0, hostname: "127.0.0.1", fetch: () => new Response() }); console.log(s.port); s.stop(true)')"
 url="http://127.0.0.1:$port"
-# ALLOWED_EMAILS pinned empty and server/.env skipped: a list from your shell or .env would refuse
-# the test accounts, and every test would fail at sign-in.
-server_env=(DATA_DIR="$tmp/data" HOST=127.0.0.1 PORT="$port" WORKOS_CLIENT_ID=client_E2E ALLOWED_EMAILS=)
+# server/.env skipped: settings from it would leak into the tests. Minted accounts are in already.
+server_env=(DATA_DIR="$tmp/data" HOST=127.0.0.1 PORT="$port" WORKOS_CLIENT_ID=client_E2E)
 
 (cd "$server_dir" && exec env "${server_env[@]}" bun --no-env-file src/main.ts) >"$logs/server.log" 2>&1 &
 server_pid=$!
@@ -123,24 +122,38 @@ fi
 # xcodebuild hands TEST_RUNNER_<NAME> to the test runner as <NAME>. The tests pass the URL and
 # token on to the app (DEBUG builds read LINKS_SERVER_URL and LINKS_DEV_TOKEN).
 # Signed (ad hoc, for the Simulator): the app needs its App Group entitlement for the keychain.
+run_tests() {
+  (
+    cd "$ios"
+    TEST_RUNNER_LINKS_SERVER_URL="$url" \
+    TEST_RUNNER_LINKS_DEV_TOKEN="$me_token" \
+    TEST_RUNNER_LINKS_FRIEND_TOKEN="$friend_token" \
+    TEST_RUNNER_LINKS_SPARE_TOKEN="$spare_token" \
+    TEST_RUNNER_LINKS_DELETABLE_TOKEN="$deletable_token" \
+    xcodebuild "${LINKS_UI_TEST_ACTION:-test}" \
+      -project Links.xcodeproj \
+      -scheme Links \
+      -configuration Debug \
+      -destination "$destination" \
+      -derivedDataPath "${LINKS_UI_TEST_DERIVED_DATA:-build}" \
+      -parallel-testing-enabled NO \
+      ${shard_args[@]+"${shard_args[@]}"} \
+      "$@"
+  ) 2>&1 | tee "$logs/xcodebuild.log"
+}
 status=0
-(
-  cd "$ios"
-  TEST_RUNNER_LINKS_SERVER_URL="$url" \
-  TEST_RUNNER_LINKS_DEV_TOKEN="$me_token" \
-  TEST_RUNNER_LINKS_FRIEND_TOKEN="$friend_token" \
-  TEST_RUNNER_LINKS_SPARE_TOKEN="$spare_token" \
-  TEST_RUNNER_LINKS_DELETABLE_TOKEN="$deletable_token" \
-  xcodebuild "${LINKS_UI_TEST_ACTION:-test}" \
-    -project Links.xcodeproj \
-    -scheme Links \
-    -configuration Debug \
-    -destination "$destination" \
-    -derivedDataPath "${LINKS_UI_TEST_DERIVED_DATA:-build}" \
-    -parallel-testing-enabled NO \
-    ${shard_args[@]+"${shard_args[@]}"} \
-    "$@"
-) 2>&1 | tee "$logs/xcodebuild.log" || status=$?
+run_tests "$@" || status=$?
+
+# On CI the test runner sometimes crashes before running a single test, once Xcode has lost the
+# Simulator's service hub. That's the runner, not a test, so it gets one more go on a fresh boot.
+if [[ $status -ne 0 ]] && grep -q "crashed while preparing to run tests" "$logs/xcodebuild.log" &&
+   ! grep -q "^Test Case '.*' started" "$logs/xcodebuild.log"; then
+  echo "warning: the test runner crashed before any test ran; trying once more" >&2
+  mv "$logs/xcodebuild.log" "$logs/xcodebuild-crashed.log"
+  if [[ -n "${udid:-}" ]]; then xcrun simctl shutdown "$udid" 2>/dev/null || true; fi
+  status=0
+  run_tests "$@" || status=$?
+fi
 
 # Without the TEST_RUNNER_ values the tests skip themselves; here that would be a false pass.
 if [[ $status -eq 0 ]] && grep -q "^Test Case '.*' skipped" "$logs/xcodebuild.log"; then

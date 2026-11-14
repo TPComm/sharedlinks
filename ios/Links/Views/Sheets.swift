@@ -87,6 +87,7 @@ struct AccountMenu: View {
     @State private var nameDraft = ""
     @State private var confirmingDelete = false
     @State private var showingBlocked = false
+    @State private var showingPeople = false
 
     /// Spells out what goes and what stays, since none of it can come back.
     private var deleteWarning: String {
@@ -112,6 +113,12 @@ struct AccountMenu: View {
                         model.showClaimSheet = true
                     }
                 }
+            }
+            Section {
+                Button("People", systemImage: "person.2") {
+                    showingPeople = true
+                }
+                .accessibilityIdentifier("people")
             }
             Section {
                 Button("How to Share to Links", systemImage: "square.and.arrow.up") {
@@ -151,6 +158,9 @@ struct AccountMenu: View {
         .accessibilityIdentifier("account")
         .sheet(isPresented: $showingBlocked) {
             BlockedPeopleSheet().environment(model)
+        }
+        .sheet(isPresented: $showingPeople) {
+            PeopleSheet().environment(model)
         }
         .alert("Delete Your Account?", isPresented: $confirmingDelete) {
             Button("Delete Account", role: .destructive) { Task { await model.deleteAccount() } }

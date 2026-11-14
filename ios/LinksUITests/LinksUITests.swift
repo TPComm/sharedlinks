@@ -319,6 +319,24 @@ final class LinksUITests: XCTestCase {
         XCTAssertEqual(try server.state(as: server.me).blocked, [])
     }
 
+    func testInvitingAFriendMakesALinkToSendAndCancelsIt() throws {
+        launch()
+        app.buttons["account"].tap()
+        app.buttons["People"].tap()
+        let invite = app.buttons["inviteFriend"]
+        XCTAssert(invite.waitForExistence(timeout: 5), "no Invite a Friend")
+        invite.tap()
+        app.buttons["createInvite"].tap()
+        XCTAssert(app.buttons["sendInvite"].waitForExistence(timeout: 10), "no invite link to send")
+        app.buttons["Done"].firstMatch.tap()
+        let pending = app.staticTexts["Invite link"]
+        XCTAssert(pending.waitForExistence(timeout: 5), "not under Invited")
+        pending.swipeLeft()
+        app.buttons["Cancel Invite"].tap()
+        XCTAssert(pending.waitForNonExistence(timeout: 5), "still under Invited")
+        app.buttons["Done"].tap()
+    }
+
     func testReactingFromTheFeed() throws {
         let link = try seed(by: server.friend)
         launch()
@@ -485,7 +503,9 @@ final class LinksUITests: XCTestCase {
         field.typeText(text)
     }
 
-    private func waitFor(_ element: XCUIElement, labelContaining text: String, timeout: TimeInterval = 15) {
+    /// A change made on the server shows up at the app's next inbox poll, up to 8 seconds away, and
+    /// on a slow CI Simulator a single accessibility query can take another 15.
+    private func waitFor(_ element: XCUIElement, labelContaining text: String, timeout: TimeInterval = 30) {
         let label = XCTNSPredicateExpectation(predicate: NSPredicate(format: "label CONTAINS %@", text), object: element)
         wait(for: [label], timeout: timeout)
     }

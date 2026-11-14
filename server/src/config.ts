@@ -15,14 +15,21 @@ export interface Config {
   /** Optional: with PKCE the code exchange works without it. */
   workosApiKey: string;
   workosApi: string;
-  /** Emails (or "@domain.com") allowed to sign in. Empty = anyone your AuthKit lets in. */
-  allowedEmails: string[];
+  /**
+   * The old ALLOWED_EMAILS guest list (emails or "@domain.com"). Only the v7 migration reads it, to
+   * decide who of those already signed up stays in; invites are the only way in now.
+   */
+  legacyAllowedEmails: string[];
   /** Let preview fetches reach private/loopback addresses. Only for tests. */
   allowPrivateNetwork: boolean;
   /** Log one line per request. */
   logRequests: boolean;
   /** Shown on /support, the page the App Store listing's Support URL points at. SUPPORT_EMAIL overrides it. */
   supportEmail: string;
+  /** `TEAMID.bundleid` of each app that may open this server's links (universal links). Empty = no apple-app-site-association. */
+  appleAppIds: string[];
+  /** The app's numeric App Store ID, for the Smart App Banner on the web pages. Empty = no banner. */
+  appStoreId: string;
   /** Pause between re-fetches of old links' previews after an upgrade; 0 turns that off. */
   previewBackfillMs: number;
 }
@@ -42,7 +49,7 @@ export function configFromEnv(env: Record<string, string | undefined> = process.
     workosClientId: env.WORKOS_CLIENT_ID ?? "",
     workosApiKey: env.WORKOS_API_KEY ?? "",
     workosApi: (env.WORKOS_API ?? "https://api.workos.com").replace(/\/+$/, ""),
-    allowedEmails: (env.ALLOWED_EMAILS ?? "")
+    legacyAllowedEmails: (env.ALLOWED_EMAILS ?? "")
       .split(",")
       .map((e) => e.trim().toLowerCase())
       .filter(Boolean),
@@ -50,5 +57,11 @@ export function configFromEnv(env: Record<string, string | undefined> = process.
     logRequests: true,
     supportEmail: env.SUPPORT_EMAIL?.trim() || DEFAULT_SUPPORT_EMAIL,
     previewBackfillMs: Number(env.PREVIEW_BACKFILL_MS ?? 5000),
+    // Not lowercased: team IDs are upper case.
+    appleAppIds: (env.APPLE_APP_IDS ?? "")
+      .split(",")
+      .map((id) => id.trim())
+      .filter(Boolean),
+    appStoreId: env.APP_STORE_ID?.trim() ?? "",
   };
 }

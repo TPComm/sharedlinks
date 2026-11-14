@@ -163,12 +163,14 @@ check_firewall() {
   ok "ufw is active and allows 22, 80 and 443"
 }
 
-# mint EMAIL NAME: a session token from the CLI, run as the service account with the service's
-# settings and database, the way an admin does it on the VPS.
-mint() {
+# cli COMMAND ARGS...: links-server run as the service account with the service's settings and
+# database, the way an admin does it on the VPS. Prints its last line of output.
+cli() {
   sudo -u links sh -c 'cd /var/lib/links && set -a && . /etc/links/links.env && set +a &&
-    export DATA_DIR=/var/lib/links && exec /opt/links/links-server mint-session "$@"' sh "$@" | tail -n 1
+    export DATA_DIR=/var/lib/links && exec /opt/links/links-server "$@"' sh "$@" | tail -n 1
 }
+# mint EMAIL NAME: a session token from the CLI.
+mint() { cli mint-session "$@"; }
 
 # api TOKEN METHOD PATH [JSON]: one request through Caddy. Prints the HTTP status; the body lands
 # in $STATE/body.json.
@@ -181,7 +183,7 @@ api() {
 body() { cat "$STATE/body.json"; }
 
 check_api() {
-  local token stranger code
+  local token link code
   token=$(mint "$EMAIL" E2E) || fail "mint-session as the links user failed"
   [[ $token =~ ^[A-Za-z0-9_-]{40,}$ ]] || fail "mint-session printed '$token', not a token"
   echo "::add-mask::$token"
@@ -199,11 +201,25 @@ check_api() {
     || fail "POST /api/links answered $(body)"
   check_data
 
-  # A valid session for an email outside ALLOWED_EMAILS is refused: the service reads the env file.
-  stranger=$(mint stranger@example.com Stranger) || fail "mint-session for a second user failed"
-  code=$(api "$stranger" GET /api/state) || fail "GET /api/state failed"
-  [ "$code" = 401 ] || fail "a session for an email outside ALLOWED_EMAILS got HTTP $code, want 401"
-  ok "a minted session reads /api/state and adds a link through https://$DOMAIN; ALLOWED_EMAILS is enforced"
+  # Invites are the only way in: the CLI makes one with the service's PUBLIC_URL, and its page is served.
+  link=$(cli invite friend@example.com) || fail "links-server invite failed"
+  [[ "$link" =~ ^https://$DOMAIN/invite/[A-Za-z0-9_-]{43}$ ]] || fail "links-server invite printed '$link'"
+  code=$(curl -sS -k --max-time 15 -o "$STATE/body.json" -w '%{http_code}' "$link") || fail "GET $link failed"
+  [ "$code" = 200 ] && grep -q "invited to Links" "$STATE/body.json" || fail "the invite page: HTTP $code $(body)"
+  ok "a minted session reads /api/state and adds a link through https://$DOMAIN; links-server invite makes a working link"
+}
+
+# The apple-app-site-association file through Caddy: Apple's CDN fetches it over HTTPS and
+# follows no redirects, so it must be a straight 200 with JSON naming the app.
+check_aasa() {
+  local code type
+  read -r code type < <(curl -sS -k --max-time 15 -o "$STATE/body.json" -w '%{http_code} %{content_type}\n' \
+    "https://$DOMAIN/.well-known/apple-app-site-association") || fail "GET apple-app-site-association failed"
+  [ "$code" = 200 ] || fail "apple-app-site-association: HTTP $code (want 200, no redirect) $(body)"
+  [[ $type == application/json* ]] || fail "apple-app-site-association is $type, want application/json"
+  jq -e --arg id "$1" '(.applinks.details[0].appIDs | index($id)) and (.webcredentials.apps | index($id))' \
+    "$STATE/body.json" >/dev/null || fail "apple-app-site-association doesn't name $1: $(body)"
+  ok "https://$DOMAIN/.well-known/apple-app-site-association is served for $1"
 }
 
 # The link check_api added is still in the inbox for the same session: deploys keep the database.
@@ -367,6 +383,7 @@ case $command in
   service-env) check_service_env "$@" ;;
   firewall) check_firewall "$@" ;;
   api) check_api ;;
+  aasa) check_aasa "$@" ;;
   data) check_data ;;
   backup) check_backup ;;
   checksum) record_checksum "$@" ;;
