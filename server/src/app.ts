@@ -88,7 +88,7 @@ function privacyPage(email: string, sessionDays: number): string {
 <h2>Your choices</h2>
 <ul>
 <li>Change your display name in the app's account menu. Delete a link you sent, or change its note, from the link's long-press menu.</li>
-<li>To delete your account, open the account menu in the app and choose <b>Delete Account</b>. That deletes your account, your sign-ins on every device, your watched marks and reactions, and your WorkOS account. The links you sent stay for your friends, from "Deleted user"; delete them first if you'd rather they went too.</li>
+<li>To delete your account, open the account menu in the app and choose <b>Delete Account</b>. That deletes your account, your sign-ins on every device, the links you sent with their notes and thumbnails (for your friends too), your watched marks and reactions, and your WorkOS account.</li>
 <li>You can also email ${contact} to ask what Links keeps about you, to correct it, or to delete it.</li>
 </ul>
 
@@ -220,7 +220,7 @@ export function createApp(config: Config) {
   /**
    * A write on `me`'s behalf, if their account still exists. A request can outlive it: DELETE /api/me
    * (or `links-server delete-user`) can land while it awaits its body or a short link, and rows
-   * written after that would stay under the deleted id instead of "deleted".
+   * written after that would stay under the deleted id instead of going with the account.
    */
   function asUser<T>(me: string, write: () => T): T {
     return db.transaction(() => {
@@ -362,7 +362,7 @@ export function createApp(config: Config) {
           return accounts.mePayload(me);
         }));
       }),
-      // Delete the account. The links it sent stay, from "Deleted user" (see Accounts.deleteUser).
+      // Delete the account and the links it sent, with their notes (see Accounts.deleteUser).
       DELETE: route(async (_req, me) => {
         await accounts.deleteUser(me);
         return json({ ok: true });

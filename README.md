@@ -189,7 +189,7 @@ All endpoints except sign-in need `Authorization: Bearer <session token>`.
 | GET | `/auth/callback` | AuthKit's redirect; bounces to `sharedlinks://auth/callback?code=…` |
 | POST | `/api/auth/token` | `{code, code_verifier}` → `{token, user, claimable}` |
 | POST | `/api/auth/logout` | ends this session |
-| GET/PATCH/DELETE | `/api/me` | `{user, claimable}`; PATCH `{name}`; DELETE deletes the account, its sessions, watched marks and reactions; the links it sent stay, from `deleted` ("Deleted user"). Also the WorkOS user, given `WORKOS_API_KEY` |
+| GET/PATCH/DELETE | `/api/me` | `{user, claimable}`; PATCH `{name}`; DELETE deletes the account, its sessions, watched marks and reactions, and the links it sent (with their notes and thumbnails, for everyone). Also the WorkOS user, given `WORKOS_API_KEY` |
 | POST | `/api/me/claim` | `{id}` of a legacy person |
 | GET | `/api/state` | `{me, users, links, blocked}`: without links I reported or that people I blocked sent, and without blocked people's watched marks and reactions |
 | POST | `/api/links` | `{url, note?}`; `url` may be any text containing a link → `{link, duplicate}` |
