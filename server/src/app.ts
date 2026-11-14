@@ -406,6 +406,11 @@ export function createApp(config: Config, opts: AppOptions = {}) {
     return id;
   }
 
+  /** Again inside a write, once the body is in: they may have left its chat while it uploaded. */
+  function stillSees(id: number, me: string) {
+    if (!isVisible(id, me)) throw new NotFound("That link was deleted.");
+  }
+
   const sender = (id: number) => (db.query("SELECT added_by FROM links WHERE id = ?").get(id) as { added_by: string }).added_by;
 
   /** A report snapshot: what was reported as it was, since it can be edited or deleted later. */
@@ -755,7 +760,10 @@ export function createApp(config: Config, opts: AppOptions = {}) {
         const note = clipText((await readJson(req)).note, 500);
         if (sender(id) !== me) throw new AuthError("Only the person who sent a link can change its note.", 403);
         accounts.screen(note, "note");
-        db.run("UPDATE links SET note = ? WHERE id = ?", [note, id]);
+        asUser(me, () => {
+          stillSees(id, me);
+          db.run("UPDATE links SET note = ? WHERE id = ?", [note, id]);
+        });
         return json({ link: getLink(id, me) });
       }),
       DELETE: route<WithId>((req, me) => {
@@ -783,6 +791,7 @@ export function createApp(config: Config, opts: AppOptions = {}) {
         const id = linkId(req, me);
         const seen = (await readJson(req)).seen ?? true;
         asUser(me, () => {
+          stillSees(id, me);
           if (seen) {
             db.run("INSERT OR IGNORE INTO seen (link_id, person, seen_at) VALUES (?, ?, ?)", [id, me, now()]);
           } else {
@@ -798,6 +807,7 @@ export function createApp(config: Config, opts: AppOptions = {}) {
         const id = linkId(req, me);
         const emoji = (await readJson(req)).emoji;
         const changed = asUser(me, () => {
+          stillSees(id, me);
           if (typeof emoji === "string" && EMOJIS.has(emoji)) {
             const before = db.query("SELECT emoji FROM reactions WHERE link_id = ? AND person = ?").get(id, me) as { emoji: string } | null;
             db.run("INSERT OR REPLACE INTO reactions (link_id, person, emoji) VALUES (?, ?, ?)", [id, me, emoji]);

@@ -752,7 +752,7 @@ describe("group chats", () => {
     db.close();
   });
 
-  test("someone who leaves while a request uploads can't rename the chat or add people to it", async () => {
+  test("someone who leaves while a request uploads can't rename the chat, add people or touch its links", async () => {
     const chat = (await call("/api/groups", { token: ann, body: { name: "Before", members: [boId] } })).data.group;
     const slow = (method: string, path: string, body: object) => {
       let send!: () => void;
@@ -767,16 +767,32 @@ describe("group chats", () => {
       } as RequestInit);
       return { send, res };
     };
+    const link = (await call("/api/links", { token: bo, body: { url: `${origin}/plain?n=upload`, group_id: chat.id } })).data.link;
     const inFlight = [
       slow("PATCH", `/api/groups/${chat.id}`, { name: "Mine now" }),
       slow("POST", `/api/groups/${chat.id}/members`, { members: [cyId] }),
+      slow("PATCH", `/api/links/${link.id}`, { note: "late" }),
+      slow("POST", `/api/links/${link.id}/seen`, { seen: true }),
+      slow("POST", `/api/links/${link.id}/react`, { emoji: "🔥" }),
     ];
     await Bun.sleep(50);
     expect((await call(`/api/groups/${chat.id}`, { method: "DELETE", token: bo })).status).toBe(200);
     for (const r of inFlight) r.send();
-    expect(await Promise.all(inFlight.map(async (r) => (await r.res).status))).toEqual([404, 404]);
-    const after = (await state(ann)).groups.find((g: any) => g.id === chat.id);
-    expect(after).toMatchObject({ name: "Before", members: [annId] });
+    expect(await Promise.all(inFlight.map(async (r) => (await r.res).status))).toEqual(inFlight.map(() => 404));
+    const after = await state(ann);
+    expect(after.groups.find((g: any) => g.id === chat.id)).toMatchObject({ name: "Before", members: [annId] });
+    expect(after.links.find((l: any) => l.id === link.id)).toMatchObject({ note: "", seen: {}, reactions: {} });
+    await idle();
+  });
+
+  test("a chat holds up to 50 people", async () => {
+    const people = await Promise.all(Array.from({ length: 50 }, async (_, i) => (await state(mint(`many${i}@groups.test`, `Many ${i}`))).me));
+    const full = await call("/api/groups", { token: ann, body: { members: people.slice(0, 49) } });
+    expect(full.status).toBe(201);
+    expect(full.data.group.members).toHaveLength(50);
+    const more = await call(`/api/groups/${full.data.group.id}/members`, { token: ann, body: { members: [people[49]] } });
+    expect(more).toMatchObject({ status: 400, data: { error: "A chat can have up to 50 people." } });
+    expect((await call("/api/groups", { token: ann, body: { members: people } })).status).toBe(400);
   });
 
   test("an app from before groups sends to the default chat, or the only chat left", async () => {
@@ -790,7 +806,6 @@ describe("group chats", () => {
     await call("/api/groups", { token: dee, body: { name: "Second" } });
     const none = await call("/api/links", { token: dee, body: { url: `${origin}/plain?n=which` } });
     expect(none).toMatchObject({ status: 400, data: { error: "Pick a chat to send it to." } });
-    expect((await call("/api/groups", { token: dee, body: { members: Array.from({ length: 50 }, (_, i) => `u${i}`) } })).status).toBe(400);
     await idle();
   });
 });
