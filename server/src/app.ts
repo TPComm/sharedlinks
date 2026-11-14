@@ -410,10 +410,10 @@ export function createApp(config: Config, opts: AppOptions = {}) {
         return json({ blocked: [...blockedBy(me)] });
       }),
     },
-    // The id is URL-encoded: legacy ones look like legacy:<name>.
+    // The id is URL-encoded (legacy ones look like legacy:<name>); Bun has already decoded the param.
     "/api/blocks/:user_id": {
       DELETE: route<Request & { params: { user_id: string } }>((req, me) => {
-        db.run("DELETE FROM blocks WHERE blocker = ? AND blocked = ?", [me, decodeURIComponent(req.params.user_id)]);
+        db.run("DELETE FROM blocks WHERE blocker = ? AND blocked = ?", [me, req.params.user_id]);
         push.badges([me]);
         return json({ blocked: [...blockedBy(me)] });
       }),
