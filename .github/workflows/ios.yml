@@ -11,8 +11,9 @@ on:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
-  # Supersede older runs of a PR; let runs on main finish.
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+  # A newer push supersedes an older run, on main too: the newest commit includes the older ones,
+  # and a macOS run costs ~10x Linux. (The Linux workflows still let runs on main finish.)
+  cancel-in-progress: true
 
 permissions:
   contents: read
