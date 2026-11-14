@@ -25,7 +25,13 @@ split_url() {
   local name=$1 url=$2 host port path tls=off
   [[ $url =~ ^(https?)://([^/:]+)(:([0-9]+))?(/.*)?$ ]] || { echo "$name: not an http(s) URL: $url" >&2; return 1; }
   host=${BASH_REMATCH[2]} port=${BASH_REMATCH[4]} path=${BASH_REMATCH[5]}
-  if [[ ${BASH_REMATCH[1]} = https ]]; then tls=on; fi
+  if [[ ${BASH_REMATCH[1]} = https ]]; then
+    tls=on
+  elif [[ $host != 127.0.0.1 && $host != localhost ]]; then
+    # Plain http would send the token in the clear; only a loopback stand-in (the e2e test) gets it.
+    echo "$name: use https:// (http only for 127.0.0.1): $url" >&2
+    return 1
+  fi
   if [[ -z $port && $tls = on ]]; then port=443; elif [[ -z $port ]]; then port=80; fi
   if [[ -z $path || $path = / ]]; then path=$3; fi
   printf '%s_HOST=%s\n%s_PORT=%s\n%s_TLS=%s\n%s_URI=%s\n' "$name" "$host" "$name" "$port" "$name" "$tls" "$name" "$path"
