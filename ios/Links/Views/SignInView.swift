@@ -43,6 +43,12 @@ struct SignInView: View {
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
                 .padding(.top, 6)
+            if model.pendingInvite != nil {
+                Label("You’re invited. Sign in or create an account to join.", systemImage: "envelope.open")
+                    .font(.callout.weight(.medium))
+                    .padding(.top, 14)
+                    .accessibilityIdentifier("invited")
+            }
             Spacer()
             VStack(spacing: 12) {
                 Button {

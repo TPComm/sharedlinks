@@ -68,11 +68,27 @@ public enum DeepLink: Equatable, Sendable {
     case open(linkID: Int)
     case add
     case inbox
+    /// An invite to this Links (#5): the token goes with the sign-in. Either
+    /// `sharedlinks://invite/<token>` (the invite page's Open in Links) or the server's own
+    /// `https://<server>/invite/<token>`, the link people send (a universal link once the app
+    /// claims the domain).
+    case invite(token: String)
 
-    public init?(url: URL) {
+    /// `webHost` is the server's: an https link only counts when it's the server's invite page.
+    public init?(url: URL, webHost: String? = LinksConfig.serverURL.host()) {
+        if url.scheme?.lowercased() == "https" {
+            let parts = url.pathComponents.filter { $0 != "/" }
+            guard let webHost, url.host()?.lowercased() == webHost.lowercased(), parts.count >= 2,
+                  parts[parts.count - 2] == "invite", Self.isInviteToken(parts[parts.count - 1]) else { return nil }
+            self = .invite(token: parts[parts.count - 1])
+            return
+        }
         guard url.scheme == LinksConfig.urlScheme else { return nil }
         let parts = [url.host()].compactMap { $0 } + url.pathComponents.filter { $0 != "/" }
         switch parts.first {
+        case "invite":
+            guard parts.count > 1, Self.isInviteToken(parts[1]) else { return nil }
+            self = .invite(token: parts[1])
         case "open": self = parts.count > 1 ? Int(parts[1]).map { .open(linkID: $0) } ?? .inbox : .inbox
         case "add": self = .add
         case "inbox": self = .inbox
@@ -85,6 +101,14 @@ public enum DeepLink: Equatable, Sendable {
         case .open(let id): URL(string: "\(LinksConfig.urlScheme)://open/\(id)")!
         case .add: URL(string: "\(LinksConfig.urlScheme)://add")!
         case .inbox: URL(string: "\(LinksConfig.urlScheme)://inbox")!
+        case .invite(let token): URL(string: "\(LinksConfig.urlScheme)://invite/\(token)")!
+        }
+    }
+
+    /// The server's invite tokens: 32 random bytes, base64url (server/src/accounts.ts).
+    static func isInviteToken(_ s: String) -> Bool {
+        s.count == 43 && s.unicodeScalars.allSatisfy {
+            $0.isASCII && (CharacterSet.alphanumerics.contains($0) || $0 == "-" || $0 == "_")
         }
     }
 }

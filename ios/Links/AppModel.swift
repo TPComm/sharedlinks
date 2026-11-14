@@ -45,6 +45,10 @@ final class AppModel {
     /// The signed-in account, with email (the shared inbox only carries names and avatars).
     private(set) var account: LinkUser? = SessionStore.currentUser
     var me: LinkUser? { account ?? inbox.meUser }
+    /// The token from an invite link opened while signed out, kept until a sign-in sends it (#5).
+    private(set) var pendingInvite: String?
+    /// Invites I sent that nobody has used yet (the People sheet).
+    private(set) var invites: [Invite] = []
 
     /// UI tests launch with LINKS_UI_TESTS=1: no tour, tips or badge prompt to get in their way.
     static let isUITesting: Bool = {
@@ -102,7 +106,8 @@ final class AppModel {
                 errorMessage = "Sign-in was interrupted. Try again."
                 return
             }
-            let result = try await client.exchange(code: code, verifier: pkce.verifier)
+            let result = try await client.exchange(code: code, verifier: pkce.verifier, invite: pendingInvite)
+            pendingInvite = nil
             SessionStore.save(token: result.token, user: result.user)
             account = result.user
             token = result.token
@@ -135,6 +140,7 @@ final class AppModel {
         account = nil
         inbox = .empty
         claimable = []
+        invites = []
         paths = [:]
         watching = nil
         UNUserNotificationCenter.current().setBadgeCount(0)
@@ -176,6 +182,30 @@ final class AppModel {
             self.setAccount(me.user)
             await self.refresh()
         }
+    }
+
+    // MARK: Invites
+
+    func loadInvites() async {
+        await perform { self.invites = try await self.client.invites() }
+    }
+
+    /// Throws so the invite sheet can say what went wrong where the person is looking.
+    func createInvite(email: String) async throws -> Invite {
+        let email = email.trimmingCharacters(in: .whitespacesAndNewlines)
+        do {
+            let invite = try await client.createInvite(email: email.isEmpty ? nil : email)
+            invites.insert(invite, at: 0)
+            return invite
+        } catch APIError.signedOut {
+            endSession()
+            throw APIError.signedOut
+        }
+    }
+
+    func revokeInvite(_ invite: Invite) async {
+        invites.removeAll { $0.id == invite.id }
+        await perform { self.invites = try await self.client.revokeInvite(invite.id) }
     }
 
     /// Deletes the account on the server (the links it sent stay, from "Deleted user"), then
@@ -471,6 +501,12 @@ final class AppModel {
         case .add:
             addPrefill = ""
             showAddSheet = true
+        case .invite(let invite):
+            // Signed in already: they're in, so there's nothing to use it for.
+            if token == nil {
+                pendingInvite = invite
+                errorMessage = nil
+            }
         case .inbox, nil:
             break
         }

@@ -50,8 +50,11 @@ public struct APIClient: Sendable {
         return baseURL.appending(path: "auth/authorize").appending(queryItems: items)
     }
 
-    public func exchange(code: String, verifier: String) async throws -> SignInResult {
-        try await send("POST", "api/auth/token", json: ["code": code, "code_verifier": verifier])
+    /// `invite` is the token from an invite link opened before signing in; the server uses it up.
+    public func exchange(code: String, verifier: String, invite: String? = nil) async throws -> SignInResult {
+        var body: [String: Any] = ["code": code, "code_verifier": verifier]
+        if let invite { body["invite"] = invite }
+        return try await send("POST", "api/auth/token", json: body)
     }
 
     public func signOut() async {
@@ -134,6 +137,26 @@ public struct APIClient: Sendable {
         return r.blocked
     }
 
+    // MARK: Invites
+
+    /// Mine that nobody has used yet, newest first.
+    public func invites() async throws -> [Invite] {
+        let r: InvitesEnvelope = try await send("GET", "api/invites")
+        return r.invites
+    }
+
+    /// A new invite, with its link. `email` lets that person in even if the link gets lost.
+    public func createInvite(email: String? = nil) async throws -> Invite {
+        let r: InviteEnvelope = try await send("POST", "api/invites", json: email.map { ["email": $0] } ?? [:])
+        return r.invite
+    }
+
+    /// Returns the invites still pending.
+    public func revokeInvite(_ id: Int) async throws -> [Invite] {
+        let r: InvitesEnvelope = try await send("DELETE", "api/invites", component: String(id))
+        return r.invites
+    }
+
     public func thumbnail(_ link: SharedLink) async throws -> Data {
         guard let path = link.thumb else { throw APIError.server("No thumbnail.") }
         let (data, response) = try await perform(request("GET", String(path.drop(while: { $0 == "/" }))))
@@ -145,6 +168,8 @@ public struct APIClient: Sendable {
 
     struct LinkEnvelope: Decodable { var link: SharedLink }
     struct BlockedEnvelope: Decodable { var blocked: [String] }
+    struct InviteEnvelope: Decodable { var invite: Invite }
+    struct InvitesEnvelope: Decodable { var invites: [Invite] }
     struct ErrorBody: Decodable { var error: String }
 
     /// `component` is one more path segment, escaped (an id with a "/" in it stays one segment).
