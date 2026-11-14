@@ -487,6 +487,7 @@ describe("reports, blocks and the word list", () => {
     expect(res.status).toBe(200);
     expect(res.headers.get("content-type")).toContain("text/html");
     expect(res.data).toContain("Links Support");
+    expect(res.data).toContain('<a href="mailto:support@tpcomm.co">support@tpcomm.co</a>');
   });
 });
 

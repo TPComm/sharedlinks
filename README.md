@@ -103,7 +103,7 @@ passwordless sudo (the scripts run their remote steps without a terminal). Then,
 
 ```bash
 read -rs 'WORKOS_API_KEY?WorkOS API key (Enter to skip): ' && export WORKOS_API_KEY   # zsh: not saved to shell history
-WORKOS_CLIENT_ID=client_... ALLOWED_EMAILS=you@x.com,friend@y.com SUPPORT_EMAIL=you@x.com \
+WORKOS_CLIENT_ID=client_... ALLOWED_EMAILS=you@x.com,friend@y.com \
   deploy/setup.sh root@203.0.113.7 links.example.com
 ```
 
@@ -132,9 +132,10 @@ runtime is inside the binary, so run `bun upgrade && deploy/deploy.sh …` about
   watched marks and reactions. Notes can only be changed by the link's sender.
 - Notes and display names with a word on the list in `server/src/moderation.ts` are refused. Add
   your own, one per line, to `/var/lib/links/blocked-words.txt` and restart (`systemctl restart links`).
-- `SUPPORT_EMAIL` is shown on `https://YOUR-HOST/support`: use that page as the App Store listing's
-  Support URL, and set the same address as `LINKS_SUPPORT_URL` in `ios/Config.xcconfig`, which the
-  app shows in the account menu and on the sign-in screen.
+- The support address, `support@tpcomm.co`, is shown on `https://YOUR-HOST/support`: use that page as
+  the App Store listing's Support URL. The app shows the same address (`LINKS_SUPPORT_URL` in
+  `ios/Config.xcconfig`) in the account menu and on the sign-in screen. A different server can set
+  its own with `SUPPORT_EMAIL` (pass it to `setup.sh`), along with `LINKS_SUPPORT_URL`.
 
 ### Moving over from the old Python web app
 
@@ -178,7 +179,7 @@ All endpoints except sign-in need `Authorization: Bearer <session token>`.
 | POST | `/api/reports` | `{link_id \| user_id, reason, details?}`; reason is `spam`, `offensive`, `harassment` or `other` → 201 |
 | POST | `/api/blocks` | `{user_id}` → `{blocked}` |
 | DELETE | `/api/blocks/:user_id` | unblock (URL-encode the id) → `{blocked}` |
-| GET | `/support` | public page with `SUPPORT_EMAIL`, for the App Store Support URL |
+| GET | `/support` | public page with the support address (`SUPPORT_EMAIL`, default `support@tpcomm.co`), for the App Store Support URL |
 | GET | `/thumbs/:id` | the cached thumbnail |
 
 Admin: `links-server mint-session <email> [name]`, `links-server delete-user <email>` (what the app's Delete Account does),

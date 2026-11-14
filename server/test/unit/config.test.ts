@@ -17,7 +17,7 @@ describe("configFromEnv", () => {
       allowedEmails: [],
       allowPrivateNetwork: false,
       logRequests: true,
-      supportEmail: "",
+      supportEmail: "support@tpcomm.co",
       previewBackfillMs: 5000,
     });
   });
@@ -27,6 +27,7 @@ describe("configFromEnv", () => {
       HOST: "127.0.0.1", APP_SCHEME: "links-dev", WORKOS_CLIENT_ID: "client_1", WORKOS_API_KEY: "sk_test_1",
     })).toMatchObject({ hostname: "127.0.0.1", appScheme: "links-dev", workosClientId: "client_1", workosApiKey: "sk_test_1" });
     expect(configFromEnv({ SUPPORT_EMAIL: " help@example.com " }).supportEmail).toBe("help@example.com");
+    expect(configFromEnv({ SUPPORT_EMAIL: " " }).supportEmail).toBe("support@tpcomm.co");
   });
 
   test("PORT and SESSION_DAYS are numbers; the default PUBLIC_URL follows PORT", () => {

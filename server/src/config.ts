@@ -21,11 +21,14 @@ export interface Config {
   allowPrivateNetwork: boolean;
   /** Log one line per request. */
   logRequests: boolean;
-  /** Shown on /support, the page the App Store listing's Support URL points at. */
+  /** Shown on /support, the page the App Store listing's Support URL points at. SUPPORT_EMAIL overrides it. */
   supportEmail: string;
   /** Pause between re-fetches of old links' previews after an upgrade; 0 turns that off. */
   previewBackfillMs: number;
 }
+
+/** Same as LINKS_SUPPORT_URL in ios/Config.xcconfig. */
+export const DEFAULT_SUPPORT_EMAIL = "support@tpcomm.co";
 
 export function configFromEnv(env: Record<string, string | undefined> = process.env): Config {
   const port = Number(env.PORT ?? 8000);
@@ -45,7 +48,7 @@ export function configFromEnv(env: Record<string, string | undefined> = process.
       .filter(Boolean),
     allowPrivateNetwork: false,
     logRequests: true,
-    supportEmail: (env.SUPPORT_EMAIL ?? "").trim(),
+    supportEmail: env.SUPPORT_EMAIL?.trim() || DEFAULT_SUPPORT_EMAIL,
     previewBackfillMs: Number(env.PREVIEW_BACKFILL_MS ?? 5000),
   };
 }
