@@ -176,6 +176,23 @@ at startup and sends nothing.
 
 **Backups off the box:** `rsync -a root@203.0.113.7:/var/lib/links/backups/ ./backups/`
 
+**Logs and metrics in Grafana Cloud** (its free tier covers them). `deploy/monitoring.sh` installs
+[Fluent Bit](https://fluentbit.io) (~25 MB of RAM, capped at 80 MB) to ship the journal of `links`,
+`links-backup` and Caddy to Loki and host CPU, memory, disk, network and unit metrics to Prometheus
+once a minute, labelled `job="links"`. Get the URLs and numeric users from the stack's Loki and
+Prometheus **Details** pages on grafana.com, and an access policy token with `logs:write` and
+`metrics:write`; the token goes to a root-only `/etc/fluent-bit/links.env`, never a command line:
+
+```bash
+read -rs 'GRAFANA_CLOUD_TOKEN?Grafana Cloud token: ' && export GRAFANA_CLOUD_TOKEN   # zsh
+LOKI_URL=https://logs-prod-000.grafana.net LOKI_USER=123456 \
+PROM_URL=https://prometheus-prod-00-prod-us-east-0.grafana.net/api/prom/push PROM_USER=654321 \
+  deploy/monitoring.sh root@203.0.113.7
+```
+
+It checks both pushes before it finishes and is safe to re-run, for example with a new token. In
+Grafana's Explore: `{job="links"}` for logs, `node_memory_MemAvailable_bytes{job="links"}` for metrics.
+
 **Grafana dashboard:** `deploy/grafana/links-dashboard.json` reads what `deploy/monitoring.sh` ships:
 host health, API traffic parsed from the request log, the daily backup, unit state and the logs, per
 host. Import it in Grafana (Dashboards → New → Import); it finds the stack's Prometheus and Loki
@@ -203,6 +220,10 @@ editing it there, export it (Share → Export, without "Export for sharing exter
   the listing's Privacy Policy URL. The app opens it from the account menu and the sign-in screen.
   It gives `SUPPORT_EMAIL` for privacy requests. Keep it in step with
   `ios/Links/PrivacyInfo.xcprivacy` and the listing's privacy answers.
+- Trademarks (App Store guideline 5.2): the sign-in screen and the tour say TikTok and Instagram
+  are their owners' trademarks and that Links isn't affiliated with them, and **About Links** in
+  the account menu lists every platform the app names (`Platform.trademarkOwner` in
+  `ios/LinksKit`). Add an owner there when you add a platform.
 
 **Universal links** (needs a paid Apple Developer membership; free teams can't sign the
 Associated Domains entitlement). With them, `https://YOUR-HOST/l/…`, `/invite/…` and `/g/…` links

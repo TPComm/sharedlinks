@@ -89,6 +89,7 @@ struct AccountMenu: View {
     @State private var confirmingDelete = false
     @State private var showingBlocked = false
     @State private var showingPeople = false
+    @State private var showingAbout = false
 
     /// Spells out what goes and what stays, since none of it can come back.
     private var deleteWarning: String {
@@ -100,6 +101,12 @@ struct AccountMenu: View {
         }
         return "This permanently deletes your Links account\(links), your watched marks and your reactions. "
             + "This can't be undone."
+    }
+
+    private static var version: String {
+        let info = Bundle.main.infoDictionary
+        let short = info?["CFBundleShortVersionString"] as? String ?? "?"
+        return info?["CFBundleVersion"].map { "\(short) (\($0))" } ?? short
     }
 
     var body: some View {
@@ -144,6 +151,9 @@ struct AccountMenu: View {
                 Link(destination: LinksConfig.privacyPolicyURL) {
                     Label("Privacy Policy", systemImage: "lock.shield")
                 }
+                Button("About Links", systemImage: "info.circle") {
+                    showingAbout = true
+                }
             }
             Button("Sign Out", systemImage: "rectangle.portrait.and.arrow.right", role: .destructive) {
                 Task { await model.signOut() }
@@ -173,6 +183,11 @@ struct AccountMenu: View {
             Button("Cancel", role: .cancel) {}
         } message: {
             Text(deleteWarning)
+        }
+        .alert("Links \(Self.version)", isPresented: $showingAbout) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(Platform.trademarkNotice())
         }
         .alert("Display Name", isPresented: $renaming) {
             TextField("Name", text: $nameDraft)
