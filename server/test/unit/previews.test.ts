@@ -323,6 +323,35 @@ describe("Instagram embed fallback", () => {
     }
   });
 
+  test("a reel the login wall already damaged gets its @handle and thumbnail back on the next start", async () => {
+    const tmp = tempDir();
+    let db = openDatabase(tmp.dir);
+    try {
+      const id = Number(db.run(
+        `INSERT INTO links (url, platform, title, author, thumb_type, thumb_w, thumb_h, thumb_v, preview_v, meta, added_by, added_at)
+         VALUES (?, 'instagram', 'beach day', 'Instagram', 'image/gif', 1, 1, 2, ?, 'done', 'u', 1)`, [REEL, PREVIEW_VERSION]).lastInsertRowid);
+      const file = join(tmp.dir, "thumbs", String(id));
+      await Bun.write(file, Uint8Array.from([0x47, 0x49, 0x46, 0x38, 0x39, 0x61, 1, 0, 1, 0])); // the logo
+      db.run("PRAGMA user_version = 5");
+      db.close();
+      db = openDatabase(tmp.dir);
+      // The backfill's query now picks it up again.
+      expect(db.query("SELECT id FROM links WHERE preview_v < ? AND meta != 'pending'").all(PREVIEW_VERSION)).toEqual([{ id }]);
+      fake = fakeFetch((url) => {
+        if (url === EMBED_URL) return html(EMBED);
+        if (url.startsWith("https://cdn/reel.jpg")) return new Response(PNG, { headers: { "Content-Type": "image/png" } });
+        return page(`<meta property="og:site_name" content="Instagram"><meta property="og:title" content="Instagram">`);
+      });
+      await fetchMetadata(db, tmp.dir, id, REEL, "instagram", local);
+      expect(db.query("SELECT author, thumb_type, thumb_v, preview_v FROM links WHERE id = ?").get(id))
+        .toEqual({ author: "@samlee", thumb_type: "image/png", thumb_v: 4, preview_v: PREVIEW_VERSION });
+      expect(new Uint8Array(readFileSync(file))).toEqual(PNG);
+    } finally {
+      db.close();
+      tmp.cleanup();
+    }
+  });
+
   test("an empty embed keeps whatever the page had", async () => {
     fake = fakeFetch((url) => (url === EMBED_URL ? html("<div class='EmbedBrokenMedia'></div>") : page(`<meta property="og:title" content="Only a title">`)));
     expect(await fetchPreview(REEL, "instagram", local)).toMatchObject({ title: "Only a title", image: null });
