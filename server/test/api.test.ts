@@ -191,7 +191,7 @@ describe("auth", () => {
     expect(ok.status).toBe(200);
     expect(ok.data.token).toMatch(/^[A-Za-z0-9_-]{43}$/);
     expect(ok.data.user).toEqual({ id: "user_01FRIEND", name: "Riley", avatar: "https://example.com/r.png", email: "friend@example.com" });
-    expect(ok.data.claimable.map((u: any) => u.name)).toEqual(["Sam", "Alex"]);
+    expect(ok.data.claimable).toEqual([]); // only legacy people with your name
     expect(workosRequests.at(-1)).toMatchObject({ client_id: "client_TEST", grant_type: "authorization_code", code: "good" });
     expect(workosRequests.at(-1)!.client_secret).toBeUndefined();
 
@@ -441,10 +441,15 @@ describe("links", () => {
   });
 
   test("claiming a legacy person moves their history", async () => {
+    expect((await call("/api/me/claim", { token, body: { id: "legacy:Sam" } })).status).toBe(400); // Riley isn't Sam
+    const asSam = await call("/api/me", { method: "PATCH", token, body: { name: "sam" } });
+    expect(asSam.status).toBe(200);
+    expect((await call("/api/me", { token })).data.claimable.map((u: any) => u.id)).toEqual(["legacy:Sam"]);
+    expect((await call("/api/me/claim", { token, body: { id: "legacy:Alex" } })).status).toBe(400);
     const r = await call("/api/me/claim", { token, body: { id: "legacy:Sam" } });
     expect(r.status).toBe(200);
     expect(r.data.user.name).toBe("Sam");
-    expect(r.data.claimable.map((u: any) => u.id)).toEqual(["legacy:Alex"]);
+    expect(r.data.claimable).toEqual([]);
     expect((await call("/api/me/claim", { token, body: { id: "legacy:Sam" } })).status).toBe(400);
     const { data } = await call("/api/state", { token });
     expect(data.links.find((l: any) => l.id === 1).added_by).toBe(friendId);

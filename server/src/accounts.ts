@@ -117,11 +117,20 @@ export class Accounts {
 
   mePayload(userId: string) {
     const user = this.db.query("SELECT * FROM users WHERE id = ?").get(userId) as UserRow;
-    // Legacy people's history is in the default chat, so only its members can see or claim them.
-    const claimable = this.inDefault(userId)
-      ? (this.db.query("SELECT * FROM users WHERE id LIKE ? ORDER BY created_at").all(`${LEGACY}%`) as UserRow[]).map(publicUser)
-      : [];
-    return { user: { ...publicUser(user), email: user.email }, claimable };
+    return { user: { ...publicUser(user), email: user.email }, claimable: this.claimable(user).map(publicUser) };
+  }
+
+  /**
+   * The legacy people this account may be: those with its name, or its first name, in any case
+   * (renaming yourself finds one under another name). Their history is in the default chat, so
+   * only its members get any.
+   */
+  private claimable(user: UserRow): UserRow[] {
+    if (!this.inDefault(user.id)) return [];
+    const name = user.name.trim().toLowerCase();
+    const names = new Set([name, name.split(/\s+/)[0]]);
+    return (this.db.query("SELECT * FROM users WHERE id LIKE ? ORDER BY created_at").all(`${LEGACY}%`) as UserRow[])
+      .filter((p) => names.has(p.name.trim().toLowerCase()));
   }
 
   /** Create the account on first sign-in. Afterwards, keep the name they chose. */
@@ -198,9 +207,9 @@ export class Accounts {
    */
   claimLegacy(userId: string, legacyId: string) {
     this.db.transaction(() => {
-      const legacy = this.db.query("SELECT name FROM users WHERE id = ? AND id LIKE ?")
-        .get(legacyId, `${LEGACY}%`) as { name: string } | null;
-      if (!legacy || !this.inDefault(userId)) throw new BadRequest("That person was already claimed.");
+      const me = this.db.query("SELECT * FROM users WHERE id = ?").get(userId) as UserRow;
+      const legacy = this.claimable(me).find((p) => p.id === legacyId);
+      if (!legacy) throw new BadRequest("That person was already claimed.");
       this.db.run("UPDATE links SET added_by = ? WHERE added_by = ?", [userId, legacyId]);
       this.db.run("UPDATE OR IGNORE group_members SET user_id = ? WHERE user_id = ?", [userId, legacyId]);
       for (const table of ["seen", "reactions"]) {

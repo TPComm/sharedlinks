@@ -541,7 +541,7 @@ describe("upgrading a database from the web-app days (v0)", () => {
     });
     expect(linkIn(state, 2).url).toBe("https://de.wikipedia.org/wiki/M%C3%BCnchen");
     expect(linkIn(state, 3).url).toBe(TIKTOK);
-    expect((await call("/api/me", { token })).data.claimable.map((u: any) => u.id)).toEqual(["legacy:Sam", "legacy:Alex"]);
+    expect((await call("/api/me", { token })).data.claimable).toEqual([]); // only legacy people with your name
   });
 
   e2e("finds old links when they're shared again, TikTok tracking included", async () => {
@@ -562,10 +562,12 @@ describe("upgrading a database from the web-app days (v0)", () => {
   });
 
   e2e("lets a signed-in person claim a legacy person's history", async () => {
+    expect((await call("/api/me", { method: "PATCH", token, body: { name: "Sam" } })).status).toBe(200);
+    expect((await call("/api/me", { token })).data.claimable.map((u: any) => u.id)).toEqual(["legacy:Sam"]);
     const claim = await call("/api/me/claim", { token, body: { id: "legacy:Sam" } });
     expect(claim.status, claim.text).toBe(200);
     expect(claim.data.user.name).toBe("Sam");
-    expect(claim.data.claimable.map((u: any) => u.id)).toEqual(["legacy:Alex"]);
+    expect(claim.data.claimable).toEqual([]);
     const state = (await call("/api/state", { token })).data;
     expect(linkIn(state, 1).added_by).toBe(state.me);
   });

@@ -260,7 +260,9 @@ chown -R links:links /var/lib/links && systemctl start links
 
 On start the server upgrades the database in place. People from before sign-in become "legacy"
 entries: on first sign-in the app asks "Were you one of these?" and moves that person's links,
-watched marks and reactions to your account.
+watched marks and reactions to your account. `claimable` lists only legacy people with your name
+or first name (any case), and only for members of the default chat; rename yourself to find one
+under another name.
 
 ## API
 
