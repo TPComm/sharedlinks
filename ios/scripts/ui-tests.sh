@@ -81,6 +81,13 @@ if [[ -z "$destination" ]]; then
   fi
   xcrun simctl list devices | grep -q "$udid) (Booted)" || shutdown_udid="$udid"
   destination="platform=iOS Simulator,id=$udid"
+  # Boot it and open Safari once now: a fresh Simulator's first Safari launch is its slowest, and
+  # the tests that open a link wait for Safari to come up.
+  xcrun simctl boot "$udid" 2>/dev/null || true
+  xcrun simctl bootstatus "$udid" >/dev/null
+  xcrun simctl launch "$udid" com.apple.mobilesafari >/dev/null || true
+  sleep 3
+  xcrun simctl terminate "$udid" com.apple.mobilesafari 2>/dev/null || true
 fi
 
 # xcodebuild hands TEST_RUNNER_<NAME> to the test runner as <NAME>. The tests pass the URL and

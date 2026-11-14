@@ -93,8 +93,7 @@ final class LinksUITests: XCTestCase {
         app.collectionViews["links.all"].swipeDown()
         let field = app.searchFields["Titles, people, notes"]
         XCTAssert(field.waitForExistence(timeout: 5))
-        field.tap()
-        field.typeText(word)
+        type(word, into: field)
         XCTAssert(row(match, in: "all").waitForExistence(timeout: 5))
         XCTAssert(row(other, in: "all").waitForNonExistence(timeout: 5), "a link that doesn't match")
     }
@@ -207,11 +206,9 @@ final class LinksUITests: XCTestCase {
         app.buttons["newLink"].tap()
         let text = app.textFields["addLink.text"]
         XCTAssert(text.waitForExistence(timeout: 5))
-        text.tap()
-        text.typeText(url)
+        type(url, into: text)
         let noteField = app.textFields["addLink.note"]
-        noteField.tap()
-        noteField.typeText(note)
+        type(note, into: noteField)
         app.buttons["addLink.send"].tap()
 
         // The sheet closes and the app switches to Sent, which has the new link.
@@ -232,9 +229,8 @@ final class LinksUITests: XCTestCase {
         app.buttons["newLink"].tap()
         let text = app.textFields["addLink.text"]
         XCTAssert(text.waitForExistence(timeout: 5))
-        text.tap()
         // A bare domain: the app finds a link in it, but the server wants a path and refuses it.
-        text.typeText("example.com")
+        type("example.com", into: text)
         app.buttons["addLink.send"].tap()
 
         let alert = app.alerts["Couldn't Do That"]
@@ -265,9 +261,7 @@ final class LinksUITests: XCTestCase {
         let alert = app.alerts["Add Note"]
         let field = alert.textFields.firstMatch
         XCTAssert(field.waitForExistence(timeout: 5))
-        // The alert focuses its field itself, but not always in time on a slow CI Simulator.
-        field.tap()
-        field.typeText(note)
+        type(note, into: field)
         alert.buttons["Save"].tap()
         try server.eventually("the note") {
             try server.state(as: server.friend).link(link.id)?.note == note ? true : nil
@@ -422,6 +416,18 @@ final class LinksUITests: XCTestCase {
         }
         XCTAssert(button.waitForExistence(timeout: 5), "no \(item) in the context menu")
         return button
+    }
+
+    /// Taps a text field and types once it has the keyboard focus. A slow CI Simulator can still
+    /// be animating the field in (an alert, a sheet) when the tap lands, and typeText fails on a
+    /// field without focus, so tap again until it takes.
+    private func type(_ text: String, into field: XCUIElement) {
+        for _ in 1...3 {
+            field.tap()
+            let focused = XCTNSPredicateExpectation(predicate: NSPredicate(format: "hasKeyboardFocus == true"), object: field)
+            if XCTWaiter().wait(for: [focused], timeout: 5) == .completed { break }
+        }
+        field.typeText(text)
     }
 
     private func waitFor(_ element: XCUIElement, labelContaining text: String, timeout: TimeInterval = 15) {
