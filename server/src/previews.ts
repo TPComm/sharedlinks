@@ -181,6 +181,7 @@ export function previewFromTags(platform: string, og: Record<string, string>): P
   const desc = og["og:description"] || og["twitter:description"] || og.description || "";
   let description: string | null = desc.trim() || null;
   let author: string | null = null;
+  let loginWall = false;
   if (platform === "instagram") {
     // og:title looks like: Name on Instagram: "caption"
     // og:description like: 12K likes, 40 comments - handle on May 1, 2025: "caption"
@@ -196,11 +197,9 @@ export function previewFromTags(platform: string, og: Record<string, string>): P
     // Keep only the engagement counts: the caption is the title, the handle the author.
     const counts = desc.match(/^\s*([^-]*?\b(?:likes?|comments?|views?|plays?)\b[^-]*?)\s+-\s/i);
     description = counts ? counts[1]!.trim() : null;
-    if (!title && !handle && !counts) {
-      // A login wall, not the post.
-      author = null;
-      description = null;
-    }
+    // A login wall, not the post: its og:image is Instagram's logo and its og:site_name isn't the poster.
+    loginWall = !title && !handle && !counts;
+    if (loginWall) description = null;
   } else if (platform === "tiktok") {
     // og:title looks like: TikTok · Creator Name   (the caption, when there is one, is og:description)
     const m = (title ?? "").match(/^TikTok\s*[·|\-–]\s*(.+)$/);
@@ -212,11 +211,11 @@ export function previewFromTags(platform: string, og: Record<string, string>): P
     }
   }
   if (description && description === title?.trim()) description = null;
-  const image = og["og:image"] || og["og:image:url"] || og["og:image:secure_url"] || og["twitter:image"] || null;
+  const image = loginWall ? null : og["og:image"] || og["og:image:url"] || og["og:image:secure_url"] || og["twitter:image"] || null;
   const fromOg = image && (og["og:image"] || og["og:image:url"] || og["og:image:secure_url"]);
   return {
     title,
-    author: author || og["og:site_name"] || null,
+    author: author || (loginWall ? null : og["og:site_name"]) || null,
     image,
     description,
     siteName: og["og:site_name"] || SITE_NAMES[platform] || null,

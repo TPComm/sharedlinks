@@ -107,7 +107,7 @@ describe("previewFromTags", () => {
       "og:description": '12K likes, 40 comments - sam.lee_99 on May 1, 2025: "beach day"',
     }, { title: "beach day", author: "@sam.lee_99", image: null }],
     ["instagram", { "og:title": "Sam Lee on Instagram: “line one\nline two”" }, { title: "line one\nline two", author: "Sam Lee", image: null }],
-    ["instagram", { "og:title": " Instagram ", "og:site_name": "Instagram" }, { title: null, author: "Instagram", image: null }],
+    ["instagram", { "og:title": " Instagram ", "og:site_name": "Instagram" }, { title: null, author: null, image: null }],
     ["instagram", { "og:title": "Something else" }, { title: "Something else", author: null, image: null }],
   ] as [string, Record<string, string>, object][])("%s %p", (platform, og, want) => {
     expect(previewFromTags(platform, og)).toMatchObject(want);
@@ -165,6 +165,14 @@ describe("rich preview fields", () => {
   test("Instagram login wall: nothing usable", () => {
     expect(previewFromTags("instagram", { "og:title": "Instagram", "og:description": "Create an account or log in to Instagram." }))
       .toMatchObject({ title: null, author: null, description: null });
+  });
+
+  test("Instagram login wall: its logo and site name aren't the post's image and author", () => {
+    // instagram.com/accounts/login/ as served to a link-preview bot.
+    expect(previewFromTags("instagram", {
+      "og:site_name": "Instagram", "og:title": "Instagram", "og:url": "https://instagram.com/",
+      "og:image": "https://static.cdninstagram.com/rsrc.php/v4/yD/r/R0fBIMurK8v.png",
+    })).toMatchObject({ title: null, author: null, image: null, description: null, siteName: "Instagram" });
   });
 });
 
@@ -285,6 +293,34 @@ describe("Instagram embed fallback", () => {
   test("both failing is an error", async () => {
     fake = fakeFetch(() => html("", 429));
     await expect(fetchPreview(REEL, "instagram", local)).rejects.toThrow("HTTP 429");
+  });
+
+  test("a backfill that meets the login wall and a rate-limited embed keeps the reel's thumbnail and @handle", async () => {
+    const tmp = tempDir();
+    const db = openDatabase(tmp.dir);
+    const consoleError = spyOn(console, "error").mockImplementation(() => {});
+    try {
+      const id = Number(db.run(
+        `INSERT INTO links (url, platform, title, author, thumb_type, thumb_w, thumb_h, thumb_v, meta, added_by, added_at)
+         VALUES (?, 'instagram', 'beach day', '@samlee', 'image/png', 1, 1, 1, 'done', 'u', 1)`, [REEL]).lastInsertRowid);
+      const file = join(tmp.dir, "thumbs", String(id));
+      await Bun.write(file, PNG);
+      const LOGO = "https://static.cdninstagram.com/rsrc.php/v4/yD/r/R0fBIMurK8v.png";
+      fake = fakeFetch((url) => {
+        if (url === EMBED_URL) return html("", 429);
+        if (url === LOGO) return new Response(Uint8Array.from([0x47, 0x49, 0x46, 0x38, 0x39, 0x61, 1, 0, 1, 0]), { headers: { "Content-Type": "image/gif" } });
+        return page(`<meta property="og:site_name" content="Instagram"><meta property="og:title" content="Instagram">` +
+          `<meta property="og:image" content="${LOGO}">`);
+      });
+      await fetchMetadata(db, tmp.dir, id, REEL, "instagram", local);
+      expect(db.query("SELECT title, author, thumb_type, thumb_v, meta FROM links WHERE id = ?").get(id))
+        .toEqual({ title: "beach day", author: "@samlee", thumb_type: "image/png", thumb_v: 1, meta: "done" });
+      expect(new Uint8Array(readFileSync(file))).toEqual(PNG);
+    } finally {
+      consoleError.mockRestore();
+      db.close();
+      tmp.cleanup();
+    }
   });
 
   test("an empty embed keeps whatever the page had", async () => {
