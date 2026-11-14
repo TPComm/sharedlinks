@@ -82,6 +82,25 @@ if [[ -z "$destination" ]]; then
   fi
   xcrun simctl list devices | grep -q "$udid) (Booted)" || shutdown_udid="$udid"
   destination="platform=iOS Simulator,id=$udid"
+
+  # On a freshly created CI Simulator the app's first launch can outlast XCUITest's launch timeout
+  # ("Timed out while launching application via Xcode"), failing whichever test runs first. Later
+  # launches take a second, so the app is installed and launched once here, where simctl waits as
+  # long as it takes. Only with an app already built (test-without-building); best effort.
+  app="$ios/${LINKS_UI_TEST_DERIVED_DATA:-build}/Build/Products/Debug-iphonesimulator/Links.app"
+  if [[ "${LINKS_UI_TEST_ACTION:-test}" == test-without-building && -d "$app" ]]; then
+    started=$SECONDS
+    xcrun simctl boot "$udid" 2>/dev/null || true
+    if xcrun simctl install "$udid" "$app"; then
+      # Right after boot SpringBoard may not take launches yet, so a failed launch gets a few more.
+      for _ in 1 2 3 4 5 6; do
+        SIMCTL_CHILD_LINKS_UI_TESTS=1 xcrun simctl launch "$udid" com.tpcomm.links >/dev/null && break
+        sleep 10
+      done
+      xcrun simctl terminate "$udid" com.tpcomm.links 2>/dev/null || true
+    fi
+    echo "Simulator booted and Links launched once in $((SECONDS - started))s"
+  fi
 fi
 
 # -- shard: deal the tests out in the order the test files list them, read from the source. The
@@ -153,6 +172,27 @@ if [[ $status -ne 0 ]] && grep -q "crashed while preparing to run tests" "$logs/
   if [[ -n "${udid:-}" ]]; then xcrun simctl shutdown "$udid" 2>/dev/null || true; fi
   status=0
   run_tests "$@" || status=$?
+fi
+
+# A test that fails only because its app launch timed out ran nothing of its own, so each one gets
+# one more go, on its own, once the rest are done. Any other failure still fails the run.
+launch_timeouts() {
+  sed -nE "s/^.*error: -\[LinksUITests\.([A-Za-z0-9_]+) ([A-Za-z0-9_]+)\] : Failed to launch .*Timed out while launching.*$/\1\/\2/p" "$1" | sort -u
+}
+failed_tests() {
+  sed -nE "s/^Test Case '-\[LinksUITests\.([A-Za-z0-9_]+) ([A-Za-z0-9_]+)\]' failed .*$/\1\/\2/p" "$1" | sort -u
+}
+if [[ $status -ne 0 ]]; then
+  timed_out="$(launch_timeouts "$logs/xcodebuild.log")"
+  if [[ -n "$timed_out" && "$timed_out" == "$(failed_tests "$logs/xcodebuild.log")" ]]; then
+    echo "warning: these tests failed only because the app took too long to launch; running them once more:" >&2
+    echo "$timed_out" >&2
+    mv "$logs/xcodebuild.log" "$logs/xcodebuild-launch-timeout.log"
+    shard_args=()
+    while IFS= read -r test; do shard_args+=("-only-testing:LinksUITests/$test"); done <<<"$timed_out"
+    status=0
+    run_tests "$@" || status=$?
+  fi
 fi
 
 # Without the TEST_RUNNER_ values the tests skip themselves; here that would be a false pass.
