@@ -63,10 +63,10 @@ struct RootView: View {
         guard !restoredNavigation else { return }
         restoredNavigation = true
         #if DEBUG
-        // Each UI test starts on the inbox, whatever the one before left showing; the test of
-        // this opts in.
-        let env = ProcessInfo.processInfo.environment
-        if env["LINKS_UI_TESTS"] == "1", env["LINKS_RESTORE_NAVIGATION"] != "1" { return }
+        // Each UI test starts on the inbox, whatever an earlier test left showing. (XCUITest can't
+        // stand in for iOS ending the app: apps it launches are never suspended, which is when the
+        // system keeps a window's state. Checked by hand: background, `simctl terminate`, relaunch.)
+        if ProcessInfo.processInfo.environment["LINKS_UI_TESTS"] == "1" { return }
         #endif
         guard let data = savedNavigation,
               let saved = try? JSONDecoder().decode(AppModel.Navigation.self, from: data) else { return }

@@ -178,23 +178,6 @@ final class LinksUITests: XCTestCase {
         XCTAssert(app.staticTexts["Watched it?"].waitForNonExistence(timeout: 5), "still asking")
     }
 
-    /// iOS often ends an app that's in the background while TikTok plays; the page comes back.
-    func testTheLinksPageComesBackAfterIOSEndsTheApp() throws {
-        let link = try seed(by: server.friend)
-        launch()
-        waitForRow(link, in: "toWatch").tap()
-        XCTAssert(page(link).waitForExistence(timeout: 5), "no page for the link")
-        app.buttons["linkPage.watch"].tap()
-        XCTAssert(safari.wait(for: .runningForeground, timeout: 10), "the link didn't open")
-        // In the background the system saves the window's state (SceneStorage); give it a moment.
-        _ = app.wait(for: .runningBackgroundSuspended, timeout: 10)
-        app.terminate()
-
-        launch(restoringNavigation: true)
-        XCTAssert(page(link).waitForExistence(timeout: 10), "back on the inbox, not the link's page")
-        XCTAssert(app.staticTexts["Watched it?"].waitForExistence(timeout: 5), "no Watched it? prompt")
-    }
-
     func testSentLinksPageShowsWhoHasSeenIt() throws {
         let link = try seed(by: server.me)
         launch()
@@ -205,12 +188,13 @@ final class LinksUITests: XCTestCase {
         XCTAssert(page.staticTexts["Seen By"].exists)
         XCTAssertFalse(app.buttons["linkPage.markWatched"].exists, "offered to mark my own link watched")
 
-        try server.setSeen(link.id, true, as: server.friend)
-        // The page follows the inbox, which the app polls every few seconds.
         let receipt = page.descendants(matching: .any)
             .matching(NSPredicate(format: "label BEGINSWITH %@", "Friend")).firstMatch
         XCTAssert(receipt.waitForExistence(timeout: 5), "Friend isn't listed")
         XCTAssert(receipt.label.contains("Not yet"), receipt.label)
+
+        try server.setSeen(link.id, true, as: server.friend)
+        // The page follows the inbox, which the app polls every few seconds.
         waitFor(receipt, labelContaining: "now")
     }
 
@@ -357,14 +341,14 @@ final class LinksUITests: XCTestCase {
 
     // MARK: Helpers
 
-    /// Launches signed in (DEBUG builds take a session token from LINKS_DEV_TOKEN), on the inbox
-    /// unless `restoringNavigation`, which brings back the pages the app last saved (RootView).
-    private func launch(as token: String? = nil, restoringNavigation: Bool = false) {
+    /// Launches signed in (DEBUG builds take a session token from LINKS_DEV_TOKEN), on the inbox.
+    private func launch(as token: String? = nil) {
         app.launchEnvironment = [
             "LINKS_SERVER_URL": server.url.absoluteString,
             "LINKS_DEV_TOKEN": token ?? server.me,
-            "LINKS_UI_TESTS": "1", // no badge-permission prompt (see AppModel.requestBadgePermission)
-            "LINKS_RESTORE_NAVIGATION": restoringNavigation ? "1" : "0",
+            // No badge-permission prompt (AppModel.requestBadgePermission), and no pages restored
+            // from an earlier test (RootView.restoreNavigation).
+            "LINKS_UI_TESTS": "1",
         ]
         app.launch()
         XCTAssert(app.tabBars.buttons["To Watch"].waitForExistence(timeout: 20), "no inbox")
