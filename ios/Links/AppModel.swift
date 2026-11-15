@@ -11,8 +11,13 @@ final class AppModel {
     private(set) var token: String? = SessionStore.token
     private(set) var inbox: InboxState = InboxSnapshot.load() ?? .empty
     private(set) var claimable: [LinkUser] = []
-    /// My push settings for links I sent; nil until the server says, or on a server too old to have them.
+    /// My push settings for links I sent, as the switches show them; nil until the server says,
+    /// or on a server too old to have them.
     private(set) var notifications: NotificationSettings?
+    /// The server's copy as of the last save or load, which a failed save goes back to.
+    private var savedNotifications: NotificationSettings?
+    /// The latest save: each waits for the one before, so they reach the server in tap order.
+    private var notificationSave: Task<MeResponse, Error>?
     private(set) var isOffline = false
     private(set) var isSigningIn = false
     private(set) var isDeletingAccount = false
@@ -159,6 +164,8 @@ final class AppModel {
         inbox = .empty
         claimable = []
         notifications = nil
+        savedNotifications = nil
+        notificationSave = nil
         invites = []
         paths = [:]
         chat = nil
@@ -179,7 +186,12 @@ final class AppModel {
         guard isSignedIn, let me = try? await client.me(), session == sessionID else { return }
         setAccount(me.user)
         claimable = me.claimable
-        if edits == notificationEdits { notifications = me.notifications }
+        if edits == notificationEdits { setNotificationsFromServer(me.notifications) }
+    }
+
+    private func setNotificationsFromServer(_ settings: NotificationSettings?) {
+        notifications = settings
+        savedNotifications = settings
     }
 
     /// Throws rather than using the app-wide alert, which would close ClaimSheet.
@@ -204,10 +216,11 @@ final class AppModel {
     func rename(to name: String) async throws {
         let name = name.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !name.isEmpty else { return }
+        let edits = notificationEdits
         do {
             let me = try await client.rename(to: name)
             setAccount(me.user)
-            if me.notifications != nil { notifications = me.notifications }
+            if edits == notificationEdits, me.notifications != nil { setNotificationsFromServer(me.notifications) }
         } catch APIError.signedOut {
             endSession()
             return
@@ -215,27 +228,33 @@ final class AppModel {
         await refresh()
     }
 
-    /// Shows the change at once and puts it back if saving fails, unless it was changed again
-    /// meanwhile. Throws, like `rename`, for the profile to show.
+    /// Shows the change at once. Once the last tap's save is done, the switches show the server's
+    /// copy, so a failed save is undone. Throws, like `rename`, for the profile to show.
     func setNotifications(watched: Bool? = nil, reactions: Bool? = nil) async throws {
-        guard let before = notifications else { return }
-        var next = before
+        guard var next = notifications else { return }
         if let watched { next.watched = watched }
         if let reactions { next.reactions = reactions }
         notifications = next
         notificationEdits += 1
         let edits = notificationEdits
         let session = sessionID
+        let client = client
+        let previous = notificationSave
+        let save = Task {
+            _ = await previous?.result
+            return try await client.setNotifications(watched: watched, reactions: reactions)
+        }
+        notificationSave = save
         do {
-            let me = try await client.setNotifications(watched: watched, reactions: reactions)
-            if session == sessionID, edits == notificationEdits, let saved = me.notifications { notifications = saved }
+            let me = try await save.value
+            guard session == sessionID else { return }
+            if let saved = me.notifications { savedNotifications = saved }
+            if edits == notificationEdits { notifications = savedNotifications }
         } catch APIError.signedOut {
-            endSession()
+            if session == sessionID { endSession() }
         } catch {
-            guard session == sessionID, var now = notifications else { throw error }
-            if let watched, now.watched == watched { now.watched = before.watched }
-            if let reactions, now.reactions == reactions { now.reactions = before.reactions }
-            notifications = now
+            // Saves finish in order, so after the last one the server's copy is settled.
+            if session == sessionID, edits == notificationEdits { notifications = savedNotifications }
             throw error
         }
     }
