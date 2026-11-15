@@ -179,9 +179,14 @@ if (command === "mint-session") {
     console.warn("warning: nobody is in yet. Run `links-server invite you@example.com`, then sign in with that email.");
   }
   console.log(`Links API running on ${server.url} (sign-in redirect: ${config.publicUrl}/auth/callback)`);
+  let stopping = false;
   for (const signal of ["SIGINT", "SIGTERM"] as const) {
-    process.on(signal, () => {
+    process.on(signal, async () => {
+      if (stopping) process.exit(0); // a second signal: stop waiting
+      stopping = true;
       server.stop();
+      // A deploy restarts the server: pushes still waiting to be merged would otherwise be lost.
+      await app.drain(5000);
       process.exit(0);
     });
   }

@@ -330,7 +330,7 @@ describe("links", () => {
     const db = new Database(join(dataDir, "links.db"), { readonly: true });
     const { sql } = db.query("SELECT sql FROM sqlite_master WHERE name = 'links'").get() as { sql: string };
     expect(sql).toContain("AUTOINCREMENT");
-    expect((db.query("PRAGMA user_version").get() as any).user_version).toBe(11);
+    expect((db.query("PRAGMA user_version").get() as any).user_version).toBe(12);
     db.close();
     const { data } = await call("/api/state", { token });
     expect(data.links.map((l: any) => l.url)).toContain("https://de.wikipedia.org/wiki/M%C3%BCnchen");
@@ -440,6 +440,20 @@ describe("links", () => {
       method: "PATCH", body: "{", headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
     });
     expect(invalid.status).toBe(400);
+  });
+
+  test("notification settings: both on to start; PATCH /api/me changes either, alone or with a name", async () => {
+    expect((await call("/api/me", { token })).data.notifications).toEqual({ watched: true, reactions: true });
+    const off = await call("/api/me", { method: "PATCH", token, body: { notifications: { reactions: false } } });
+    expect(off.status).toBe(200);
+    expect(off.data.notifications).toEqual({ watched: true, reactions: false });
+    const name = (await call("/api/me", { token })).data.user.name;
+    for (const notifications of [null, "off", [], { watched: "no" }]) {
+      expect((await call("/api/me", { method: "PATCH", token, body: { notifications } })).status, JSON.stringify(notifications)).toBe(400);
+    }
+    const both = await call("/api/me", { method: "PATCH", token, body: { name, notifications: { watched: false, reactions: true } } });
+    expect(both.data).toMatchObject({ user: { name }, notifications: { watched: false, reactions: true } });
+    await call("/api/me", { method: "PATCH", token, body: { notifications: { watched: true } } });
   });
 
   test("claiming a legacy person moves their history", async () => {

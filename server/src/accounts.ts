@@ -117,7 +117,22 @@ export class Accounts {
 
   mePayload(userId: string) {
     const user = this.db.query("SELECT * FROM users WHERE id = ?").get(userId) as UserRow;
-    return { user: { ...publicUser(user), email: user.email }, claimable: this.claimable(user).map(publicUser) };
+    return {
+      user: { ...publicUser(user), email: user.email },
+      claimable: this.claimable(user).map(publicUser),
+      notifications: { watched: !!user.push_watched, reactions: !!user.push_reactions },
+    };
+  }
+
+  /** `{watched?, reactions?}`: which pushes about the links they sent this person gets. */
+  setNotifications(userId: string, settings: unknown) {
+    if (!settings || typeof settings !== "object" || Array.isArray(settings)) throw new BadRequest("notifications must be an object.");
+    const { watched, reactions } = settings as Record<string, unknown>;
+    for (const v of [watched, reactions]) {
+      if (v !== undefined && typeof v !== "boolean") throw new BadRequest("Notification settings are true or false.");
+    }
+    if (watched !== undefined) this.db.run("UPDATE users SET push_watched = ? WHERE id = ?", [watched ? 1 : 0, userId]);
+    if (reactions !== undefined) this.db.run("UPDATE users SET push_reactions = ? WHERE id = ?", [reactions ? 1 : 0, userId]);
   }
 
   /**
