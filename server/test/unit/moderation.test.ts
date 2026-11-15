@@ -108,4 +108,17 @@ describe("reports", () => {
     expect(() => db.run("INSERT INTO reports (reporter, reason, snapshot, created_at) VALUES ('user_A', 'spam', '{}', 1)")).toThrow();
     expect(() => db.run("INSERT INTO reports (reporter, link_id, user_id, reason, snapshot, created_at) VALUES ('user_A', 1, 'user_A', 'spam', '{}', 1)")).toThrow();
   });
+
+  test("reported comments keep their snapshot and can be removed without deleting the link", () => {
+    seed();
+    db.exec(`INSERT INTO comments (id, link_id, person, body, created_at) VALUES (1, 1, 'user_B', 'A reply', 1);
+      INSERT INTO reports (reporter, comment_id, reason, snapshot, created_at) VALUES
+        ('user_A', 1, 'spam', '{"body":"A reply"}', 40), ('user_B', 1, 'spam', '{}', 50);`);
+    expect(formatReport(openReports(db)[3]!)).toContain('comment 1');
+    expect(resolveReport(db, tmp.dir, 4, true).resolution).toBe("removed");
+    expect(db.query("SELECT * FROM comments").all()).toEqual([]);
+    expect(db.query("SELECT id FROM links WHERE id = 1").get()).toEqual({ id: 1 });
+    expect(db.query("SELECT resolution FROM reports WHERE comment_id = 1").all()).toEqual([{ resolution: "removed" }, { resolution: "removed" }]);
+    expect(formatReport({ ...openReports(db)[0]!, link_id: null, comment_id: 1, gone: 1 })).toContain("comment 1 (deleted since)");
+  });
 });

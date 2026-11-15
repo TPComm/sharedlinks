@@ -250,6 +250,7 @@ export class Accounts {
       const legacy = this.claimable(me).find((p) => p.id === legacyId);
       if (!legacy) throw new BadRequest("That person was already claimed.");
       this.db.run("UPDATE links SET added_by = ? WHERE added_by = ?", [userId, legacyId]);
+      this.db.run("UPDATE comments SET person = ? WHERE person = ?", [userId, legacyId]);
       this.db.run("UPDATE OR IGNORE group_members SET user_id = ? WHERE user_id = ?", [userId, legacyId]);
       for (const table of ["seen", "reactions"]) {
         this.db.run(`UPDATE OR IGNORE ${table} SET person = ? WHERE person = ?`, [userId, legacyId]);

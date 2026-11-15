@@ -167,8 +167,13 @@ describe("claimLegacy", () => {
     return accounts();
   }
 
-  test("moves links, receipts and reactions to the account, which takes the name", () => {
-    setup().claimLegacy("user_A", "legacy:Sam");
+  test("moves links, receipts, reactions and comments to the account, which takes the name", () => {
+    const a = setup();
+    db.exec("INSERT INTO comments (link_id, person, body, created_at) VALUES (2, 'legacy:Sam', 'Legacy reply', 1), (2, 'user_A', 'My reply', 2)");
+    a.claimLegacy("user_A", "legacy:Sam");
+    expect(rows("SELECT person, body FROM comments ORDER BY id")).toEqual([
+      { person: "user_A", body: "Legacy reply" }, { person: "user_A", body: "My reply" },
+    ]);
     expect(rows("SELECT id, added_by FROM links ORDER BY id")).toEqual([
       { id: 1, added_by: "user_A" }, { id: 2, added_by: "legacy:Alex" }, { id: 3, added_by: "user_A" },
     ]);
@@ -362,7 +367,11 @@ describe("deleteUser", () => {
   }
 
   test("deletes the account, its sessions, marks, reactions, and the links it sent with their thumbnails", async () => {
-    expect(await setup().deleteUser("user_A")).toEqual({ links: 2, workos: "skipped" });
+    const a = setup();
+    db.exec(`INSERT INTO comments (link_id, person, body, created_at) VALUES
+      (1, 'user_B', 'On a deleted link', 1), (3, 'user_A', 'Deleted author', 2), (3, 'user_B', 'Keep this', 3)`);
+    expect(await a.deleteUser("user_A")).toEqual({ links: 2, workos: "skipped" });
+    expect(rows("SELECT link_id, person, body FROM comments")).toEqual([{ link_id: 3, person: "user_B", body: "Keep this" }]);
     expect(rows("SELECT id FROM users")).toEqual([{ id: "user_B" }]);
     expect(rows("SELECT user_id FROM sessions")).toEqual([{ user_id: "user_B" }]);
     expect(rows("SELECT id, added_by FROM links ORDER BY id")).toEqual([{ id: 3, added_by: "user_B" }]);

@@ -146,7 +146,7 @@ WORKOS_CLIENT_ID=client_... \
 ```
 
 That adds swap on small boxes, installs Caddy and automatic security updates, creates a locked-down
-`links` service and a daily database backup (`/var/lib/links/backups`, newest 14), opens only
+`links` service and a daily database backup (`/var/lib/links/backups`, newest 14 nightly snapshots), opens only
 SSH/80/443, then builds the right binary for the VPS's CPU on your Mac and deploys it. Finally set
 `LINKS_SERVER_URL_Release = https:/$()/links.example.com` in `ios/Config.xcconfig`, and let yourself
 in: `sudo -u links sh -c 'set -a && . /etc/links/links.env && DATA_DIR=/var/lib/links /opt/links/links-server invite you@x.com'`.
@@ -180,6 +180,10 @@ store). `APNS_TOPIC` is the app's bundle ID (`LINKS_BUNDLE_ID`). Without a key t
 at startup and sends nothing.
 
 **Backups off the box:** `rsync -a root@203.0.113.7:/var/lib/links/backups/ ./backups/`
+
+**Labelled backups:** a copy named `links-YYYY-MM-DD-<label>.db` in the backups folder (say one made
+before a deploy) is removed by the nightly backup once its date is 14 days old, except the newest such
+copy, which stays so a rollback always has one.
 
 **Logs and metrics in Grafana Cloud** (its free tier covers them). `deploy/monitoring.sh` installs
 [Fluent Bit](https://fluentbit.io) (~25 MB of RAM, capped at 80 MB) to ship the journal of `links`,
@@ -215,16 +219,16 @@ up** (under 15% free on `/` for 10m) and **Links backup stalled** (no `backed up
 
 **Reports and moderation** (App Store guideline 1.2). Whoever runs the server reads the reports:
 
-- People report a link or a person from its long-press menu or its page. A reported link is hidden
+- People report a link, comment or person from its long-press menu or its page. A reported link or comment is hidden
   for the reporter at once, and everyone else still sees it. Each report logs a line
   (`journalctl -u links | grep report`).
 - `links-server reports` (as the `links` user: `sudo -u links env DATA_DIR=/var/lib/links /opt/links/links-server reports`)
   lists open reports, each with a copy of what was reported then. `links-server reports resolve <id>`
-  marks one handled; `--remove` also deletes the link and its thumbnail for everyone. To remove a
+  marks one handled; `--remove` also deletes the comment, or the link and its thumbnail, for everyone. To remove a
   person, `links-server delete-user <email>`: they're out, and only a new invite lets them back in.
 - Blocking is one-way and only for the blocker: they stop seeing the blocked person's links,
-  watched marks and reactions. Notes can only be changed by the link's sender.
-- Notes and display names with a word on the list in `server/src/moderation.ts` are refused. Add
+  comments, watched marks and reactions (including comment counts and last-comment previews). Notes can only be changed by the link's sender.
+- Notes, comments and display names with a word on the list in `server/src/moderation.ts` are refused. Add
   your own, one per line, to `/var/lib/links/blocked-words.txt` and restart (`systemctl restart links`).
 - The support address, `support@tpcomm.co`, is shown on `https://YOUR-HOST/support`: use that page as
   the App Store listing's Support URL. The app shows the same address (`LINKS_SUPPORT_URL` in
@@ -276,7 +280,7 @@ On start the server upgrades the database in place. People from before sign-in b
 entries. Anyone can type a name, so the admin decides who is who: `links-server claim` lists them,
 and `links-server claim you@x.com Sam` lets that account (a member of the default chat) claim Sam.
 The app then asks "Were you one of these?" (or offers Claim Earlier Links… in the profile)
-and moves that person's links, watched marks and reactions to the account. `claimable` lists only
+and moves that person's links, comments, watched marks and reactions to the account. `claimable` lists only
 the legacy people approved for your account.
 
 ## API
@@ -302,7 +306,9 @@ All endpoints except sign-in need `Authorization: Bearer <session token>`.
 | POST | `/api/links/:id/seen` | `{seen: true/false}` |
 | POST | `/api/links/:id/react` | `{emoji}` (`null` removes) |
 | PATCH / DELETE | `/api/links/:id` | `{note}` (sender only) / –; 403 if the sender blocked you |
-| POST | `/api/reports` | `{link_id \| user_id, reason, details?}`; reason is `spam`, `offensive`, `harassment` or `other` → 201 |
+| GET/POST | `/api/links/:id/comments` | Chat members only. GET → `{comments}` oldest first (ties by id); POST `{body}` (nonempty text, trimmed and clipped to 1000 Unicode characters) → 201 `{comment}`. Comments are `{id, link_id, person, body, created_at, edited_at}`; blocked authors and reported comments are hidden for the reader |
+| PATCH/DELETE | `/api/comments/:id` | Author only, while still in the chat. PATCH `{body}` → `{comment}` (sets `edited_at`); DELETE → `{ok:true}`. Deleting a link or account cascades its comments |
+| POST | `/api/reports` | `{link_id \| comment_id \| user_id, reason, details?}`; reason is `spam`, `offensive`, `harassment` or `other` → 201 |
 | POST | `/api/blocks` | `{user_id}` → `{blocked}` |
 | DELETE | `/api/blocks/:user_id` | unblock (URL-encode the id) → `{blocked}` |
 | GET/POST | `/api/invites` | GET → `{invites}` (mine, still pending); POST `{email?, group_id?}` → 201 `{invite: {id, email, group_id, created_at, expires_at, url}}`; whoever uses it joins only that chat of mine, or with no `group_id` a new chat with just me (an admin's invite joins the default chat) |
@@ -315,6 +321,11 @@ All endpoints except sign-in need `Authorization: Bearer <session token>`.
 | GET | `/support` | public page with the support address (`SUPPORT_EMAIL`, default `support@tpcomm.co`), for the App Store Support URL |
 | GET | `/thumbs/:id` | the cached thumbnail |
 | GET | `/version` | public: `{commit}`, the git commit the server was built from (`dev` unless built by `deploy/deploy.sh`) |
+
+Each link also includes `comment_count` and `last_comment: {person, snippet, at} | null`, scoped to
+what the reader may see. The snippet is at most 120 Unicode characters; `at` is the comment's
+creation time in Unix seconds, not its edit time. Comments stay separate from the sender's note.
+Comments do not send push notifications or change widget/app badges; the app tracks read threads locally.
 
 Admin: `links-server mint-session <email> [name]`, `links-server delete-user <email>` (what the app's Delete Account does),
 `links-server claim [<email> <legacy name>]` (list legacy people, or let that account claim one),

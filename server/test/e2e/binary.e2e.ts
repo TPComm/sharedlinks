@@ -308,6 +308,25 @@ describe("a day with Links", () => {
     expect(linkIn((await call("/api/state", { token: bob.token })).data, shared).note).toBe(note);
   });
 
+  e2e("lets chat members discuss a link, with author-only edits and deletes", async () => {
+    const path = `/api/links/${shared}/comments`;
+    expect((await call(path, { token: alice.token })).data).toEqual({ comments: [] });
+    const made = await call(path, { token: bob.token, body: { body: "A reply from Bob" } });
+    expect(made.status, made.text).toBe(201);
+    const comment = made.data.comment;
+    expect(comment).toMatchObject({ link_id: shared, person: bob.id, body: "A reply from Bob", edited_at: null });
+    expect((await call(path, { token: alice.token })).data.comments).toEqual([comment]);
+    expect(linkIn((await call("/api/state", { token: alice.token })).data, shared)).toMatchObject({
+      comment_count: 1, last_comment: { person: bob.id, snippet: comment.body, at: comment.created_at },
+    });
+    expect((await call(`/api/comments/${comment.id}`, { token: alice.token, method: "PATCH", body: { body: "Not mine" } })).status).toBe(403);
+    expect((await call(`/api/comments/${comment.id}`, { token: alice.token, method: "DELETE" })).status).toBe(403);
+    const edited = await call(`/api/comments/${comment.id}`, { token: bob.token, method: "PATCH", body: { body: "Updated reply" } });
+    expect(edited.data.comment).toMatchObject({ ...comment, body: "Updated reply", edited_at: expect.any(Number) });
+    expect((await call(`/api/comments/${comment.id}`, { token: bob.token, method: "DELETE" })).data).toEqual({ ok: true });
+    expect((await call(path, { token: alice.token })).data.comments).toEqual([]);
+  });
+
   e2e("spots the same link spelled differently, TikTok tracking included", async () => {
     const again = await call("/api/links", { token: bob.token, body: { url: `${origin}/video/?id=7&fbclid=abc` } });
     expect(again.status, again.text).toBe(200);
@@ -428,6 +447,22 @@ describe("a day with Links", () => {
     expect([usage.code, usage.stderr]).toEqual([1, "usage: links-server reports [resolve <id> [--remove]]\n"]);
   });
 
+  e2e("reports and removes a comment by name in the CLI, without deleting its link", async () => {
+    const made = await call(`/api/links/${tiktok}/comments`, { token: bob.token, body: { body: "Reported reply" } });
+    expect(made.status, made.text).toBe(201);
+    const id = made.data.comment.id;
+    expect((await call("/api/reports", { token: alice.token, body: { comment_id: id, reason: "spam" } })).status).toBe(201);
+    const list = await cli(dataDir, "reports");
+    const reportId = list.stdout.match(new RegExp(`^#(\\d+) .* spam  comment ${id}  reported by `, "m"))?.[1];
+    expect(reportId, list.stdout).toBeDefined();
+    expect(list.stdout).toContain('body: "Reported reply"');
+    const removed = await cli(dataDir, "reports", "resolve", reportId!, "--remove");
+    expect(removed.code, removed.logs()).toBe(0);
+    expect(removed.stdout).toBe(`report #${reportId} resolved: removed (comment ${id} deleted)\n`);
+    expect(linkIn((await call("/api/state", { token: bob.token })).data, tiktok)).toMatchObject({ comment_count: 0, last_comment: null });
+    expect((await call(`/api/links/${tiktok}/comments`, { token: bob.token })).data.comments).toEqual([]);
+  });
+
   e2e("exits 1 with a message for mint-session without an email, or an unknown command", async () => {
     const usage = await cli(dataDir, "mint-session");
     expect([usage.code, usage.stdout, usage.stderr]).toEqual([1, "", "usage: links-server mint-session <email> [name]\n"]);
@@ -443,21 +478,25 @@ describe("a day with Links", () => {
     const dir = join(tmp, "backups");
     mkdirSync(dir);
     const old = Array.from({ length: 16 }, (_, i) => `links-2000-01-${String(i + 1).padStart(2, "0")}.db`);
-    for (const name of [...old, "links-latest.db", "notes.txt"]) writeFileSync(join(dir, name), "old");
+    // Labelled copies (e.g. made before a deploy) go after 14 days; dates a day off the edge in case of midnight.
+    const daysAgo = (n: number) => new Date(Date.now() - n * 86_400_000).toISOString().slice(0, 10);
+    const recent = [`links-${daysAgo(12)}-pre-deploy.db`, `links-${daysAgo(1)}-pre-deploy.db`];
+    const labelled = ["links-2000-01-01-pre-deploy.db", `links-${daysAgo(15)}-pre-v2.db`, ...recent];
+    for (const name of [...old, ...labelled, "links-latest.db", "notes.txt"]) writeFileSync(join(dir, name), "old");
     const days = [new Date().toISOString().slice(0, 10)];
     const run = await cli(dataDir, "backup", dir);
     days.push(new Date().toISOString().slice(0, 10)); // in case it ran across midnight UTC
     expect(run.code, run.logs()).toBe(0);
     const file = run.stdout.match(/^backed up to (.+)\n$/)?.[1] ?? "";
     expect(days.map((d) => join(dir, `links-${d}.db`))).toContain(file);
-    // The three oldest dated snapshots go; anything else in the folder stays.
-    expect(readdirSync(dir).sort()).toEqual([...old.slice(3), basename(file), "links-latest.db", "notes.txt"]);
+    // The three oldest dated snapshots and the old labelled ones go; anything else in the folder stays.
+    expect(readdirSync(dir).sort()).toEqual([...old.slice(3), ...recent, basename(file), "links-latest.db", "notes.txt"].sort());
 
     const live = (await call("/api/state", { token: alice.token })).data;
     const snapshot = new Database(file, { readonly: true });
     try {
       expect(snapshot.query("PRAGMA integrity_check").get()).toEqual({ integrity_check: "ok" });
-      expect(snapshot.query("PRAGMA user_version").get()).toEqual({ user_version: 13 });
+      expect(snapshot.query("PRAGMA user_version").get()).toEqual({ user_version: 14 });
       expect(snapshot.query("SELECT id, url FROM links ORDER BY id").all())
         .toEqual(live.links.map((l: any) => ({ id: l.id, url: l.url })).sort((a: any, b: any) => a.id - b.id));
       expect(snapshot.query("SELECT name FROM users WHERE id = ?").get(alice.id)).toEqual({ name: "Ally A" });
@@ -465,10 +504,16 @@ describe("a day with Links", () => {
       snapshot.close();
     }
 
-    // Without a folder: DATA_DIR/backups.
+    // Without a folder: DATA_DIR/backups. The newest labelled copy stays however old, so a rollback has one;
+    // names with an impossible or future date are left alone and don't take its place.
+    mkdirSync(join(dataDir, "backups"));
+    const odd = ["links-2000-13-40-x.db", "links-2999-01-01-future.db"];
+    for (const name of ["links-2000-01-01-pre-a.db", "links-2000-01-02-pre-b.db", ...odd]) writeFileSync(join(dataDir, "backups", name), "old");
     const fallback = await cli(dataDir, "backup");
     expect(fallback.code, fallback.logs()).toBe(0);
-    expect(readdirSync(join(dataDir, "backups"))).toEqual([expect.stringMatching(/^links-\d{4}-\d{2}-\d{2}\.db$/)]);
+    const kept = readdirSync(join(dataDir, "backups"));
+    expect(kept.filter((f) => /^links-\d{4}-\d{2}-\d{2}\.db$/.test(f))).toHaveLength(1);
+    expect(kept.filter((f) => !/^links-\d{4}-\d{2}-\d{2}\.db$/.test(f)).sort()).toEqual(["links-2000-01-02-pre-b.db", ...odd].sort());
   });
 
   e2e("exits 0 promptly on SIGTERM, and keeps everything across a restart", async () => {
@@ -527,10 +572,10 @@ describe("upgrading a database from the web-app days (v0)", () => {
     if (server?.running) await server.stop();
   });
 
-  e2e("migrates to user_version 13 and keeps the history under legacy people", async () => {
+  e2e("migrates to user_version 14 and keeps the history under legacy people", async () => {
     const db = new Database(join(dataDir, "links.db"), { readonly: true });
     try {
-      expect(db.query("PRAGMA user_version").get()).toEqual({ user_version: 13 });
+      expect(db.query("PRAGMA user_version").get()).toEqual({ user_version: 14 });
       expect((db.query("SELECT sql FROM sqlite_master WHERE name = 'links'").get() as { sql: string }).sql).toContain("AUTOINCREMENT");
       expect(db.query("SELECT name FROM sqlite_master WHERE name = 'people'").get()).toBeNull();
     } finally {
