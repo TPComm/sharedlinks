@@ -263,7 +263,7 @@ entries. Anyone can type a name, so the admin decides who is who: `links-server 
 and `links-server claim you@x.com Sam` lets that account (a member of the default chat) claim Sam.
 The app then asks "Were you one of these?" (or offers Claim Earlier Links… in the account menu)
 and moves that person's links, watched marks and reactions to the account. `claimable` lists only
-the legacy people approved for your email.
+the legacy people approved for your account.
 
 ## API
 
