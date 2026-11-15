@@ -408,6 +408,8 @@ final class AppModel {
     func send(_ text: String, note: String = "", groupID: Int? = nil) async throws {
         let result = try await client.add(text, note: note, groupID: groupID)
         patch(result.link)
+        // Sent to a chat other than the one the lists show: show that one, so the link is there.
+        if let chat, result.link.groupID != chat { self.chat = result.link.groupID }
         if result.duplicate {
             let link = result.link
             toast = inbox.isMine(link)
