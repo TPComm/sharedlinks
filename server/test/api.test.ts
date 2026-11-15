@@ -331,7 +331,7 @@ describe("links", () => {
     const db = new Database(join(dataDir, "links.db"), { readonly: true });
     const { sql } = db.query("SELECT sql FROM sqlite_master WHERE name = 'links'").get() as { sql: string };
     expect(sql).toContain("AUTOINCREMENT");
-    expect((db.query("PRAGMA user_version").get() as any).user_version).toBe(15);
+    expect((db.query("PRAGMA user_version").get() as any).user_version).toBe(16);
     db.close();
     const { data } = await call("/api/state", { token });
     expect(data.links.map((l: any) => l.url)).toContain("https://de.wikipedia.org/wiki/M%C3%BCnchen");
@@ -350,6 +350,51 @@ describe("links", () => {
     const b = await call("/api/links", { token, body: { url: `${origin}/plain?n=2` } });
     expect(b.data.link.id).toBeGreaterThan(a.data.link.id);
     await idle();
+  });
+
+  test("public link pages share only the title, thumbnail and original URL", async () => {
+    const state = (await call("/api/state", { token })).data;
+    const tokens = state.links.map((l: any) => l.token);
+    expect(new Set(tokens).size).toBe(tokens.length);
+    for (const link of state.links) {
+      expect(link.token).toMatch(/^[A-Za-z0-9_-]{32}$/);
+      expect(link.share_url).toBe(`${baseConfig.publicUrl}/l/${link.token}`);
+    }
+    const add = await call("/api/links", { token, body: { url: `${origin}/video?public=1`, note: "private-note-only" } });
+    const link = add.data.link;
+    expect(link.token).toMatch(/^[A-Za-z0-9_-]{32}$/);
+    expect(tokens).not.toContain(link.token);
+    expect(link.share_url).toBe(`${baseConfig.publicUrl}/l/${link.token}`);
+    await idle();
+    const page = await fetch(`${api}/l/${link.token}`);
+    expect(page.status).toBe(200);
+    const html = await page.text();
+    expect(html).toContain('property="og:title" content="Cats &#38; Dogs"');
+    expect(html).toContain(`property="og:image" content="${link.share_url}/image"`);
+    expect(html).toContain('property="og:image:width" content="1"');
+    expect(html).toContain('name="twitter:card" content="summary_large_image"');
+    for (const secret of ["private-note-only", "PetTube", "Two pets", "Riley", friendId]) expect(html).not.toContain(secret);
+    const image = await fetch(`${api}/l/${link.token}/image`);
+    expect(image.status).toBe(200);
+    expect(image.headers.get("content-type")).toBe("image/png");
+    expect(image.headers.get("cache-control")).toContain("public");
+    expect(image.headers.get("content-security-policy")).toBe("default-src 'none'; style-src 'unsafe-inline'; sandbox");
+    expect(image.headers.get("x-content-type-options")).toBe("nosniff");
+    expect(new Uint8Array(await image.arrayBuffer())).toEqual(PNG);
+    for (const bad of ["unknown", "a.b", "a".repeat(65)]) {
+      const missing = await fetch(`${api}/l/${bad}`);
+      expect(missing.status).toBe(404);
+      expect(await missing.text()).not.toContain('property="og:image"');
+      expect((await fetch(`${api}/l/${bad}/image`)).status).toBe(404);
+    }
+    await call(`/api/links/${link.id}`, { method: "DELETE", token });
+    expect((await fetch(`${api}/l/${link.token}`)).status).toBe(404);
+    expect((await fetch(`${api}/l/${link.token}/image`)).status).toBe(404);
+    const old = state.links.find((l: any) => l.id === 1);
+    const fallback = await (await fetch(`${api}/l/${old.token}`)).text();
+    expect(fallback).toContain(`${baseConfig.publicUrl}/icon.png`);
+    expect(fallback).not.toContain("summary_large_image");
+    expect((await fetch(`${api}/l/${old.token}/image`)).status).toBe(404);
   });
 
   test("links iOS couldn't parse are refused", async () => {
@@ -386,6 +431,8 @@ describe("links", () => {
     const thumb = await fetch(api + link.thumb, { headers: { Authorization: `Bearer ${token}` } });
     expect(thumb.status).toBe(200);
     expect(thumb.headers.get("content-type")).toBe("image/png");
+    expect(thumb.headers.get("content-security-policy")).toBe("default-src 'none'; style-src 'unsafe-inline'; sandbox");
+    expect(thumb.headers.get("x-content-type-options")).toBe("nosniff");
     expect(new Uint8Array(await thumb.arrayBuffer())).toEqual(PNG);
     expect((await fetch(api + link.thumb)).status).toBe(401);
     // Apps from before versioned thumbnail URLs still get the image at the plain URL.
@@ -670,7 +717,8 @@ describe("reports, blocks and the word list", () => {
     expect(res.headers.get("content-type")).toContain("text/html");
     expect(res.data).toContain("Links Privacy Policy");
     expect(res.data).toContain("People only lists people you share a chat with.");
-    expect(res.data).toContain("Each link and its note, comments, seen marks and reactions are only shared with members of that link's chat.");
+    expect(res.data).toContain("Anyone with a link's share URL can see its title, thumbnail and original URL.");
+    expect(res.data).toContain("Notes, who sent it, comments, reactions and activity stay private to the chat.");
     expect(res.data).toContain("Your name and photo can still appear on links in a chat you've left");
     expect(res.data).toContain('<a href="mailto:support@tpcomm.co">support@tpcomm.co</a>');
     expect(res.data).toContain("Delete Account");
@@ -1117,7 +1165,7 @@ describe("universal links", () => {
     }
   });
 
-  test.each(["/l/x", "/g/x", "/l/AbC-_09", `/g/${"a".repeat(64)}`])("%p is a placeholder page", async (path) => {
+  test.each(["/g/x", `/g/${"a".repeat(64)}`])("%p is a placeholder page", async (path) => {
     const res = await call(path);
     expect(res.status).toBe(200);
     expect(res.headers.get("content-type")).toContain("text/html");
@@ -1138,11 +1186,32 @@ describe("universal links", () => {
 
   test("with APP_STORE_ID, the pages have a Smart App Banner pointing back at themselves", async () => {
     const dir = mkdtempSync(join(tmpdir(), "links-banner-"));
-    const { server } = startServer({ ...baseConfig, appStoreId: "6700000000", dataDir: dir });
+    const { app, server } = startServer({ ...baseConfig, appStoreId: "6700000000", dataDir: dir });
     try {
-      const html = await (await fetch(server.url.origin + "/l/tok_1")).text();
-      expect(html).toContain('<meta name="apple-itunes-app" content="app-id=6700000000, app-argument=https://links.example.com/l/tok_1">');
+      const html = await (await fetch(server.url.origin + "/g/tok_1")).text();
+      expect(html).toContain('<meta name="apple-itunes-app" content="app-id=6700000000, app-argument=https://links.example.com/g/tok_1">');
       expect(html).toContain("https://apps.apple.com/app/id6700000000");
+      const session = app.accounts.mintSession("banner@example.com", "Private Sender");
+      const added = await fetch(server.url.origin + "/api/links", {
+        method: "POST", headers: { Authorization: `Bearer ${session}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ url: `${origin}/plain?banner=1` }),
+      });
+      const { link } = await added.json() as any;
+      await app.idle();
+      for (const platform of ["web", "unknown"]) {
+        app.db.run("UPDATE links SET platform = ?, title = NULL WHERE id = ?", [platform, link.id]);
+        const webPage = await (await fetch(server.url.origin + `/l/${link.token}`)).text();
+        expect(webPage).toContain("A link shared on Links");
+        expect(webPage).toContain(">Open the link</a>");
+        expect(webPage).not.toContain("Watch on");
+      }
+      app.db.run("UPDATE links SET platform = 'tiktok', title = NULL WHERE id = ?", [link.id]);
+      const page = await (await fetch(server.url.origin + `/l/${link.token}`)).text();
+      expect(page).toContain(`app-id=6700000000, app-argument=${link.share_url}`);
+      expect(page).toContain("A TikTok shared on Links");
+      expect(page).toContain("Watch on TikTok");
+      expect(page).not.toContain("Private Sender");
+      expect(page).not.toContain("apps.apple.com");
     } finally {
       server.stop(true);
       rmSync(dir, { recursive: true, force: true });

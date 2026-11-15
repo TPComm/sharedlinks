@@ -48,12 +48,46 @@ const addLink = (db: Database, url: string) =>
   Number(db.run("INSERT INTO links (group_id, url, platform, added_by, added_at) VALUES (1, ?, 'web', 'u', 1)", [url]).lastInsertRowid);
 
 describe("openDatabase", () => {
+  test("fills tokens after an old binary inserts into a v16 database without changing existing tokens", () => {
+    const db = openDatabase(tmp.dir);
+    db.run("INSERT INTO users (id, name, created_at) VALUES ('u', 'U', 1)");
+    const existing = addLink(db, "https://example.com/existing");
+    const token = "a".repeat(32);
+    db.run("UPDATE links SET share_token = ? WHERE id = ?", [token, existing]);
+    const missing = addLink(db, "https://example.com/rollback");
+    expect(pragma(db, "user_version")).toBe(16);
+    expect(db.query("SELECT share_token FROM links WHERE id = ?").get(missing)).toEqual({ share_token: null });
+    db.close();
+    const reopened = openDatabase(tmp.dir);
+    expect(reopened.query("SELECT share_token FROM links WHERE id = ?").get(existing)).toEqual({ share_token: token });
+    const repaired = reopened.query("SELECT share_token FROM links WHERE id = ?").get(missing) as { share_token: string };
+    expect(repaired.share_token).toMatch(/^[A-Za-z0-9_-]{32}$/);
+    expect(repaired.share_token).not.toBe(token);
+    reopened.close();
+  });
+
+  test("backfills stable unique share tokens for existing links", () => {
+    seed(`${LINKS_V0}
+      INSERT INTO links (url, platform, added_by, added_at) VALUES
+      ('https://example.com/1', 'web', 'Sam', 1), ('https://example.com/2', 'web', 'Sam', 2);`);
+    const db = openDatabase(tmp.dir);
+    const rows = db.query("SELECT id, share_token FROM links ORDER BY id").all() as { id: number; share_token: string }[];
+    expect(rows).toHaveLength(2);
+    expect(new Set(rows.map((r) => r.share_token)).size).toBe(2);
+    for (const row of rows) expect(row.share_token).toMatch(/^[A-Za-z0-9_-]{32}$/);
+    expect(() => db.run("UPDATE links SET share_token = ? WHERE id = ?", [rows[0]!.share_token, rows[1]!.id])).toThrow();
+    db.close();
+    const reopened = openDatabase(tmp.dir);
+    expect(reopened.query("SELECT id, share_token FROM links ORDER BY id").all()).toEqual(rows);
+    reopened.close();
+  });
+
   test("creates a v12 database (and its folders) in an empty directory", () => {
     const dir = join(tmp.dir, "nested", "data");
     const db = openDatabase(dir);
     expect(existsSync(join(dir, "thumbs"))).toBe(true);
     expect(existsSync(join(dir, "links.db"))).toBe(true);
-    expect(pragma(db, "user_version")).toBe(15);
+    expect(pragma(db, "user_version")).toBe(16);
     expect(pragma(db, "foreign_keys")).toBe(1);
     expect(pragma(db, "journal_mode")).toBe("wal");
     expect(db.query("SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name").all().map((r: any) => r.name))
@@ -93,7 +127,7 @@ describe("openDatabase", () => {
     db.close();
     db = openDatabase(tmp.dir);
     expect(urls(db)).toEqual([[1, "https://youtube.com/watch?v=1&si=x"]]);
-    expect(pragma(db, "user_version")).toBe(15);
+    expect(pragma(db, "user_version")).toBe(16);
     db.close();
   });
 });
@@ -132,7 +166,7 @@ describe("migrations", () => {
       [2, "https://de.wikipedia.org/wiki/M%C3%BCnchen"],
       [3, POST],
     ]);
-    expect(pragma(db, "user_version")).toBe(15);
+    expect(pragma(db, "user_version")).toBe(16);
     db.close();
   });
 
@@ -163,7 +197,7 @@ describe("migrations", () => {
     expect(db.query("SELECT user_id FROM sessions").all()).toEqual([{ user_id: "user_A" }]);
     expect(pragma(db, "foreign_keys")).toBe(1);
     expect(db.query("PRAGMA foreign_key_check").all()).toEqual([]);
-    expect(pragma(db, "user_version")).toBe(15);
+    expect(pragma(db, "user_version")).toBe(16);
 
     // The rebuilt table is still the one seen/reactions cascade from.
     db.run("DELETE FROM links WHERE id = 5");
@@ -214,7 +248,7 @@ describe("migrations", () => {
       [6, "ftp://example.com/x"],
       [7, "https://www.youtube.com/watch?v=1"],
     ]);
-    expect(pragma(db, "user_version")).toBe(15);
+    expect(pragma(db, "user_version")).toBe(16);
     expect(addLink(db, "https://example.com/new")).toBe(21); // sqlite_sequence kept: no rebuild
     db.close();
   });
@@ -236,7 +270,7 @@ describe("migrations", () => {
       [3, "https://youtu.be/abc?t=10"],
       [4, "https://blog.example.com/?s=pasta"],
     ]);
-    expect(pragma(db, "user_version")).toBe(15);
+    expect(pragma(db, "user_version")).toBe(16);
     db.close();
   });
 
@@ -254,7 +288,7 @@ describe("migrations", () => {
         { id: 1, title: "A", meta: "done", description: null, site_name: null, thumb_w: null, thumb_h: null, preview_v: 0, thumb_v: 0 },
         { id: 2, title: null, meta: "failed", description: null, site_name: null, thumb_w: null, thumb_h: null, preview_v: 0, thumb_v: 0 },
       ]);
-    expect(pragma(db, "user_version")).toBe(15);
+    expect(pragma(db, "user_version")).toBe(16);
     db.close();
     // Reopening runs nothing again.
     openDatabase(tmp.dir).close();
@@ -269,7 +303,7 @@ describe("migrations", () => {
         (1, 3, 'https://example.com/instagram', 'web', 'About Instagram', 'Instagram', 'image/png', 10, 10, 1, 1, 'done', 'u', 3);
       PRAGMA user_version = 5;
       ALTER TABLE group_members DROP COLUMN muted;
-      ALTER TABLE group_members DROP COLUMN muted_until;
+      ALTER TABLE group_members DROP COLUMN muted_until; DROP INDEX links_share_token; ALTER TABLE links DROP COLUMN share_token;
     `);
     db.close();
     for (const id of [1, 2, 3]) writeFileSync(join(tmp.dir, "thumbs", String(id)), "img");
@@ -281,7 +315,7 @@ describe("migrations", () => {
         { id: 3, title: "About Instagram", author: "Instagram", thumb_type: "image/png", thumb_w: 10, thumb_h: 10, thumb_v: 1, preview_v: 1 },
       ]);
     expect([1, 2, 3].map((id) => existsSync(join(tmp.dir, "thumbs", String(id))))).toEqual([false, true, true]);
-    expect(pragma(db, "user_version")).toBe(15);
+    expect(pragma(db, "user_version")).toBe(16);
     db.close();
   });
 
@@ -291,7 +325,7 @@ describe("migrations", () => {
       db.exec(`
         DROP TABLE invites;
         ALTER TABLE group_members DROP COLUMN muted;
-        ALTER TABLE group_members DROP COLUMN muted_until;
+        ALTER TABLE group_members DROP COLUMN muted_until; DROP INDEX links_share_token; ALTER TABLE links DROP COLUMN share_token;
         ALTER TABLE users DROP COLUMN member;
         INSERT INTO users (id, email, name, created_at) VALUES
           ('user_a', 'Friend@Example.com', 'A', 1), ('user_b', 'jo@team.test', 'B', 1),
@@ -308,7 +342,7 @@ describe("migrations", () => {
       v6();
       const db = openDatabase(tmp.dir);
       expect(members(db)).toEqual(["local_e", "user_a", "user_b", "user_c", "user_d"]);
-    expect(pragma(db, "user_version")).toBe(15);
+    expect(pragma(db, "user_version")).toBe(16);
       db.close();
     });
 
@@ -348,11 +382,11 @@ describe("v9: people who came in on a friend's invite move to a chat with that f
       INSERT INTO links (url, platform, meta, added_by, added_at, group_id) VALUES ('https://x.com/a/status/1', 'x', 'done', 'bob', 3, 1);
       PRAGMA user_version = 8;
       ALTER TABLE group_members DROP COLUMN muted;
-      ALTER TABLE group_members DROP COLUMN muted_until;
+      ALTER TABLE group_members DROP COLUMN muted_until; DROP INDEX links_share_token; ALTER TABLE links DROP COLUMN share_token;
     `);
     db.close();
     const after = openDatabase(tmp.dir);
-    expect(pragma(after, "user_version")).toBe(15);
+    expect(pragma(after, "user_version")).toBe(16);
     const membersOf = (id: number) => (after.query("SELECT user_id FROM group_members WHERE group_id = ? ORDER BY user_id")
       .all(id) as { user_id: string }[]).map((m) => m.user_id);
     expect(membersOf(1)).toEqual(["admin_in", "alice", "old"]);
@@ -379,13 +413,13 @@ describe("v10: a legacy person names the account an admin let claim them", () =>
     db.exec(`
       ALTER TABLE users DROP COLUMN claimable_by;
       ALTER TABLE group_members DROP COLUMN muted;
-      ALTER TABLE group_members DROP COLUMN muted_until;
+      ALTER TABLE group_members DROP COLUMN muted_until; DROP INDEX links_share_token; ALTER TABLE links DROP COLUMN share_token;
       INSERT INTO users (id, email, name, created_at, member) VALUES ('legacy:Sam', 'sam@x.com', 'Sam', 1, 0), ('u', 'u@x.com', 'U', 2, 1);
       PRAGMA user_version = 9;
     `);
     db.close();
     const after = openDatabase(tmp.dir);
-    expect(pragma(after, "user_version")).toBe(15);
+    expect(pragma(after, "user_version")).toBe(16);
     expect(after.query("SELECT id, claimable_by FROM users ORDER BY id").all())
       .toEqual([{ id: "legacy:Sam", claimable_by: null }, { id: "u", claimable_by: null }]);
     after.run("UPDATE users SET claimable_by = 'u' WHERE id = 'legacy:Sam'");
@@ -400,14 +434,14 @@ describe("v11: notification settings for activity on the links you sent", () => 
     db.exec(`
       ALTER TABLE users DROP COLUMN push_watched;
       ALTER TABLE group_members DROP COLUMN muted;
-      ALTER TABLE group_members DROP COLUMN muted_until;
+      ALTER TABLE group_members DROP COLUMN muted_until; DROP INDEX links_share_token; ALTER TABLE links DROP COLUMN share_token;
       ALTER TABLE users DROP COLUMN push_reactions;
       INSERT INTO users (id, email, name, created_at, member) VALUES ('u', 'u@x.com', 'U', 2, 1);
       PRAGMA user_version = 10;
     `);
     db.close();
     const after = openDatabase(tmp.dir);
-    expect(pragma(after, "user_version")).toBe(15);
+    expect(pragma(after, "user_version")).toBe(16);
     expect(after.query("SELECT push_watched, push_reactions FROM users").all()).toEqual([{ push_watched: 1, push_reactions: 1 }]);
   });
 });
@@ -415,12 +449,12 @@ describe("v11: notification settings for activity on the links you sent", () => 
 describe("v14: comment threads", () => {
   test("upgrades v13 without losing history, cascades and preserves comment IDs on reopen", () => {
     const db = openDatabase(tmp.dir);
-    db.exec("DROP TABLE comments; ALTER TABLE group_members DROP COLUMN muted; ALTER TABLE group_members DROP COLUMN muted_until; PRAGMA user_version = 13;");
+    db.exec("DROP TABLE comments; ALTER TABLE group_members DROP COLUMN muted; ALTER TABLE group_members DROP COLUMN muted_until; DROP INDEX links_share_token; ALTER TABLE links DROP COLUMN share_token; PRAGMA user_version = 13;");
     db.run("INSERT INTO users (id, name, created_at) VALUES ('u', 'U', 1)");
     const link = addLink(db, "https://a.com/commented");
     db.close();
     const after = openDatabase(tmp.dir);
-    expect(pragma(after, "user_version")).toBe(15);
+    expect(pragma(after, "user_version")).toBe(16);
     expect(after.query("SELECT id FROM links").all()).toEqual([{ id: link }]);
     const insert = () => after.run("INSERT INTO comments (link_id, person, body, created_at) VALUES (?, 'u', 'Hi', 1)", [link]);
     expect(() => after.run("INSERT INTO comments (link_id, person, body, created_at) VALUES (999, 'u', 'Hi', 1)")).toThrow();
@@ -443,7 +477,7 @@ describe("v13: whether each person's email is verified", () => {
     db.exec(`
       ALTER TABLE users DROP COLUMN email_verified;
       ALTER TABLE group_members DROP COLUMN muted;
-      ALTER TABLE group_members DROP COLUMN muted_until;
+      ALTER TABLE group_members DROP COLUMN muted_until; DROP INDEX links_share_token; ALTER TABLE links DROP COLUMN share_token;
       INSERT INTO users (id, email, name, created_at, member) VALUES ('a', 'a@x.com', 'A', 1, 1), ('b', 'B@x.com', 'B', 2, 1), ('c', 'c@x.com', 'C', 3, 1);
       INSERT INTO invites (token_hash, email, invited_by, created_at, expires_at, used_by, used_at)
         VALUES ('h1', 'b@x.com', 'a', 1, 9, 'b', 2), ('h2', NULL, 'a', 1, 9, 'c', 3);
@@ -451,7 +485,7 @@ describe("v13: whether each person's email is verified", () => {
     `);
     db.close();
     const after = openDatabase(tmp.dir);
-    expect(pragma(after, "user_version")).toBe(15);
+    expect(pragma(after, "user_version")).toBe(16);
     expect(after.query("SELECT id, email_verified FROM users ORDER BY id").all())
       .toEqual([{ id: "a", email_verified: 0 }, { id: "b", email_verified: 1 }, { id: "c", email_verified: 0 }]);
   });
