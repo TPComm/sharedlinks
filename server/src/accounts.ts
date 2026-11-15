@@ -348,10 +348,17 @@ export class Accounts {
       .find((n) => n && this.allowsName(n)) ?? "Someone";
     const avatar = user.profile_picture_url || null;
     // One transaction: two phones redeeming the same invite can't both get in on it.
-    this.db.transaction(() => {
+    const groupId = this.db.transaction((): number | null => {
       if (this.isMember(user.id)) {
         this.upsertUser(user.id, email, name, avatar);
-        return;
+        if (!inviteToken) return null;
+        // Already in: the link still takes them to its chat, but a link that doesn't work stops no one signing in.
+        try {
+          return this.useInviteAsMember(user.id, inviteToken);
+        } catch (e) {
+          if (e instanceof AuthError) return null;
+          throw e;
+        }
       }
       const invite = this.findInvite(inviteToken, email, !!user.email_verified);
       if (!invite) {
@@ -367,39 +374,90 @@ export class Accounts {
         throw new AuthError("Links is invite-only. Ask a friend who uses it to invite you, then tap their invite link.", 403);
       }
       this.upsertUser(user.id, email, name, avatar);
-      this.admit(user.id, invite);
+      const group = this.admit(user.id, invite);
       this.db.run("UPDATE invites SET used_by = ?, used_at = ? WHERE id = ?", [user.id, now(), invite.id]);
       console.log(`invite ${invite.id} from ${invite.invited_by ?? "admin"} used by ${user.id}`);
+      return group;
     }).immediate();
-    return { token: this.newSession(user.id), ...this.mePayload(user.id) };
+    // `group_id`: the chat an invite just took them to, for the app to open.
+    return { token: this.newSession(user.id), ...this.mePayload(user.id), group_id: groupId };
   }
 
   /**
    * Let someone in (#75: they see only people they share a chat with). A friend's invite puts them in
-   * the friend's chat it names, or in a new chat of just the two of them if it names none (or that
-   * chat is gone, full, or the friend left it). An admin's invite or session puts them in the default chat.
+   * the chat `invitersChat` picks. An admin's invite or session puts them in the default chat.
+   * Returns the chat they're in.
    */
-  private admit(userId: string, invite?: InviteRow) {
+  private admit(userId: string, invite?: InviteRow): number {
     this.db.run("UPDATE users SET member = 1 WHERE id = ?", [userId]);
     // An account from before invites that wasn't let in was still put in the default chat by v8.
     this.db.run("DELETE FROM group_members WHERE user_id = ?", [userId]);
-    const at = now();
-    const inviter = invite?.invited_by ?? null;
-    let group = defaultGroup(this.db);
-    if (inviter) {
-      const named = invite!.group_id;
-      const fits = named !== null
-        && !!this.db.query("SELECT 1 FROM group_members WHERE group_id = ? AND user_id = ?").get(named, inviter)
-        && (this.db.query("SELECT COUNT(*) AS n FROM group_members WHERE group_id = ?").get(named) as { n: number }).n < MAX_GROUP_MEMBERS;
-      if (fits) {
-        group = named!;
-      } else {
-        group = (this.db.query("INSERT INTO groups (name, created_by, created_at) VALUES ('', ?, ?) RETURNING id")
-          .get(inviter, at) as { id: number }).id;
-        this.db.run("INSERT INTO group_members (group_id, user_id, joined_at) VALUES (?, ?, ?)", [group, inviter, at]);
-      }
+    const group = invite?.invited_by ? this.invitersChat(invite, userId) : defaultGroup(this.db);
+    this.db.run("INSERT OR IGNORE INTO group_members (group_id, user_id, joined_at) VALUES (?, ?, ?)", [group, userId, now()]);
+    return group;
+  }
+
+  /**
+   * Where a friend's invite takes `userId`: the friend's chat it names, or else (it names none, or that
+   * chat is gone, full, or the friend left it) a chat of just the two of them, which is new unless
+   * they already have one.
+   */
+  private invitersChat(invite: InviteRow, userId: string): number {
+    const inviter = invite.invited_by!;
+    const named = invite.group_id;
+    if (named !== null
+      && this.db.query("SELECT 1 FROM group_members WHERE group_id = ? AND user_id = ?").get(named, inviter)
+      && (this.db.query("SELECT COUNT(*) AS n FROM group_members WHERE group_id = ?").get(named) as { n: number }).n < MAX_GROUP_MEMBERS) {
+      return named;
     }
-    this.db.run("INSERT OR IGNORE INTO group_members (group_id, user_id, joined_at) VALUES (?, ?, ?)", [group, userId, at]);
+    const pair = this.db.query(`SELECT g.id FROM groups g
+        JOIN group_members a ON a.group_id = g.id AND a.user_id = ?1
+        JOIN group_members b ON b.group_id = g.id AND b.user_id = ?2
+        WHERE g.is_default = 0 AND (SELECT COUNT(*) FROM group_members m WHERE m.group_id = g.id) = 2
+        ORDER BY g.created_at, g.id LIMIT 1`).get(inviter, userId) as { id: number } | null;
+    if (pair) return pair.id;
+    const at = now();
+    const group = (this.db.query("INSERT INTO groups (name, created_by, created_at) VALUES ('', ?, ?) RETURNING id")
+      .get(inviter, at) as { id: number }).id;
+    this.db.run("INSERT INTO group_members (group_id, user_id, joined_at) VALUES (?, ?, ?)", [group, inviter, at]);
+    return group;
+  }
+
+  /**
+   * Someone who's already in opens a friend's invite link: they join the chat it's for (#75 left the
+   * link doing nothing for them). Returns that chat, or null when there's nothing to join (an admin's
+   * invite, or their own). Only joining uses the invite up; one for a chat they're already in stays
+   * pending for whoever it was meant for.
+   */
+  joinWithInvite(userId: string, token: string): number | null {
+    return this.db.transaction(() => this.useInviteAsMember(userId, token)).immediate();
+  }
+
+  private useInviteAsMember(userId: string, token: string): number | null {
+    const row = INVITE_TOKEN_RE.test(token)
+      ? this.db.query("SELECT * FROM invites WHERE token_hash = ?").get(sha256(token)) as InviteRow | null
+      : null;
+    if (row && row.used_by === userId) {
+      // Opened again after it let them in: back to its chat, if they're still there.
+      const named = row.group_id;
+      return named !== null && this.inGroup(named, userId) ? named : null;
+    }
+    if (!row || row.used_at !== null || row.expires_at <= now()) throw new AuthError("This invite doesn't work anymore.", 404);
+    const email = (this.db.query("SELECT email FROM users WHERE id = ?").get(userId) as { email: string | null } | null)?.email ?? "";
+    if (row.email && row.email.toLowerCase() !== email.toLowerCase() && !appleRelay(email)) {
+      throw new AuthError("This invite is for a different email address.", 403);
+    }
+    if (!row.invited_by || row.invited_by === userId) return null;
+    const group = this.invitersChat(row, userId);
+    if (this.inGroup(group, userId)) return group;
+    this.db.run("INSERT INTO group_members (group_id, user_id, joined_at) VALUES (?, ?, ?)", [group, userId, now()]);
+    this.db.run("UPDATE invites SET used_by = ?, used_at = ? WHERE id = ?", [userId, now(), row.id]);
+    console.log(`invite ${row.id} from ${row.invited_by} used by member ${userId}`);
+    return group;
+  }
+
+  private inGroup(groupId: number, userId: string): boolean {
+    return !!this.db.query("SELECT 1 FROM group_members WHERE group_id = ? AND user_id = ?").get(groupId, userId);
   }
 
   private inDefault(userId: string): boolean {

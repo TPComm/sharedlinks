@@ -126,6 +126,7 @@ final class AppModel {
             claimable = result.claimable
             showClaimSheet = !claimable.isEmpty
             await refresh()
+            if let id = result.groupID, inbox.group(id) != nil { showChat(id) }
             WidgetCenter.shared.reloadAllTimelines() // even if the inbox happens to be empty
             if !Self.isUITesting { UIApplication.shared.registerForRemoteNotifications() }
         } catch let error as ASWebAuthenticationSessionError where error.code == .canceledLogin {
@@ -211,6 +212,14 @@ final class AppModel {
 
     func loadInvites() async {
         await perform { self.invites = try await self.client.invites() }
+    }
+
+    private func acceptInvite(_ invite: String) async {
+        await perform {
+            let group = try await self.client.acceptInvite(invite)
+            await self.refresh()
+            if let id = group?.id, self.inbox.group(id) != nil { self.showChat(id) }
+        }
     }
 
     /// Throws so the invite sheet can say what went wrong where the person is looking.
@@ -608,10 +617,12 @@ final class AppModel {
             addPrefill = ""
             showAddSheet = true
         case .invite(let invite):
-            // Signed in already: they're in, so there's nothing to use it for.
             if token == nil {
                 pendingInvite = invite
                 errorMessage = nil
+            } else {
+                // Already in: the link is still how a friend brings them into a chat.
+                Task { await acceptInvite(invite) }
             }
         case .group(let id):
             guard let id = Int(id) else { break }

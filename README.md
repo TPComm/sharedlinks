@@ -273,7 +273,7 @@ All endpoints except sign-in need `Authorization: Bearer <session token>`.
 | --- | --- | --- |
 | GET | `/auth/authorize` | `?code_challenge=&state=[&screen_hint=sign-up]` → redirects to AuthKit |
 | GET | `/auth/callback` | AuthKit's redirect; bounces to `sharedlinks://auth/callback?code=…` |
-| POST | `/api/auth/token` | `{code, code_verifier, invite?}` → `{token, user, claimable}`; `invite` is the token from an invite link, used up here (and only here) |
+| POST | `/api/auth/token` | `{code, code_verifier, invite?}` → `{token, user, claimable, group_id}`; `invite` is the token from an invite link, used up here or by `/api/invites/accept`; `group_id` is the chat it took them to (null without one) |
 | POST | `/api/auth/logout` | ends this session (and removes its device tokens) |
 | POST | `/api/devices` | `{token, env}`: this session's APNs device token (hex), `env` is `sandbox` or `production` → `{ok, push}` (`push`: whether the server sends any). Registering a token again moves it to this session |
 | DELETE | `/api/devices/:token` | forget one of your device tokens |
@@ -292,6 +292,7 @@ All endpoints except sign-in need `Authorization: Bearer <session token>`.
 | POST | `/api/blocks` | `{user_id}` → `{blocked}` |
 | DELETE | `/api/blocks/:user_id` | unblock (URL-encode the id) → `{blocked}` |
 | GET/POST | `/api/invites` | GET → `{invites}` (mine, still pending); POST `{email?, group_id?}` → 201 `{invite: {id, email, group_id, created_at, expires_at, url}}`; whoever uses it joins only that chat of mine, or with no `group_id` a new chat with just me (an admin's invite joins the default chat) |
+| POST | `/api/invites/accept` | `{token}` → `{group}`: someone already in opens an invite link and joins its chat (as `/api/invites` says), using it up; `group` null for their own or an admin's invite. A chat they're already in leaves the invite pending; 404 when it doesn't work anymore, 403 when it's for another email |
 | DELETE | `/api/invites/:id` | cancels a pending invite → `{invites}` |
 | GET | `/invite/:token` | public page for an invite link: who sent it, Open in Links, the Smart App Banner. Loading it never uses the invite up |
 | GET | `/.well-known/apple-app-site-association` | public; which paths open the app (only with `APPLE_APP_IDS`) |

@@ -6,7 +6,7 @@ import Testing
 enum Endpoint: String, CaseIterable, Sendable {
     case exchange, signOut, me, rename, claim, deleteAccount, state, add, seen, unseen, react, unreact, note, delete, thumbnail
     case reportLink, reportPerson, block, unblock
-    case exchangeWithInvite, invites, createInvite, createEmailInvite, createChatInvite, revokeInvite
+    case exchangeWithInvite, invites, createInvite, createEmailInvite, createChatInvite, revokeInvite, acceptInvite
     case addToGroup, createGroup, renameGroup, addMembers, leaveGroup
 
     var method: String {
@@ -38,6 +38,7 @@ enum Endpoint: String, CaseIterable, Sendable {
         case .unblock: "/api/blocks/user_01SAM"
         case .invites, .createInvite, .createEmailInvite, .createChatInvite: "/api/invites"
         case .revokeInvite: "/api/invites/3"
+        case .acceptInvite: "/api/invites/accept"
         }
     }
 
@@ -47,6 +48,7 @@ enum Endpoint: String, CaseIterable, Sendable {
         case .exchange: #"{"code":"code_abc","code_verifier":"ver_xyz"}"#
         case .exchangeWithInvite: #"{"code":"code_abc","code_verifier":"ver_xyz","invite":"inv_tok"}"#
         case .createInvite: #"{}"#
+        case .acceptInvite: #"{"token":"inv_tok"}"#
         case .createEmailInvite: #"{"email":"pal@x.com"}"#
         case .createChatInvite: #"{"email":"pal@x.com","group_id":5}"#
         case .rename: #"{"name":"Sam L"}"#
@@ -76,7 +78,7 @@ enum Endpoint: String, CaseIterable, Sendable {
             .json(#"{"invite": {"id": 4, "email": "pal@x.com", "created_at": 1700000000, "expires_at": 1700604800, "url": "https://links.test/invite/abc"}}"#, status: 201)
         case .signOut, .delete, .deleteAccount, .leaveGroup: .json(#"{"ok": true}"#)
         case .createGroup: .json(#"{"group": \#(Fixture.group())}"#, status: 201)
-        case .renameGroup, .addMembers: .json(#"{"group": \#(Fixture.group())}"#)
+        case .renameGroup, .addMembers, .acceptInvite: .json(#"{"group": \#(Fixture.group())}"#)
         case .me, .rename, .claim: .json(Fixture.me)
         case .state: .json(#"{"me": "user_01SAM", "users": [\#(Fixture.sam)], "links": [\#(Fixture.link())]}"#)
         case .add, .addToGroup: .json(#"{"link": \#(Fixture.link()), "duplicate": false}"#, status: 201)
@@ -120,6 +122,7 @@ enum Endpoint: String, CaseIterable, Sendable {
         case .createEmailInvite: #expect(try await client.createInvite(email: "pal@x.com").email == "pal@x.com")
         case .createChatInvite: _ = try await client.createInvite(email: "pal@x.com", groupID: 5)
         case .revokeInvite: #expect(try await client.revokeInvite(3).map(\.id) == [3])
+        case .acceptInvite: #expect(try await client.acceptInvite("inv_tok")?.id == 5)
         case .addToGroup:
             #expect(try await client.add("https://vm.tiktok.com/ZMabc/", groupID: 5).link.groupID == 1)
         case .createGroup:
@@ -191,6 +194,17 @@ struct APIClientResponseTests {
         #expect(result.user.avatar == URL(string: "https://example.com/sam.png"))
         #expect(result.claimable.map(\.id) == ["legacy:Jo"])
         #expect(result.claimable.first?.isLegacy == true)
+        #expect(result.groupID == nil)
+    }
+
+    @Test func exchangeSaysWhichChatAnInviteTookThemTo() async throws {
+        let server = StubServer(always: .json(#"{"token": "tok_new", "user": \#(Fixture.sam), "claimable": [], "group_id": 5}"#))
+        #expect(try await server.client(token: nil).exchange(code: "c", verifier: "v", invite: "inv_tok").groupID == 5)
+    }
+
+    @Test func acceptingAnInviteToNoChatReturnsNil() async throws {
+        let server = StubServer(always: .json(#"{"group": null}"#))
+        #expect(try await server.client().acceptInvite("inv_tok") == nil)
     }
 
     @Test func accountCallsReturnMe() async throws {

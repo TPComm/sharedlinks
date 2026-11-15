@@ -557,6 +557,13 @@ public struct SignInResult: Codable, Sendable {
     public var token: String
     public var user: LinkUser
     public var claimable: [LinkUser]
+    /// The chat the invite link took them to, to open once they're in.
+    public var groupID: Int?
+
+    enum CodingKeys: String, CodingKey {
+        case token, user, claimable
+        case groupID = "group_id"
+    }
 }
 
 public struct GroupEnvelope: Codable, Sendable {
