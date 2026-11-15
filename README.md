@@ -141,7 +141,7 @@ WORKOS_CLIENT_ID=client_... \
 ```
 
 That adds swap on small boxes, installs Caddy and automatic security updates, creates a locked-down
-`links` service and a daily database backup (`/var/lib/links/backups`, newest 14 days), opens only
+`links` service and a daily database backup (`/var/lib/links/backups`, newest 14 nightly snapshots), opens only
 SSH/80/443, then builds the right binary for the VPS's CPU on your Mac and deploys it. Finally set
 `LINKS_SERVER_URL_Release = https:/$()/links.example.com` in `ios/Config.xcconfig`, and let yourself
 in: `sudo -u links sh -c 'set -a && . /etc/links/links.env && DATA_DIR=/var/lib/links /opt/links/links-server invite you@x.com'`.

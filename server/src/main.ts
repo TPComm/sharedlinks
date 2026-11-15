@@ -7,7 +7,7 @@
  *   links-server invite [friend@example.com]         print an invite link (the first one on a new server)
  *   links-server delete-user you@example.com         delete an account and the links it sent
  *   links-server claim [you@example.com Name]        list legacy people, or let that account claim one
- *   links-server backup [dir]                        snapshot the database (keeps the newest 14 days)
+ *   links-server backup [dir]                        snapshot the database (keeps the newest 14 nightly)
  *   links-server reports                             list open reports (what was reported, by whom)
  *   links-server reports resolve <id> [--remove]     mark one handled; --remove deletes the link for everyone
  *   links-server version                             print the git commit it was built from (also on /version)
