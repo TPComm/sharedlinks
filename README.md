@@ -19,7 +19,7 @@ Sign-in is [WorkOS AuthKit](https://workos.com/docs/authkit).
 | **Share sheet suggestions row** | Once a friend has joined (and after each send), Links donates the group to iOS, which then offers it in the top row next to Messages contacts, one tap from any app. |
 | **Shortcuts / Siri / Spotlight / Action button** | "Send a link with Links" (`Send Link` intent, takes a URL or any text containing one), "What's in Links", "New Links". |
 | **In the app** | **+** opens a sheet with the system Paste button (no "Allow Paste" prompt). Drag a link from Safari onto the list (iPad, iPhone). |
-| **Sharing out** | Long-press or swipe a row: Share… uses the system share sheet with the thumbnail as the preview. |
+| **Sharing out** | Long-press or swipe a row, or Share on a link's page: the system share sheet sends the link's public `/l/` page (the original URL on servers without one), with the thumbnail as the preview. Opening an `/l/` link in the app shows that link's page when it's in your inbox. |
 
 Plus: a **Home Screen / Lock Screen widget** (Queue or Sent receipts, small/medium/large and
 lock screen sizes) whose ✓ buttons mark things seen without opening the app, an **app icon

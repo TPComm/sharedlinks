@@ -212,9 +212,14 @@ public struct SharedLink: Codable, Sendable, Hashable, Identifiable {
     public var reactions: [String: String]
     public var commentCount: Int
     public var lastComment: CommentActivity?
+    /// Its unguessable share token and public `https://HOST/l/<token>` page. Nil from servers
+    /// (and cached inboxes) from before link pages.
+    public var token: String?
+    public var shareURL: URL?
 
     enum CodingKeys: String, CodingKey {
-        case id, url, platform, title, author, note, thumb, meta, seen, reactions
+        case id, url, platform, title, author, note, thumb, meta, seen, reactions, token
+        case shareURL = "share_url"
         case summary = "description"
         case siteName = "site_name"
         case thumbWidth = "thumb_w"
@@ -251,13 +256,17 @@ public struct SharedLink: Codable, Sendable, Hashable, Identifiable {
         reactions = try c.decodeIfPresent([String: String].self, forKey: .reactions) ?? [:]
         commentCount = try c.decodeIfPresent(Int.self, forKey: .commentCount) ?? 0
         lastComment = try c.decodeIfPresent(CommentActivity.self, forKey: .lastComment)
+        token = try? c.decodeIfPresent(String.self, forKey: .token)
+        shareURL = (try? c.decodeIfPresent(String.self, forKey: .shareURL))
+            .flatMap(URL.webURL)
+            .flatMap { ["http", "https"].contains($0.scheme?.lowercased()) ? $0 : nil }
     }
 
     public init(id: Int, groupID: Int? = nil, url: URL, platform: Platform, title: String? = nil, author: String? = nil,
                 note: String = "", thumb: String? = nil, summary: String? = nil, siteName: String? = nil,
                 thumbWidth: Int? = nil, thumbHeight: Int? = nil, meta: String = "done", addedBy: String,
                 addedAt: Date = .now, seen: [String: Date] = [:], reactions: [String: String] = [:],
-                commentCount: Int = 0, lastComment: CommentActivity? = nil) {
+                commentCount: Int = 0, lastComment: CommentActivity? = nil, token: String? = nil, shareURL: URL? = nil) {
         self.id = id
         self.groupID = groupID
         self.url = url
@@ -277,7 +286,12 @@ public struct SharedLink: Codable, Sendable, Hashable, Identifiable {
         self.reactions = reactions
         self.commentCount = commentCount
         self.lastComment = lastComment
+        self.token = token
+        self.shareURL = shareURL
     }
+
+    /// What Share hands over: its Links page when the server has one, else the original link.
+    public var shareableURL: URL { shareURL ?? url }
 
     public var isLoadingPreview: Bool { meta == "pending" }
 

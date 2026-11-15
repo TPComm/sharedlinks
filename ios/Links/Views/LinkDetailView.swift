@@ -259,7 +259,7 @@ private struct LinkPage: View {
 
     @ToolbarContentBuilder private var toolbar: some ToolbarContent {
         ToolbarItem(placement: .topBarTrailing) {
-            ShareLink(item: link.url, subject: Text(link.displayTitle), preview: link.sharePreview)
+            ShareLink(item: link.shareableURL, subject: Text(link.displayTitle), preview: link.sharePreview)
         }
         ToolbarItem(placement: .topBarTrailing) {
             Menu {

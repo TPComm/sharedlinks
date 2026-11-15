@@ -82,7 +82,7 @@ struct LinkRow: View {
                 Label("Delete", systemImage: "trash")
             }
             .tint(.red)
-            ShareLink(item: link.url, subject: Text(link.displayTitle), preview: link.sharePreview) {
+            ShareLink(item: link.shareableURL, subject: Text(link.displayTitle), preview: link.sharePreview) {
                 Label("Share", systemImage: "square.and.arrow.up")
             }
             .tint(.indigo)
@@ -248,7 +248,7 @@ struct LinkRow: View {
         }
 
         Section {
-            ShareLink(item: link.url, subject: Text(link.displayTitle), preview: link.sharePreview) {
+            ShareLink(item: link.shareableURL, subject: Text(link.displayTitle), preview: link.sharePreview) {
                 Label("Share…", systemImage: "square.and.arrow.up")
             }
             CopyLinkButton(link: link)
