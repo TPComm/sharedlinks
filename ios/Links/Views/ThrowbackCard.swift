@@ -79,7 +79,7 @@ struct ThrowbackCard: View {
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel("\(link.displayTitle), from \(model.inbox.name(of: link.addedBy))")
-                .accessibilityHint("Opens the original link page without changing watched status")
+                .accessibilityHint("Opens the original link page without changing seen status")
                 .accessibilityIdentifier("throwback.open")
 
                 ViewThatFits(in: .horizontal) {

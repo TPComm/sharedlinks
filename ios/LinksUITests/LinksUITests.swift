@@ -14,7 +14,7 @@ final class LinksUITests: XCTestCase {
 
     // MARK: Inbox
 
-    func testWatchedStartsWithTheLinkWhenNoThrowbackIsEligible() throws {
+    func testSeenStartsWithTheLinkWhenNoThrowbackIsEligible() throws {
         let meID = try server.state(as: server.me).me
         let name = "Throwback \(shortID())"
         let chat = try server.startChat(name: name, members: [meID], as: server.friend)
@@ -25,14 +25,14 @@ final class LinksUITests: XCTestCase {
 
         launch(environment: ["LINKS_THROWBACK_MIN_AGE": "0"])
         pickChat(name)
-        app.tabBars.buttons["Watched"].tap()
+        app.tabBars.buttons["Seen"].tap()
         waitForRow(link, in: "watched")
         XCTAssertFalse(app.otherElements["throwback.card"].exists)
         let firstRow = app.collectionViews["links.watched"].cells.firstMatch
-        XCTAssert(firstRow.buttons["link.\(link.id)"].exists, "an empty row precedes the watched link")
+        XCTAssert(firstRow.buttons["link.\(link.id)"].exists, "an empty row precedes the seen link")
     }
 
-    func testThrowbackOpensThePageWithoutChangingWatchedStatus() throws {
+    func testThrowbackOpensThePageWithoutChangingSeenStatus() throws {
         let meID = try server.state(as: server.me).me
         let name = "Throwback \(shortID())"
         let chat = try server.startChat(name: name, members: [meID], as: server.friend)
@@ -45,14 +45,14 @@ final class LinksUITests: XCTestCase {
 
         launch(environment: ["LINKS_THROWBACK_MIN_AGE": "0"])
         pickChat(name)
-        app.tabBars.buttons["Watched"].tap()
+        app.tabBars.buttons["Seen"].tap()
         waitForRow(link, in: "watched")
         XCTAssert(app.otherElements["throwback.card"].waitForExistence(timeout: 5))
         XCTAssertFalse(app.buttons["throwback.another"].exists)
         app.buttons["throwback.open"].tap()
         XCTAssert(page(link).waitForExistence(timeout: 5))
         let state = try server.state(as: server.me)
-        XCTAssertNotNil(state.link(link.id)?.seen[meID], "opening the throwback changed watched status")
+        XCTAssertNotNil(state.link(link.id)?.seen[meID], "opening the throwback changed seen status")
     }
 
     func testSignedInLaunchShowsTheInbox() throws {

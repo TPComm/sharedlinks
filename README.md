@@ -29,7 +29,7 @@ has seen it, and mark it seen when you're back. Coming back from TikTok lands on
 even if iOS closed the app meanwhile. Long-press **Open in TikTok** still goes straight there and
 marks it seen in one go.
 
-The **Throwback** card in Watched resurfaces links from at least a week ago that you and a friend
+The **Throwback** card in Seen resurfaces links from at least a week ago that you and a friend
 loved, with a different starting pick each day.
 
 Each link's page also has a comment thread: read and reply below the reactions and receipts,
