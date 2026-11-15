@@ -500,7 +500,7 @@ export function createApp(config: Config, opts: AppOptions = {}) {
         }
       }
       const path = new URL(req.url).pathname;
-      if (config.logRequests && path !== "/api/state") console.log(`${req.method} ${path} ${res.status}`);
+      if (config.logRequests && (path !== "/api/state" || res.status >= 500)) console.log(`${req.method} ${path} ${res.status}`);
       return res;
     };
   }
