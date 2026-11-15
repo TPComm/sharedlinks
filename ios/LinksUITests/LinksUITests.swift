@@ -408,7 +408,9 @@ final class LinksUITests: XCTestCase {
     func testSigningOutReturnsToSignIn() throws {
         launch(as: server.spare)
         app.buttons["account"].tap()
-        XCTAssert(app.descendants(matching: .any)["Privacy Policy"].waitForExistence(timeout: 5),
+        XCTAssert(app.staticTexts["profile.email"].waitForExistence(timeout: 5), "the profile didn't open")
+        // The Help rows start below the fold, and a List only makes the rows on screen.
+        XCTAssert(scrolledTo(app.descendants(matching: .any)["Privacy Policy"]).exists,
                   "no Privacy Policy in the profile")
         scrolledTo(app.buttons["About Links"]).tap()
         let about = app.alerts.firstMatch
