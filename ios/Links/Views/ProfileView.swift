@@ -106,6 +106,22 @@ struct ProfileSheet: View {
                 } footer: {
                     Text(friendCount)
                 }
+                if let settings = model.notifications {
+                    Section {
+                        notificationToggle("When someone watches my link", systemImage: "eye",
+                                           isOn: settings.watched, id: "notify.watched") {
+                            try await model.setNotifications(watched: $0)
+                        }
+                        notificationToggle("When someone reacts to my link", systemImage: "face.smiling",
+                                           isOn: settings.reactions, id: "notify.reactions") {
+                            try await model.setNotifications(reactions: $0)
+                        }
+                    } header: {
+                        Text("Notify Me")
+                    } footer: {
+                        Text("If someone watches and reacts within a minute, you get one notification for both.")
+                    }
+                }
                 Section("Settings") {
                     // iOS asks only once, so this is where people who said no (or only allowed the
                     // badge, before notifications) turn them on.
@@ -241,6 +257,19 @@ struct ProfileSheet: View {
                 Image(systemName: systemImage)
             }
         }
+    }
+
+    /// Flips at once; a save that fails flips it back and says why.
+    private func notificationToggle(_ title: String, systemImage: String, isOn: Bool, id: String,
+                                    save: @escaping (Bool) async throws -> Void) -> some View {
+        Toggle(isOn: Binding(get: { isOn }, set: { on in
+            Task {
+                do { try await save(on) } catch { failure = error.localizedDescription }
+            }
+        })) {
+            Label(title, systemImage: systemImage)
+        }
+        .accessibilityIdentifier(id)
     }
 
     private func close(then action: @escaping () -> Void) {

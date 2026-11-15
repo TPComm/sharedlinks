@@ -76,14 +76,14 @@ final class TourUITests: XCTestCase {
 
         // ...until it's asked for.
         app.buttons["account"].tap()
-        app.buttons["Show Tour Again"].tap()
+        scrolledTo(app.buttons["Show Tour Again"]).tap()
         XCTAssert(waitForPage("Welcome to Links"), "Show Tour Again didn't")
         app.buttons["tour.skip"].tap()
         XCTAssert(app.staticTexts["Welcome to Links"].waitForNonExistence(timeout: 20), "Skip didn't close the tour")
 
         // Straight to the share-sheet step, which remembers it's done.
         app.buttons["account"].tap()
-        app.buttons["How to Share to Links"].tap()
+        scrolledTo(app.buttons["How to Share to Links"]).tap()
         XCTAssert(waitForPage("Links Is in Your Share Sheet"), "How to Share to Links didn't")
         app.buttons["tour.skip"].tap()
         XCTAssert(app.staticTexts["Links Is in Your Share Sheet"].waitForNonExistence(timeout: 20))
@@ -104,6 +104,15 @@ final class TourUITests: XCTestCase {
     /// The pages either side of the current one are laid out too, so a page counts once its title
     /// can be tapped. CI's Simulator can take 10s or more per tap and page turn, so waits are long;
     /// they cost nothing when the page is already there.
+    /// The profile's list makes rows only as they scroll in, so the lower ones need a swipe.
+    @discardableResult
+    private func scrolledTo(_ element: XCUIElement) -> XCUIElement {
+        for _ in 0..<5 where !(element.exists && element.isHittable) {
+            app.swipeUp()
+        }
+        return element
+    }
+
     private func waitForPage(_ title: String, timeout: TimeInterval = 20) -> Bool {
         let shown = XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == true AND isHittable == true"),
                                               object: app.staticTexts[title])

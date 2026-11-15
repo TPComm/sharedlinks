@@ -534,6 +534,22 @@ public extension InboxState {
 public struct MeResponse: Codable, Sendable {
     public var user: LinkUser
     public var claimable: [LinkUser]
+    /// Missing from servers older than these settings, which can't change them.
+    public var notifications: NotificationSettings?
+}
+
+/// Which pushes I get about the links I sent. The server sends a watch and a reaction from the
+/// same person within a minute as one push.
+public struct NotificationSettings: Codable, Sendable, Equatable {
+    /// When someone marks a link I sent as watched.
+    public var watched: Bool
+    /// When someone reacts to a link I sent.
+    public var reactions: Bool
+
+    public init(watched: Bool = true, reactions: Bool = true) {
+        self.watched = watched
+        self.reactions = reactions
+    }
 }
 
 /// An invite I sent that nobody has used yet (GET /api/invites).

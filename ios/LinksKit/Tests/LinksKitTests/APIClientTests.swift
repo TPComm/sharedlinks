@@ -8,11 +8,12 @@ enum Endpoint: String, CaseIterable, Sendable {
     case reportLink, reportPerson, block, unblock
     case exchangeWithInvite, invites, createInvite, createEmailInvite, createChatInvite, revokeInvite, acceptInvite
     case addToGroup, createGroup, renameGroup, addMembers, leaveGroup
+    case muteWatched, muteReactions, notifyBoth
 
     var method: String {
         switch self {
         case .me, .state, .thumbnail, .invites: "GET"
-        case .rename, .note, .renameGroup: "PATCH"
+        case .rename, .note, .renameGroup, .muteWatched, .muteReactions, .notifyBoth: "PATCH"
         case .delete, .deleteAccount, .unblock, .revokeInvite, .leaveGroup: "DELETE"
         default: "POST"
         }
@@ -22,7 +23,7 @@ enum Endpoint: String, CaseIterable, Sendable {
         switch self {
         case .exchange, .exchangeWithInvite: "/api/auth/token"
         case .signOut: "/api/auth/logout"
-        case .me, .rename, .deleteAccount: "/api/me"
+        case .me, .rename, .deleteAccount, .muteWatched, .muteReactions, .notifyBoth: "/api/me"
         case .claim: "/api/me/claim"
         case .state: "/api/state"
         case .add, .addToGroup: "/api/links"
@@ -52,6 +53,9 @@ enum Endpoint: String, CaseIterable, Sendable {
         case .createEmailInvite: #"{"email":"pal@x.com"}"#
         case .createChatInvite: #"{"email":"pal@x.com","group_id":5}"#
         case .rename: #"{"name":"Sam L"}"#
+        case .muteWatched: #"{"notifications":{"watched":false}}"#
+        case .muteReactions: #"{"notifications":{"reactions":false}}"#
+        case .notifyBoth: #"{"notifications":{"reactions":true,"watched":true}}"#
         case .claim: #"{"id":"legacy:Jo"}"#
         case .add: #"{"note":"for you","url":"lol https://vm.tiktok.com/ZMabc/"}"#
         case .addToGroup: #"{"group_id":5,"note":"","url":"https://vm.tiktok.com/ZMabc/"}"#
@@ -80,6 +84,7 @@ enum Endpoint: String, CaseIterable, Sendable {
         case .createGroup: .json(#"{"group": \#(Fixture.group())}"#, status: 201)
         case .renameGroup, .addMembers, .acceptInvite: .json(#"{"group": \#(Fixture.group())}"#)
         case .me, .rename, .claim: .json(Fixture.me)
+        case .muteWatched, .muteReactions, .notifyBoth: .json(Fixture.meWithNotifications())
         case .state: .json(#"{"me": "user_01SAM", "users": [\#(Fixture.sam)], "links": [\#(Fixture.link())]}"#)
         case .add, .addToGroup: .json(#"{"link": \#(Fixture.link()), "duplicate": false}"#, status: 201)
         case .seen, .unseen, .react, .unreact, .note: .json(#"{"link": \#(Fixture.link())}"#)
@@ -97,6 +102,9 @@ enum Endpoint: String, CaseIterable, Sendable {
         case .signOut: await client.signOut()
         case .me: _ = try await client.me()
         case .rename: _ = try await client.rename(to: "Sam L")
+        case .muteWatched: _ = try await client.setNotifications(watched: false)
+        case .muteReactions: _ = try await client.setNotifications(reactions: false)
+        case .notifyBoth: _ = try await client.setNotifications(watched: true, reactions: true)
         case .claim: _ = try await client.claim("legacy:Jo")
         case .deleteAccount: try await client.deleteAccount()
         case .state: _ = try await client.state()
@@ -214,6 +222,20 @@ struct APIClientResponseTests {
             #expect(response.user.name == "Sam Lee")
             #expect(response.claimable.map(\.name) == ["Jo"])
         }
+    }
+
+    @Test func notificationSettingsComeWithMe() async throws {
+        let server = StubServer(always: .json(Fixture.meWithNotifications(watched: false, reactions: true)))
+        let client = server.client()
+        for response in [try await client.me(), try await client.setNotifications(watched: false)] {
+            #expect(response.notifications == NotificationSettings(watched: false, reactions: true))
+            #expect(response.user.name == "Sam Lee")
+        }
+    }
+
+    @Test func olderServersHaveNoNotificationSettings() async throws {
+        let server = StubServer(always: .json(Fixture.me))
+        #expect(try await server.client().me().notifications == nil)
     }
 
     @Test func stateDecodes() async throws {

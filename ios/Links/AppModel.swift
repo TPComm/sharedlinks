@@ -11,6 +11,13 @@ final class AppModel {
     private(set) var token: String? = SessionStore.token
     private(set) var inbox: InboxState = InboxSnapshot.load() ?? .empty
     private(set) var claimable: [LinkUser] = []
+    /// My push settings for links I sent, as the switches show them; nil until the server says,
+    /// or on a server too old to have them.
+    private(set) var notifications: NotificationSettings?
+    /// The server's copy as of the last save or load, which a failed save goes back to.
+    private var savedNotifications: NotificationSettings?
+    /// The latest save: each waits for the one before, so they reach the server in tap order.
+    private var notificationSave: Task<MeResponse, Error>?
     private(set) var isOffline = false
     private(set) var isSigningIn = false
     private(set) var isDeletingAccount = false
@@ -46,6 +53,8 @@ final class AppModel {
     private var localEdits = 0
     /// Like localEdits, per link: a save's reply is dropped only if that link changed since.
     private var linkEdits: [Int: Int] = [:]
+    /// Like localEdits, for the notification settings.
+    private var notificationEdits = 0
 
     var isSignedIn: Bool { token != nil }
     var client: APIClient { APIClient(token: token) }
@@ -155,6 +164,9 @@ final class AppModel {
         account = nil
         inbox = .empty
         claimable = []
+        notifications = nil
+        savedNotifications = nil
+        notificationSave = nil
         invites = []
         paths = [:]
         chat = nil
@@ -171,9 +183,16 @@ final class AppModel {
 
     func loadAccount() async {
         let session = sessionID
+        let edits = notificationEdits
         guard isSignedIn, let me = try? await client.me(), session == sessionID else { return }
         setAccount(me.user)
         claimable = me.claimable
+        if edits == notificationEdits { setNotificationsFromServer(me.notifications) }
+    }
+
+    private func setNotificationsFromServer(_ settings: NotificationSettings?) {
+        notifications = settings
+        savedNotifications = settings
     }
 
     /// Throws rather than using the app-wide alert, which would close ClaimSheet.
@@ -198,14 +217,47 @@ final class AppModel {
     func rename(to name: String) async throws {
         let name = name.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !name.isEmpty else { return }
+        let edits = notificationEdits
         do {
             let me = try await client.rename(to: name)
             setAccount(me.user)
+            if edits == notificationEdits, me.notifications != nil { setNotificationsFromServer(me.notifications) }
         } catch APIError.signedOut {
             endSession()
             return
         }
         await refresh()
+    }
+
+    /// Shows the change at once. Once the last tap's save is done, the switches show the server's
+    /// copy, so a failed save is undone. Throws, like `rename`, for the profile to show.
+    func setNotifications(watched: Bool? = nil, reactions: Bool? = nil) async throws {
+        guard var next = notifications else { return }
+        if let watched { next.watched = watched }
+        if let reactions { next.reactions = reactions }
+        notifications = next
+        notificationEdits += 1
+        let edits = notificationEdits
+        let session = sessionID
+        let client = client
+        let previous = notificationSave
+        let save = Task {
+            _ = await previous?.result
+            return try await client.setNotifications(watched: watched, reactions: reactions)
+        }
+        notificationSave = save
+        do {
+            let me = try await save.value
+            guard session == sessionID else { return }
+            if let saved = me.notifications { savedNotifications = saved }
+            if edits == notificationEdits { notifications = savedNotifications }
+        } catch APIError.signedOut {
+            if session == sessionID { endSession() }
+        } catch {
+            // Saves finish in order, so after the last one the server's copy is settled.
+            if session == sessionID, edits == notificationEdits { notifications = savedNotifications }
+            throw error
+        }
     }
 
     // MARK: Invites
