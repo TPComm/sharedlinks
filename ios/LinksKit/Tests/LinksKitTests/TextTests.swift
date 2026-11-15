@@ -49,6 +49,13 @@ struct LinkTextTests {
         #expect(LinkText.webURL(fromSharedItem: Data([0xFF, 0xFE])) == nil)
     }
 
+    @Test(arguments: ["https://example.com/a watch this", "\nhttps://example.com/a", "https://example.com/a\n", "\nhttps://example.com/a\n"])
+    func keepsSurroundingTextOutOfSharedURLs(_ text: String) {
+        let url = URL(string: "https://example.com/a")!
+        #expect(LinkText.webURL(fromSharedItem: text) == url)
+        #expect(LinkText.webURL(fromSharedItem: Data(text.utf8)) == url)
+    }
+
     @Test(arguments: ["Episode title", "Episode: title"])
     func readsPodcastsSharedText(_ title: String) {
         let url = URL(string: "https://podcasts.apple.com/us/podcast/explain-it-to-me/id1042433083?i=1000802075437")!

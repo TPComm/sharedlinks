@@ -33,7 +33,9 @@ public enum LinkText {
     }
 
     static func url(fromSharedText text: String) -> URL? {
-        if let url = URL(string: text), ["http", "https"].contains(url.scheme?.lowercased()) { return url }
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.rangeOfCharacter(from: .whitespacesAndNewlines) == nil,
+           let url = URL(string: trimmed), ["http", "https"].contains(url.scheme?.lowercased()) { return url }
         return firstURL(in: text)
     }
 }
