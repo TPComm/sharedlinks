@@ -7,6 +7,7 @@ import unittest
 
 
 PARSER = pathlib.Path(__file__).with_name("ui-test-recoverable-failures.sh")
+SELECTION = pathlib.Path(__file__).with_name("ui-test-selection.sh")
 REAL_LOG = pathlib.Path(sys.argv.pop(1)) if len(sys.argv) > 1 else None
 
 
@@ -31,6 +32,35 @@ class RecoveryTests(unittest.TestCase):
         result = self.parse(log + "Test Case '-[LinksUITests.LinksUITests testLater]' passed (1 seconds).\n", selection)
         self.assertEqual(result.returncode, 0)
         self.assertEqual(result.stdout, "crash LinksUITests/testExample\n")
+
+    def select(self, tests, *args):
+        return subprocess.run(
+            ["bash", str(SELECTION), *args], input=tests, capture_output=True, text=True, check=True
+        ).stdout
+
+    def test_selection_follows_extra_xcodebuild_args(self):
+        tests = (
+            "LinksUITests/LinksUITests/testExample\n"
+            "LinksUITests/LinksUITests/testExampleTwo\n"
+            "LinksUITests/OtherUITests/testOther\n"
+        )
+        self.assertEqual(self.select(tests), tests)
+        self.assertEqual(self.select(tests, "-only-testing:LinksUITests/LinksUITests/testExample"),
+                         "LinksUITests/LinksUITests/testExample\n")
+        self.assertEqual(self.select(tests, "-only-testing:LinksUITests/OtherUITests"),
+                         "LinksUITests/OtherUITests/testOther\n")
+        self.assertEqual(self.select(tests, "-only-testing:LinksUITests"), tests)
+        self.assertEqual(self.select(tests, "-skip-testing:LinksUITests/LinksUITests/testExample"),
+                         "LinksUITests/LinksUITests/testExampleTwo\nLinksUITests/OtherUITests/testOther\n")
+        self.assertEqual(self.select(tests, "-only-testing:LinksUITests/LinksUITests", "-skip-testing:LinksUITests/LinksUITests/testExampleTwo"),
+                         "LinksUITests/LinksUITests/testExample\n")
+
+    def test_launch_timeout_in_a_single_test_run_reruns(self):
+        tests = "LinksUITests/LinksUITests/testExample\nLinksUITests/LinksUITests/testLater\n"
+        selection = self.select(tests, "-only-testing:LinksUITests/LinksUITests/testExample")
+        result = self.parse(self.failure("Failed to launch app with identifier: com.tpcomm.links. Error: Timed out while launching application via Xcode"), selection)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout, "launch LinksUITests/testExample\n")
 
     def failure(self, message, name="testExample"):
         return (
