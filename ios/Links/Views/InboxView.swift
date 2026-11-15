@@ -94,11 +94,22 @@ struct LinkList: View {
     let query: String
 
     var body: some View {
+        if filter == .watched && query.isEmpty {
+            // Eligibility can change with time even when the inbox is unchanged and no card exists yet.
+            TimelineView(.everyMinute) { _ in
+                list(on: .now)
+            }
+        } else {
+            list(on: .now)
+        }
+    }
+
+    private func list(on date: Date) -> some View {
         let links = model.inbox.links(for: filter, in: model.chat, matching: query)
-        List {
+        return List {
             if filter == .watched && query.isEmpty,
-               !model.inbox.throwbacks(in: model.chat, minimumAge: ThrowbackCard.minimumAge).isEmpty {
-                ThrowbackCard()
+               !model.inbox.throwbacks(in: model.chat, now: date, minimumAge: ThrowbackCard.minimumAge).isEmpty {
+                ThrowbackCard(date: date)
                     .id(model.chat)
                     .listRowSeparator(.hidden)
             }
