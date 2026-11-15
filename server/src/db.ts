@@ -69,7 +69,10 @@ export interface InviteRow {
   expires_at: number;
   used_by: string | null;
   used_at: number | null;
-  /** The inviter's chat the new member joins; null: a new chat of just the two of them. */
+  /**
+   * The inviter's chat the new member joins; null: a new chat of just the two of them. Once a
+   * friend's invite is used, the chat it took them to.
+   */
   group_id: number | null;
 }
 

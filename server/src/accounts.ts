@@ -375,7 +375,7 @@ export class Accounts {
       }
       this.upsertUser(user.id, email, name, avatar);
       const group = this.admit(user.id, invite);
-      this.db.run("UPDATE invites SET used_by = ?, used_at = ? WHERE id = ?", [user.id, now(), invite.id]);
+      this.useUp(invite, user.id, group);
       console.log(`invite ${invite.id} from ${invite.invited_by ?? "admin"} used by ${user.id}`);
       return group;
     }).immediate();
@@ -438,9 +438,9 @@ export class Accounts {
       ? this.db.query("SELECT * FROM invites WHERE token_hash = ?").get(sha256(token)) as InviteRow | null
       : null;
     if (row && row.used_by === userId) {
-      // Opened again after it let them in: back to its chat, if they're still there.
-      const named = row.group_id;
-      return named !== null && this.inGroup(named, userId) ? named : null;
+      // Opened again after it let them in: back to the chat it took them to, if they're still there.
+      const went = row.group_id;
+      return went !== null && this.inGroup(went, userId) ? went : null;
     }
     if (!row || row.used_at !== null || row.expires_at <= now()) throw new AuthError("This invite doesn't work anymore.", 404);
     if (!row.invited_by || row.invited_by === userId) return null;
@@ -453,9 +453,15 @@ export class Accounts {
     const group = this.invitersChat(row, userId);
     if (this.inGroup(group, userId)) return group;
     this.db.run("INSERT INTO group_members (group_id, user_id, joined_at) VALUES (?, ?, ?)", [group, userId, now()]);
-    this.db.run("UPDATE invites SET used_by = ?, used_at = ? WHERE id = ?", [userId, now(), row.id]);
+    this.useUp(row, userId, group);
     console.log(`invite ${row.id} from ${row.invited_by} used by member ${userId}`);
     return group;
+  }
+
+  /** Marks it used, keeping the chat a friend's invite took them to, for when they open it again. */
+  private useUp(invite: InviteRow, userId: string, group: number) {
+    this.db.run("UPDATE invites SET used_by = ?, used_at = ?, group_id = ? WHERE id = ?",
+      [userId, now(), invite.invited_by ? group : invite.group_id, invite.id]);
   }
 
   private inGroup(groupId: number, userId: string): boolean {
