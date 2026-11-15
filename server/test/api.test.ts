@@ -657,6 +657,8 @@ describe("reports, blocks and the word list", () => {
     expect(res.data).toContain('<a href="mailto:support@tpcomm.co">support@tpcomm.co</a>');
     expect(res.data).toContain("Delete Account");
     expect(res.data).toContain("newest 14 days");
+    expect(res.data).toContain("Grafana Cloud");
+    expect(res.data).toContain("push token");
   });
 
   test("/version says which commit is running, without signing in", async () => {

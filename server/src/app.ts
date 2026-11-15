@@ -145,8 +145,9 @@ function privacyPage(email: string, sessionDays: number): string {
 <li><b>Your account:</b> your email address, display name and profile photo address. They come from WorkOS, our sign-in provider, when you first sign in, and you can change your name in the app. They sign you in, match invites sent to you, and show your friends who sent what.</li>
 <li><b>What you do in Links:</b> the links you send and their notes, which links you've watched, your reactions, the reports you make and the people you block. For each link the server also fetches its title, author and thumbnail from the link's page.</li>
 <li><b>Invites you send:</b> the email address you invite, if you type one, when the invite expires, and who used it. They let your friend in; cancelling an invite deletes it.</li>
-<li><b>Signed-in devices:</b> a scrambled (hashed) copy of each device's sign-in token, with when it was created and last used.</li>
-<li><b>Server logs:</b> one line per request, with what was asked for (for example, "mark link 12 watched") and whether it worked. They're used to fix problems.</li>
+<li><b>Signed-in devices:</b> a scrambled (hashed) copy of each device's sign-in token, with when it was created and last used, and the push notification token Apple gives the app on that device, which the server uses to send it notifications.</li>
+<li><b>Server logs:</b> one line per request, with what was asked for (for example, "mark link 12 watched") and whether it worked, plus messages about errors and events, which can include a link's address or an account's ID. They're used to fix problems.</li>
+<li><b>Server health:</b> the server computer's CPU, memory, disk and network use, once a minute. It's about the server, not about you.</li>
 <li><b>Backups:</b> a copy of the server's database, made every day.</li>
 </ul>
 <p>Links uses this only to run the app. There are no ads, no analytics and no tracking, and nothing is sold or shared for marketing.</p>
@@ -155,6 +156,8 @@ function privacyPage(email: string, sessionDays: number): string {
 <ul>
 <li><b>The other people on this server</b> see your name and photo, the links you send and their notes, and your watched marks and reactions. Reports and blocks are private: only the person who runs the server reads reports.</li>
 <li><b>WorkOS</b> runs sign-in. It keeps your email, your sign-in details and the sign-ins you make, and gets the app's name and version and your iOS version when you sign in, plus, like any website, your IP address and browser details while you sign in. See the <a href="https://workos.com/legal/privacy">WorkOS privacy policy</a>.</li>
+<li><b>Apple</b> delivers push notifications. For each one, the server sends Apple your device's push token and what the notification shows: who sent a link or reacted, the chat's name, the link's title and note (shortened if long), the reaction, and how many links are in your To Watch, along with Links' own numbers for the link, its sender and its chat. See the <a href="https://www.apple.com/legal/privacy/">Apple privacy policy</a>.</li>
+<li><b>Grafana Cloud</b> (Grafana Labs) keeps a copy of the server logs, the web server's and the daily backup's own messages, and the server health figures, so problems can be spotted and fixed. See the <a href="https://grafana.com/legal/privacy-policy/">Grafana Labs privacy policy</a>.</li>
 <li><b>The company that hosts this server</b> stores it on its computers.</li>
 </ul>
 <p>Links only uses services like these that protect your data the way this policy describes. When the server fetches a link's preview, the site sees the server, not you. When you open a link, it opens in its own app (such as TikTok or Instagram) or in Safari, and their privacy policies apply there.</p>
@@ -163,7 +166,8 @@ function privacyPage(email: string, sessionDays: number): string {
 <ul>
 <li>Your account and what you do in Links: until you delete them, or your account.</li>
 <li>A device's sign-in: until you sign out on it, or ${sessionDays} days after it was last used.</li>
-<li>Server logs: until the server's system log replaces them with newer ones, usually within a few weeks.</li>
+<li>A device's push token: until you sign out on it, or Apple tells the server the token no longer works.</li>
+<li>Server logs: until the server's system log replaces them with newer ones, usually within a few weeks. Grafana Cloud's copy of the logs and server health figures is kept for 14 days, the limit of its free plan that this server uses.</li>
 <li>Backups: the newest 14 days are kept, so anything deleted is gone from the backups within two weeks.</li>
 </ul>
 
