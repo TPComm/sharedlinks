@@ -439,19 +439,23 @@ describe("a day with Links", () => {
     expect([unknown.code, unknown.stdout, unknown.stderr]).toEqual([1, "", "unknown command: frobnicate\n"]);
   });
 
-  e2e("backup snapshots the live database and keeps the newest 14", async () => {
+  e2e("backup snapshots the live database and keeps the newest 14 days", async () => {
     const dir = join(tmp, "backups");
     mkdirSync(dir);
     const old = Array.from({ length: 16 }, (_, i) => `links-2000-01-${String(i + 1).padStart(2, "0")}.db`);
-    for (const name of [...old, "links-latest.db", "notes.txt"]) writeFileSync(join(dir, name), "old");
+    // Labelled copies (e.g. made before a deploy) go after 14 days; dates a day off the edge in case of midnight.
+    const daysAgo = (n: number) => new Date(Date.now() - n * 86_400_000).toISOString().slice(0, 10);
+    const recent = `links-${daysAgo(12)}-pre-deploy.db`;
+    const labelled = ["links-2000-01-01-pre-deploy.db", `links-${daysAgo(15)}-pre-v2.db`, recent];
+    for (const name of [...old, ...labelled, "links-latest.db", "notes.txt"]) writeFileSync(join(dir, name), "old");
     const days = [new Date().toISOString().slice(0, 10)];
     const run = await cli(dataDir, "backup", dir);
     days.push(new Date().toISOString().slice(0, 10)); // in case it ran across midnight UTC
     expect(run.code, run.logs()).toBe(0);
     const file = run.stdout.match(/^backed up to (.+)\n$/)?.[1] ?? "";
     expect(days.map((d) => join(dir, `links-${d}.db`))).toContain(file);
-    // The three oldest dated snapshots go; anything else in the folder stays.
-    expect(readdirSync(dir).sort()).toEqual([...old.slice(3), basename(file), "links-latest.db", "notes.txt"]);
+    // The three oldest dated snapshots and the old labelled ones go; anything else in the folder stays.
+    expect(readdirSync(dir).sort()).toEqual([...old.slice(3), recent, basename(file), "links-latest.db", "notes.txt"].sort());
 
     const live = (await call("/api/state", { token: alice.token })).data;
     const snapshot = new Database(file, { readonly: true });
@@ -465,10 +469,13 @@ describe("a day with Links", () => {
       snapshot.close();
     }
 
-    // Without a folder: DATA_DIR/backups.
+    // Without a folder: DATA_DIR/backups. The newest labelled copy stays however old, so a rollback has one.
+    mkdirSync(join(dataDir, "backups"));
+    for (const name of ["links-2000-01-01-pre-a.db", "links-2000-01-02-pre-b.db"]) writeFileSync(join(dataDir, "backups", name), "old");
     const fallback = await cli(dataDir, "backup");
     expect(fallback.code, fallback.logs()).toBe(0);
-    expect(readdirSync(join(dataDir, "backups"))).toEqual([expect.stringMatching(/^links-\d{4}-\d{2}-\d{2}\.db$/)]);
+    expect(readdirSync(join(dataDir, "backups")).sort())
+      .toEqual(["links-2000-01-02-pre-b.db", expect.stringMatching(/^links-\d{4}-\d{2}-\d{2}\.db$/)]);
   });
 
   e2e("exits 0 promptly on SIGTERM, and keeps everything across a restart", async () => {
