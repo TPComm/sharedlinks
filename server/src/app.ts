@@ -3,7 +3,7 @@ import { rmSync } from "node:fs";
 import { join } from "node:path";
 import { Accounts, AuthError, INVITE_TOKEN_RE, MAX_GROUP_MEMBERS, publicUser } from "./accounts.ts";
 import type { Config } from "./config.ts";
-import { defaultGroup, deleteEmptyGroups, deleteLink, now, openDatabase, type GroupRow, type LinkRow, type UserRow } from "./db.ts";
+import { defaultGroup, deleteEmptyGroups, deleteLink, now, openDatabase, type CommentRow, type GroupRow, type LinkRow, type UserRow } from "./db.ts";
 import { BadRequest, canonical, clipText, extractUrl } from "./links.ts";
 import { REPORT_REASONS } from "./moderation.ts";
 import { fetchMetadata, PREVIEW_VERSION } from "./previews.ts";
@@ -137,13 +137,13 @@ function privacyPage(email: string, sessionDays: number): string {
   return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Links Privacy Policy</title><style>body{font:17px/1.5 -apple-system,system-ui,sans-serif;max-width:36em;margin:3em auto;padding:0 1em}h2{font-size:1.1em;margin-top:1.6em}</style></head>
 <body><h1>Links Privacy Policy</h1>
-<p>Last updated 14 November 2026.</p>
+<p>Last updated 15 November 2026.</p>
 <p>Links is a private inbox for the links a few friends send each other. This policy covers the Links app and this server, which keeps what the app shows. Questions or requests: ${contact}.</p>
 
 <h2>What Links keeps, and why</h2>
 <ul>
 <li><b>Your account:</b> your email address, display name and profile photo address. They come from WorkOS, our sign-in provider, when you first sign in, and you can change your name in the app. They sign you in, match invites sent to you, and show your friends who sent what.</li>
-<li><b>What you do in Links:</b> the links you send and their notes, which links you've watched, your reactions, the reports you make and the people you block. For each link the server also fetches its title, author and thumbnail from the link's page.</li>
+<li><b>What you do in Links:</b> the links you send and their notes, your comments, which links you've watched, your reactions, the reports you make and the people you block. For each link the server also fetches its title, author and thumbnail from the link's page.</li>
 <li><b>Invites you send:</b> the email address you invite, if you type one, when the invite expires, and who used it. They let your friend in; cancelling an invite deletes it.</li>
 <li><b>Signed-in devices:</b> a scrambled (hashed) copy of each device's sign-in token, with when it was created and last used, and the push notification token Apple gives the app on that device, which the server uses to send it notifications.</li>
 <li><b>Server logs:</b> one line per request, with what was asked for (for example, "mark link 12 watched") and whether it worked, plus messages about errors and events, which can include a link's address or an account's ID. They're used to fix problems.</li>
@@ -154,7 +154,7 @@ function privacyPage(email: string, sessionDays: number): string {
 
 <h2>Who else sees it</h2>
 <ul>
-<li><b>The people in your chats</b> see your name and photo. People only lists people you share a chat with. Each link and its note, watched marks and reactions are only shared with members of that link's chat. Your name and photo can still appear on links in a chat you've left, or under Blocked People for someone who blocked you. Reports and blocks are private: only the person who runs the server reads reports.</li>
+<li><b>The people in your chats</b> see your name and photo. People only lists people you share a chat with. Each link and its note, comments, watched marks and reactions are only shared with members of that link's chat. Your name and photo can still appear on links in a chat you've left, or under Blocked People for someone who blocked you. Reports and blocks are private: only the person who runs the server reads reports.</li>
 <li><b>WorkOS</b> runs sign-in. It keeps your email, your sign-in details and the sign-ins you make, and gets the app's name and version and your iOS version when you sign in, plus, like any website, your IP address and browser details while you sign in. See the <a href="https://workos.com/legal/privacy">WorkOS privacy policy</a>.</li>
 <li><b>Apple</b> delivers push notifications. For each one, the server sends Apple your device's push token and what the notification shows: who sent a link or reacted, the chat's name, the link's title and note (shortened if long), the reaction, and how many links are in your To Watch, along with Links' own numbers for the link, its sender and its chat. See the <a href="https://www.apple.com/legal/privacy/">Apple privacy policy</a>.</li>
 <li><b>Grafana Cloud</b> (Grafana Labs) keeps a copy of the server logs, the web server's and the daily backup's own messages, and the server health figures, so problems can be spotted and fixed. See the <a href="https://grafana.com/legal/privacy-policy/">Grafana Labs privacy policy</a>.</li>
@@ -174,7 +174,7 @@ function privacyPage(email: string, sessionDays: number): string {
 <h2>Your choices</h2>
 <ul>
 <li>Change your display name in the app's account menu. Delete a link you sent, or change its note, from the link's long-press menu.</li>
-<li>To delete your account, open the account menu in the app and choose <b>Delete Account</b>. That deletes your account, your sign-ins on every device, the links you sent with their notes and thumbnails (for your friends too), your watched marks and reactions, and your WorkOS account.</li>
+<li>To delete your account, open the account menu in the app and choose <b>Delete Account</b>. That deletes your account, your sign-ins on every device, the links you sent with their notes and thumbnails (for your friends too), your comments, watched marks and reactions, and your WorkOS account.</li>
 <li>You can also email ${contact} to ask what Links keeps about you, to correct it, or to delete it.</li>
 </ul>
 
@@ -310,6 +310,7 @@ export function createApp(config: Config, opts: AppOptions = {}) {
     UNION SELECT l.added_by FROM links l JOIN group_members m ON m.group_id = l.group_id AND m.user_id = ?1
     UNION SELECT s.person FROM seen s JOIN links l ON l.id = s.link_id JOIN group_members m ON m.group_id = l.group_id AND m.user_id = ?1
     UNION SELECT r.person FROM reactions r JOIN links l ON l.id = r.link_id JOIN group_members m ON m.group_id = l.group_id AND m.user_id = ?1
+    UNION SELECT c.person FROM comments c JOIN links l ON l.id = c.link_id JOIN group_members m ON m.group_id = l.group_id AND m.user_id = ?1
     UNION SELECT blocked FROM blocks WHERE blocker = ?1`;
 
   const sees = (me: string, id: string) =>
@@ -332,6 +333,10 @@ export function createApp(config: Config, opts: AppOptions = {}) {
       const link = links.get(r.link_id);
       if (link && !blocked.has(r.person)) link.reactions[r.person] = r.emoji;
     }
+    for (const summary of commentSummaries(me, "group_id", groupId)) {
+      const link = links.get(summary.link_id);
+      if (link) applyCommentSummary(link, summary);
+    }
     const users = (db.query(`SELECT * FROM users WHERE id IN (${PEOPLE}) ORDER BY created_at`).all(me) as UserRow[]).map(publicUser);
     return { me, users, groups: groupsOf(me), links: [...links.values()], blocked: [...blocked] };
   }
@@ -342,7 +347,52 @@ export function createApp(config: Config, opts: AppOptions = {}) {
       description: r.description, site_name: r.site_name,
       thumb: r.thumb_type ? `/thumbs/${r.id}${r.thumb_v ? `/${r.thumb_v}` : ""}` : null, thumb_w: r.thumb_w, thumb_h: r.thumb_h, meta: r.meta, added_by: r.added_by, added_at: r.added_at,
       seen: {} as Record<string, number>, reactions: {} as Record<string, string>,
+      comment_count: 0, last_comment: null as { person: string; snippet: string; at: number } | null,
     };
+  }
+
+  function commentSummaries(me: string, field: "group_id" | "id", id?: number) {
+    const only = id === undefined ? "" : ` AND links.${field} = ?2`;
+    return db.query(`SELECT link_id, comment_count, person, snippet, at FROM (
+      SELECT c.link_id, c.person, substr(c.body, 1, 120) AS snippet, c.created_at AS at,
+        count(*) OVER (PARTITION BY c.link_id) AS comment_count,
+        row_number() OVER (PARTITION BY c.link_id ORDER BY c.created_at DESC, c.id DESC) AS rank
+      FROM comments c JOIN links ON links.id = c.link_id
+      WHERE ${VISIBLE}${only}
+        AND NOT EXISTS (SELECT 1 FROM blocks WHERE blocker = ?1 AND blocked = c.person)
+        AND NOT EXISTS (SELECT 1 FROM reports WHERE reporter = ?1 AND comment_id = c.id)
+    ) WHERE rank = 1`).all(...(id === undefined ? [me] : [me, id])) as {
+      link_id: number; comment_count: number; person: string; snippet: string; at: number;
+    }[];
+  }
+
+  function applyCommentSummary(link: ReturnType<typeof toLink>, summary: ReturnType<typeof commentSummaries>[number]) {
+    link.comment_count = summary.comment_count;
+    link.last_comment = { person: summary.person, snippet: summary.snippet, at: summary.at };
+  }
+
+  function commentsFor(id: number, me: string): CommentRow[] {
+    return db.query(`SELECT * FROM comments WHERE link_id = ?2
+      AND NOT EXISTS (SELECT 1 FROM blocks WHERE blocker = ?1 AND blocked = comments.person)
+      AND NOT EXISTS (SELECT 1 FROM reports WHERE reporter = ?1 AND comment_id = comments.id)
+      ORDER BY created_at, id`).all(me, id) as CommentRow[];
+  }
+
+  function commentOf(id: string, me: string, includeReported = false): CommentRow {
+    const row = /^\d+$/.test(id) ? db.query("SELECT * FROM comments WHERE id = ?").get(Number(id)) as CommentRow | null : null;
+    if (!row || !isVisible(row.link_id, me) || hasBlocked(me, row.person)
+        || (!includeReported && db.query("SELECT 1 FROM reports WHERE reporter = ? AND comment_id = ?").get(me, row.id))) {
+      throw new NotFound("That comment was deleted.");
+    }
+    return row;
+  }
+
+  function commentBody(body: unknown): string {
+    if (typeof body !== "string") throw new BadRequest("Write a comment first.");
+    const clean = clipText(body, 1000);
+    if (!clean) throw new BadRequest("Write a comment first.");
+    accounts.screen(clean, "comment");
+    return clean;
   }
 
   /** One link as `me` sees it (see getState). Callers check it's visible to them first. */
@@ -357,6 +407,8 @@ export function createApp(config: Config, opts: AppOptions = {}) {
     for (const r of db.query("SELECT person, emoji FROM reactions WHERE link_id = ?").all(id) as { person: string; emoji: string }[]) {
       if (!blocked.has(r.person)) link.reactions[r.person] = r.emoji;
     }
+    const [summary] = commentSummaries(me, "id", id);
+    if (summary) applyCommentSummary(link, summary);
     return link;
   }
 
@@ -432,7 +484,7 @@ export function createApp(config: Config, opts: AppOptions = {}) {
   /** A report snapshot: what was reported as it was, since it can be edited or deleted later. */
   function reportTarget(data: Record<string, any>, me: string) {
     const given = (["link_id", "comment_id", "user_id"] as const).filter((k) => data[k] !== undefined && data[k] !== null);
-    if (given.length !== 1) throw new BadRequest("Report one link or one person.");
+    if (given.length !== 1) throw new BadRequest("Report one link, comment or person.");
     if (given[0] === "link_id") {
       const id = data.link_id;
       const row = Number.isSafeInteger(id) ? db.query("SELECT * FROM links WHERE id = ?").get(id) as LinkRow | null : null;
@@ -440,7 +492,7 @@ export function createApp(config: Config, opts: AppOptions = {}) {
       if (row.added_by === me) throw new BadRequest("That's your own link. Delete it instead.");
       const from = db.query("SELECT name, email FROM users WHERE id = ?").get(row.added_by) as { name: string; email: string | null } | null;
       return {
-        link_id: row.id as number, user_id: null, label: `link ${row.id}`,
+        link_id: row.id as number, comment_id: null, user_id: null, label: `link ${row.id}`,
         snapshot: { url: row.url, title: row.title, author: row.author, note: row.note, sender: row.added_by,
                     sender_name: from?.name ?? null, sender_email: from?.email ?? null },
       };
@@ -451,11 +503,17 @@ export function createApp(config: Config, opts: AppOptions = {}) {
       const user = db.query("SELECT * FROM users WHERE id = ?").get(id) as UserRow | null;
       if (!user || !sees(me, id)) throw new NotFound("That person isn't in Links anymore.");
       return {
-        link_id: null, user_id: id, label: `person ${id}`,
+        link_id: null, comment_id: null, user_id: id, label: `person ${id}`,
         snapshot: { name: user.name, avatar: user.avatar, email: user.email },
       };
     }
-    throw new NotFound("That comment was deleted."); // comments arrive with #6
+    if (!Number.isSafeInteger(data.comment_id)) throw new NotFound("That comment was deleted.");
+    const comment = commentOf(String(data.comment_id), me, true);
+    if (comment.person === me) throw new BadRequest("That's your own comment. Delete it instead.");
+    return {
+      link_id: null, comment_id: comment.id, user_id: null, label: `comment ${comment.id}`,
+      snapshot: { ...comment },
+    };
   }
 
   function groupName(name: unknown): string {
@@ -737,8 +795,8 @@ export function createApp(config: Config, opts: AppOptions = {}) {
         const { id, label } = asUser(me, () => {
           const target = reportTarget(data, me);
           const { changes, lastInsertRowid } = db.run(
-            "INSERT OR IGNORE INTO reports (reporter, link_id, user_id, reason, details, snapshot, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
-            [me, target.link_id, target.user_id, data.reason, details, JSON.stringify(target.snapshot), now()],
+            "INSERT OR IGNORE INTO reports (reporter, link_id, comment_id, user_id, reason, details, snapshot, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            [me, target.link_id, target.comment_id, target.user_id, data.reason, details, JSON.stringify(target.snapshot), now()],
           );
           return { id: changes ? Number(lastInsertRowid) : null, label: target.label };
         });
@@ -800,6 +858,37 @@ export function createApp(config: Config, opts: AppOptions = {}) {
         const badgesChange = push.enabled ? push.unwatchedBy(id) : [];
         deleteLink(db, config.dataDir, id);
         push.badges(badgesChange);
+        return json({ ok: true });
+      }),
+    },
+    "/api/links/:id/comments": {
+      GET: route<WithId>((req, me) => json({ comments: commentsFor(linkId(req, me), me) })),
+      POST: route<WithId>(async (req, me) => {
+        const id = linkId(req, me);
+        const body = commentBody((await readJson(req)).body);
+        const comment = asUser(me, () => {
+          stillSees(id, me);
+          const { lastInsertRowid } = db.run("INSERT INTO comments (link_id, person, body, created_at) VALUES (?, ?, ?, ?)", [id, me, body, now()]);
+          return db.query("SELECT * FROM comments WHERE id = ?").get(lastInsertRowid) as CommentRow;
+        });
+        return json({ comment }, 201);
+      }),
+    },
+    "/api/comments/:id": {
+      PATCH: route<WithId>(async (req, me) => {
+        const body = commentBody((await readJson(req)).body);
+        const comment = asUser(me, () => {
+          const row = commentOf(req.params.id, me);
+          if (row.person !== me) throw new AuthError("Only the author can change a comment.", 403);
+          db.run("UPDATE comments SET body = ?, edited_at = ? WHERE id = ?", [body, now(), row.id]);
+          return commentOf(req.params.id, me);
+        });
+        return json({ comment });
+      }),
+      DELETE: route<WithId>((req, me) => {
+        const row = commentOf(req.params.id, me);
+        if (row.person !== me) throw new AuthError("Only the author can delete a comment.", 403);
+        db.run("DELETE FROM comments WHERE id = ?", [row.id]);
         return json({ ok: true });
       }),
     },
