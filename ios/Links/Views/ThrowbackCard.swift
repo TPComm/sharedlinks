@@ -5,6 +5,7 @@ struct ThrowbackCard: View {
     @Environment(AppModel.self) private var model
     @Environment(\.dynamicTypeSize) private var typeSize
     @State private var advances = 0
+    let date: Date
 
     static var minimumAge: TimeInterval {
         let env = ProcessInfo.processInfo.environment
@@ -16,9 +17,7 @@ struct ThrowbackCard: View {
     }
 
     var body: some View {
-        TimelineView(.everyMinute) { _ in
-            card(on: .now)
-        }
+        card(on: date)
     }
 
     @ViewBuilder private func card(on date: Date) -> some View {
