@@ -445,10 +445,15 @@ final class AppModel {
     /// Its links leave my lists; the ones I sent stay in the chat for everyone else.
     func leaveChat(_ group: LinkGroup) async {
         let title = inbox.title(of: group)
+        let before = inbox, chatBefore = chat
         if chat == group.id { chat = nil }
         applyLocally { $0.leaving(group: group.id) }
         ShareSuggestions.forget(group)
-        await perform {
+        // Offline I'm still in it, and the refresh can't put it back: setInbox re-donates its suggestion.
+        await perform(onFailure: {
+            self.setInbox(before)
+            self.chat = chatBefore
+        }) {
             try await self.client.leaveGroup(group.id)
             self.toast = "Left \(title)"
         }
