@@ -15,9 +15,15 @@ struct ThrowbackCard: View {
     }
 
     var body: some View {
-        let favorites = model.inbox.throwbacks(in: model.chat, minimumAge: minimumAge)
+        TimelineView(.everyMinute) { context in
+            card(on: context.date)
+        }
+    }
+
+    @ViewBuilder private func card(on date: Date) -> some View {
+        let favorites = model.inbox.throwbacks(in: model.chat, now: date, minimumAge: minimumAge)
         if !favorites.isEmpty {
-            let start = InboxState.throwbackStartIndex(count: favorites.count)
+            let start = InboxState.throwbackStartIndex(count: favorites.count, on: date)
             let link = favorites[(start + advances) % favorites.count]
             VStack(alignment: .leading, spacing: 16) {
                 HStack {
