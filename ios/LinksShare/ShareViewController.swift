@@ -48,11 +48,15 @@ final class ShareModel {
     /// Who the link goes to: the picked chat's members.
     var recipients: [String] {
         guard let snapshot else { return suggestedRecipients }
+        if needsChat { return [] }
         return snapshot.recipients(in: snapshot.group(groupID)).map(\.name)
     }
 
     var groups: [LinkGroup] { snapshot?.groups ?? [] }
     private var practiceFinished = false
+
+    /// A real send that has chats to choose from but none picked yet.
+    var needsChat: Bool { groupID == nil && !groups.isEmpty && phase != .practice && phase != .practiceSent }
 
     init(context: NSExtensionContext?) {
         self.context = context
@@ -65,7 +69,11 @@ final class ShareModel {
         groupID = snapshot?.preferredGroup?.id
         // Picked a chat from the share sheet's suggestions row: that one, as donated by ShareSuggestions.
         if let intent = context?.intent as? INSendMessageIntent {
-            if let group = snapshot?.group(conversationID: intent.conversationIdentifier) { groupID = group.id }
+            if let groups = snapshot?.groups, !groups.isEmpty {
+                // A suggestion for a chat I've since left (e.g. on another device): ask, rather than send elsewhere.
+                groupID = snapshot?.group(conversationID: intent.conversationIdentifier)?.id
+                    ?? (groups.count == 1 ? groups[0].id : nil)
+            }
             suggestedRecipients = intent.recipients?.compactMap(\.displayName) ?? []
         }
         url = await sharedURL()
@@ -123,6 +131,7 @@ final class ShareModel {
     }
 
     func send() async {
+        guard !needsChat else { return }
         if phase == .practice {
             phase = .practiceSent
             #if DEBUG
