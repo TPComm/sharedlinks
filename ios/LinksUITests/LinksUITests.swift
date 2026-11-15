@@ -47,7 +47,11 @@ final class LinksUITests: XCTestCase {
         pickChat(name)
         app.tabBars.buttons["Seen"].tap()
         waitForRow(link, in: "watched")
-        XCTAssert(app.otherElements["throwback.card"].waitForExistence(timeout: 5))
+        let card = app.otherElements["throwback.card"]
+        XCTAssert(card.waitForExistence(timeout: 5))
+        let heading = card.staticTexts["THROWBACK"]
+        XCTAssert(heading.exists, "the Throwback heading is missing")
+        XCTAssertGreaterThan(heading.frame.width, 40, "the Throwback heading has no visible width")
         XCTAssertFalse(app.buttons["throwback.another"].exists)
         app.buttons["throwback.open"].tap()
         XCTAssert(page(link).waitForExistence(timeout: 5))

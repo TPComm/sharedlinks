@@ -27,19 +27,17 @@ struct ThrowbackCard: View {
             let start = InboxState.throwbackStartIndex(count: favorites.count, on: date)
             let link = favorites[(start + advances) % favorites.count]
             VStack(alignment: .leading, spacing: 16) {
-                let headerLayout = typeSize.isAccessibilitySize
-                    ? AnyLayout(VStackLayout(alignment: .leading, spacing: 8))
-                    : AnyLayout(HStackLayout())
-                headerLayout {
-                    Label("THROWBACK", systemImage: "sparkles")
-                        .font(.caption.weight(.bold))
-                        .tracking(1.5)
-                        .foregroundStyle(.orange)
-                        .fixedSize()
-                    if !typeSize.isAccessibilitySize { Spacer() }
-                    Text(link.addedAt, format: .dateTime.month(.abbreviated).day().year())
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                if typeSize.isAccessibilitySize {
+                    VStack(alignment: .leading, spacing: 8) {
+                        heading
+                        originalDate(link.addedAt)
+                    }
+                } else {
+                    HStack {
+                        heading
+                        Spacer()
+                        originalDate(link.addedAt)
+                    }
                 }
                 VStack(alignment: .leading, spacing: 4) {
                     Text("Remember this one?")
@@ -117,6 +115,25 @@ struct ThrowbackCard: View {
             .accessibilityIdentifier("throwback.card")
             .padding(.vertical, 8)
         }
+    }
+
+    private var heading: some View {
+        HStack(spacing: 4) {
+            Image(systemName: "sparkles")
+                .accessibilityHidden(true)
+            Text("THROWBACK")
+                .tracking(1.5)
+                .lineLimit(1)
+                .minimumScaleFactor(0.8)
+        }
+        .font(.caption.weight(.bold))
+        .foregroundStyle(.orange)
+    }
+
+    private func originalDate(_ date: Date) -> some View {
+        Text(date, format: .dateTime.month(.abbreviated).day().year())
+            .font(.caption)
+            .foregroundStyle(.secondary)
     }
 
     @ViewBuilder private func reactionLabels(for link: SharedLink) -> some View {
