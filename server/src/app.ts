@@ -129,7 +129,7 @@ function invitePage(config: Config, token: string, invite: { inviter: string | n
 
 function linkPage(config: Config, link: LinkRow | null): string {
   const platform = link ? ({ tiktok: "TikTok", instagram: "Instagram", youtube: "YouTube", x: "X", reddit: "Reddit", facebook: "Facebook" }[link.platform] ?? "") : "";
-  const title = link ? link.title || (platform ? `A ${platform} shared on Links` : "A link shared on Links") : "This link isn't available";
+  const title = link ? link.title || (platform ? `${/^(Instagram|X)$/.test(platform) ? "An" : "A"} ${platform} shared on Links` : "A link shared on Links") : "This link isn't available";
   const button = platform ? `Watch on ${platform}` : "Open the link";
   const url = link ? `${config.publicUrl}/l/${link.share_token}` : "";
   const image = `${config.publicUrl}${link?.thumb_type ? `/l/${link.share_token}/image` : "/icon.png"}`;
