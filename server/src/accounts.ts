@@ -66,8 +66,7 @@ export class Accounts {
       if (bound.length > 254 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(bound)) throw new BadRequest("That doesn't look like an email address.");
     }
     const t = now();
-    const pending = userId === null ? 0 : (this.db.query("SELECT COUNT(*) AS n FROM invites WHERE invited_by = ? AND used_at IS NULL AND expires_at > ?")
-      .get(userId, t) as { n: number }).n;
+    const pending = userId === null ? 0 : this.pendingInvites(userId).length;
     if (pending >= MAX_PENDING_INVITES) throw new BadRequest("You have a lot of invites waiting. Cancel some first.");
     const token = randomToken();
     const row = this.db.query(`INSERT INTO invites (token_hash, email, invited_by, created_at, expires_at, group_id)
@@ -76,9 +75,13 @@ export class Accounts {
     return { invite: publicInvite(row), token };
   }
 
-  /** Mine that nobody has used yet and that still work, newest first. */
+  /** Mine that still need someone to join, newest first. */
   pendingInvites(userId: string) {
-    return (this.db.query("SELECT * FROM invites WHERE invited_by = ? AND used_at IS NULL AND expires_at > ? ORDER BY created_at DESC, id DESC")
+    return (this.db.query(`SELECT i.* FROM invites i WHERE i.invited_by = ? AND i.used_at IS NULL AND i.expires_at > ?
+        AND NOT EXISTS (SELECT 1 FROM users u JOIN group_members m ON m.user_id = u.id
+          WHERE u.email = i.email COLLATE NOCASE AND u.email_verified = 1 AND u.member = 1
+            AND m.group_id = i.group_id AND u.id != i.invited_by)
+        ORDER BY i.created_at DESC, i.id DESC`)
       .all(userId, now()) as InviteRow[]).map(publicInvite);
   }
 
@@ -428,8 +431,8 @@ export class Accounts {
   /**
    * Someone who's already in opens a friend's invite link: they join the chat it's for (#75 left the
    * link doing nothing for them). Returns that chat, or null when there's nothing to join (an admin's
-   * invite, or their own). Only joining uses the invite up; one for a chat they're already in stays
-   * pending for whoever it was meant for.
+   * invite, or their own). An open invite stays pending for whoever it was meant for; a verified
+   * recipient uses up an email-bound invite even if they're already in its chat.
    */
   joinWithInvite(userId: string, token: string): number | null {
     return this.db.transaction(() => this.useInviteAsMember(userId, token)).immediate();
@@ -449,16 +452,21 @@ export class Accounts {
     const me = this.db.query("SELECT email, email_verified FROM users WHERE id = ?").get(userId) as
       { email: string | null; email_verified: number } | null;
     const email = me?.email ?? "";
+    const existing = row.group_id !== null && this.inGroup(row.group_id, userId);
     if (row.email) {
       if (row.email.toLowerCase() !== email.toLowerCase() && !appleRelay(email)) {
         throw new AuthError("This invite is for a different email address.", 403);
       }
-      if (!me?.email_verified) throw new AuthError("Verify your email address, then sign in again.", 403);
+      if (!me?.email_verified) {
+        if (existing) return row.group_id;
+        throw new AuthError("Verify your email address, then sign in again.", 403);
+      }
     }
-    // Already in the chat it names (even a full one): just go there, and leave it for whoever it's for.
-    if (row.group_id !== null && this.inGroup(row.group_id, userId)) return row.group_id;
-    const group = this.invitersChat(row, userId);
-    if (this.inGroup(group, userId)) return group;
+    const group = existing ? row.group_id! : this.invitersChat(row, userId);
+    if (this.inGroup(group, userId)) {
+      if (row.email) this.useUp(row, userId, group);
+      return group;
+    }
     this.db.run("INSERT INTO group_members (group_id, user_id, joined_at) VALUES (?, ?, ?)", [group, userId, now()]);
     this.useUp(row, userId, group);
     console.log(`invite ${row.id} from ${row.invited_by} used by member ${userId}`);

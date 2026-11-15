@@ -630,6 +630,18 @@ describe("signIn (WorkOS stub)", () => {
     expect(() => a.createInvite("host", null)).toThrow("Cancel some first");
   });
 
+  test("invites hidden for verified existing chat members do not count toward the limit", () => {
+    const a = signer();
+    a.mintSession("host@example.com", "Host");
+    a.mintSession("recipient@example.com", "Recipient");
+    const host = a.usersWithEmail("host@example.com")[0]!;
+    const group = (db.query("SELECT group_id FROM group_members WHERE user_id = ?").get(host.id) as { group_id: number }).group_id;
+    for (let i = 0; i < MAX_PENDING_INVITES; i++) a.createInvite(host.id, "recipient@example.com", group);
+    expect(a.pendingInvites(host.id)).toEqual([]);
+    expect(() => a.createInvite(host.id, "new@example.com", group)).not.toThrow();
+    expect(a.pendingInvites(host.id)).toHaveLength(1);
+  });
+
   test.each([["team", "Jane Doe"], ["upper", "Bob Smith"]])("with no first name, %s is named from the email: %p", async (code, name) => {
     expect((await signer().signIn(code, VERIFIER, "")).user.name).toBe(name);
   });

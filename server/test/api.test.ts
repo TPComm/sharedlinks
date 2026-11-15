@@ -904,6 +904,42 @@ describe("group chats", () => {
     expect(view.groups[0].members.sort()).toEqual([cyId, "user_01STRANGER"].sort());
   });
 
+  test("a pre-v13 member can return to an existing chat without claiming an email invite", async () => {
+    const old = mint("old-invite@groups.test", "Old member");
+    const oldId = (await state(old)).me;
+    const chat = (await call("/api/groups", { token: ann, body: { members: [oldId] } })).data.group;
+    const raw = new Database(join(dataDir, "links.db"));
+    raw.run("UPDATE users SET email_verified = 0 WHERE id = ?", [oldId]);
+    raw.close();
+    const made = await call("/api/invites", { token: ann, body: { email: "old-invite@groups.test", group_id: chat.id } });
+    const accepted = await call("/api/invites/accept", { token: old, body: { token: made.data.invite.url.split("/invite/")[1] } });
+    expect(accepted.status).toBe(200);
+    expect(accepted.data.group.id).toBe(chat.id);
+    expect((await call("/api/invites", { token: ann })).data.invites.map((i: any) => i.id)).toContain(made.data.invite.id);
+    const other = await call("/api/invites", { token: ann, body: { email: "old-invite@groups.test" } });
+    expect((await call("/api/invites/accept", { token: old, body: { token: other.data.invite.url.split("/invite/")[1] } })).status).toBe(403);
+  });
+
+  test("an email invite is no longer pending when its verified recipient is already in the chat", async () => {
+    const chat = (await call("/api/groups", { token: ann, body: { members: [boId] } })).data.group;
+    const made = await call("/api/invites", { token: ann, body: { email: "bo@groups.test", group_id: chat.id } });
+    const token = made.data.invite.url.split("/invite/")[1];
+    expect((await call("/api/invites", { token: ann })).data.invites.map((i: any) => i.id)).not.toContain(made.data.invite.id);
+    const page = await fetch(`${api}/invite/${token}`);
+    expect(page.status).toBe(200);
+    expect(await page.text()).toContain('>Open in Links</a>');
+    const accepted = await call("/api/invites/accept", { token: bo, body: { token } });
+    expect(accepted.status).toBe(200);
+    expect(accepted.data.group.id).toBe(chat.id);
+    expect((await call("/api/invites", { token: ann })).data.invites.map((i: any) => i.id)).not.toContain(made.data.invite.id);
+    expect((await call("/api/invites/accept", { token: bo, body: { token } })).data.group.id).toBe(chat.id);
+    const later = (await call("/api/groups", { token: ann, body: {} })).data.group;
+    const waiting = await call("/api/invites", { token: ann, body: { email: "bo@groups.test", group_id: later.id } });
+    await call(`/api/groups/${later.id}/members`, { token: ann, body: { members: [boId] } });
+    expect((await call("/api/invites/accept", { token: bo, body: { token: waiting.data.invite.url.split("/invite/")[1] } })).data.group.id).toBe(later.id);
+    expect((await call("/api/invites", { token: ann })).data.invites.map((i: any) => i.id)).not.toContain(waiting.data.invite.id);
+  });
+
   test("someone already in who opens an invite link joins its chat", async () => {
     const tokenOf = (made: any) => made.data.invite.url.split("/invite/")[1];
     const accept = (token: string, invite: unknown) => call("/api/invites/accept", { token, body: { token: invite } });
@@ -980,6 +1016,9 @@ describe("group chats", () => {
     // Not a second chat of the two of them.
     const second = await call("/api/invites", { token: dot, body: {} });
     expect((await call("/api/invites/accept", { token: cy, body: { token: tokenOf(second) } })).data.group.id).toBe(pair.id);
+    const addressed = await call("/api/invites", { token: dot, body: { email: "cy@groups.test" } });
+    expect((await call("/api/invites/accept", { token: cy, body: { token: tokenOf(addressed) } })).data.group.id).toBe(pair.id);
+    expect((await call("/api/invites", { token: dot })).data.invites.map((i: any) => i.id)).not.toContain(addressed.data.invite.id);
     // Opened again, either goes back to that chat.
     expect((await call("/api/invites/accept", { token: cy, body: { token: tokenOf(first) } })).data.group.id).toBe(pair.id);
     expect((await state(cy)).groups.filter((g: any) => g.members.includes(dotId))).toHaveLength(2); // and the default chat
