@@ -651,7 +651,7 @@ private struct Bubble: View {
 
 /// Shrinks a picture taller than its slot to fit, rather than letting it spill over the title
 /// below (short or wide windows, like an unfolded iPhone Duo, leave little height for it).
-private struct ScaledToFitHeight: ViewModifier {
+private struct ShrunkToFitHeight: ViewModifier {
     let height: CGFloat
     @State private var natural: CGFloat = 0
 
@@ -666,7 +666,7 @@ private struct ScaledToFitHeight: ViewModifier {
 
 private extension View {
     func shrunkToFit(height: CGFloat) -> some View {
-        modifier(ScaledToFitHeight(height: height))
+        modifier(ShrunkToFitHeight(height: height))
     }
 
     func miniCard() -> some View {
