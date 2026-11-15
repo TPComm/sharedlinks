@@ -7,7 +7,7 @@
  *   links-server invite [friend@example.com]         print an invite link (the first one on a new server)
  *   links-server delete-user you@example.com         delete an account and the links it sent
  *   links-server claim [you@example.com Name]        list legacy people, or let that account claim one
- *   links-server backup [dir]                        snapshot the database (keeps the newest 14)
+ *   links-server backup [dir]                        snapshot the database (keeps the newest 14 nightly)
  *   links-server reports                             list open reports (what was reported, by whom)
  *   links-server reports resolve <id> [--remove]     mark one handled; --remove deletes the link for everyone
  *   links-server version                             print the git commit it was built from (also on /version)
@@ -125,7 +125,18 @@ if (command === "mint-session") {
   const db = openDatabase(config.dataDir, config.legacyAllowedEmails);
   db.run("VACUUM INTO ?", [file]);
   db.close();
-  const old = readdirSync(dir).filter((f) => /^links-\d{4}-\d{2}-\d{2}\.db$/.test(f)).sort().slice(0, -14);
+  const names = readdirSync(dir);
+  const old = names.filter((f) => /^links-\d{4}-\d{2}-\d{2}\.db$/.test(f)).sort().slice(0, -14);
+  // Labelled copies (links-YYYY-MM-DD-pre-deploy.db) go after 14 days too, as the privacy page promises,
+  // except the newest one, so a rollback always has the last pre-deploy snapshot. A name with an impossible or
+  // future date is left alone, so it can't take that place.
+  const today = new Date().toISOString().slice(0, 10);
+  const cutoff = new Date(Date.now() - 14 * 86_400_000).toISOString().slice(0, 10);
+  const realDate = (d: string) => !Number.isNaN(Date.parse(d)) && new Date(d).toISOString().slice(0, 10) === d;
+  const labelled = names
+    .filter((f) => /^links-\d{4}-\d{2}-\d{2}-.+\.db$/.test(f) && realDate(f.slice(6, 16)) && f.slice(6, 16) <= today)
+    .sort();
+  old.push(...labelled.slice(0, -1).filter((f) => f.slice(6, 16) <= cutoff));
   for (const f of old) rmSync(join(dir, f));
   console.log(`backed up to ${file}`);
 } else if (command === "reports") {
