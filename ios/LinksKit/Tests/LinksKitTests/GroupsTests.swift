@@ -141,6 +141,23 @@ struct GroupsTests {
         #expect(state.group(conversationID: nil) == nil)
     }
 
+    @Test func peopleWhoLeftEveryChatAreNotMyPeople() throws {
+        var state = state
+        state.users.append(LinkUser(id: "user_LEFT", name: "Departed"))
+        var link = try #require(state.links.first)
+        link.addedBy = "user_LEFT"
+        state.links.append(link)
+
+        #expect(!state.otherPeople.map(\.id).contains("user_LEFT"))
+        #expect(state.otherPeople.map(\.id) == ["user_SAM", "user_ALEX"])
+        #expect(state.addable(to: try #require(state.group(3))).map(\.id) == ["user_SAM"])
+        #expect(state.name(of: "user_LEFT") == "Departed")  // their links still say who sent them
+
+        // A server from before chats: everyone it lists.
+        state.groups = []
+        #expect(state.otherPeople.map(\.id).contains("user_LEFT"))
+    }
+
     @Test func theShareExtensionStartsOnTheSuggestedChat() throws {
         #expect(state.shareGroup(fromSuggestion: false)?.id == 1)
         #expect(state.shareGroup(fromSuggestion: true, conversationID: "links-inbox")?.id == 1)

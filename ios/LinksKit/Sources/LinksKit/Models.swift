@@ -388,7 +388,12 @@ public extension InboxState {
     }
 
     /// The people the server lists for me (those I share a chat with), except me: who a new chat can have in it.
-    var otherPeople: [LinkUser] { users.filter { $0.id != me && !$0.isLegacy } }
+    /// `users` also has senders of links I can still see, after they've left all my chats: those
+    /// aren't people I share a chat with. Servers from before chats have no chats to go by.
+    var otherPeople: [LinkUser] {
+        let members = Set(groups.flatMap(\.members))
+        return users.filter { $0.id != me && !$0.isLegacy && (groups.isEmpty || members.contains($0.id)) }
+    }
 
     // MARK: Chats
 
