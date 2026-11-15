@@ -9,7 +9,7 @@
       "rules": [
         {
           "annotations": {
-            "description": "Fires when links.service or caddy.service on links.tpcomm.co is not active for 3m, or (NoData) when the host sends no metrics at all. Scoped to instance=links.tpcomm.co, so test hosts never fire it.",
+            "description": "Fires when links.service or caddy.service on links.tpcomm.co is not active, or missing from the metrics, for 3m (so also when the host stops reporting). Scoped to instance=links.tpcomm.co, so test hosts never fire it.",
             "runbook_url": "https://wittypine1276.grafana.net/d/links-overview",
             "summary": "Links (links.tpcomm.co) is down: {{ $labels.name }} not active, or the host stopped reporting."
           },
@@ -18,7 +18,7 @@
             {
               "datasourceUid": "grafanacloud-prom",
               "model": {
-                "expr": "1 - max by (name) (node_systemd_unit_state{job=\"links\", instance=\"links.tpcomm.co\", name=~\"links.service|caddy.service\", state=\"active\"})",
+                "expr": "(1 - max by (name) (node_systemd_unit_state{job=\"links\", instance=\"links.tpcomm.co\", name=~\"links.service|caddy.service\", state=\"active\"})) or label_replace(absent(node_systemd_unit_state{job=\"links\", instance=\"links.tpcomm.co\", name=\"links.service\", state=\"active\"}), \"name\", \"links.service\", \"\", \"\") or label_replace(absent(node_systemd_unit_state{job=\"links\", instance=\"links.tpcomm.co\", name=\"caddy.service\", state=\"active\"}), \"name\", \"caddy.service\", \"\", \"\")",
                 "instant": true,
                 "intervalMs": 1000,
                 "maxDataPoints": 43200,
