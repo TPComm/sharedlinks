@@ -57,10 +57,14 @@ struct LinksServer: Sendable {
         let name: String
         let isDefault: Bool
         let members: [String]
+        let muted: Bool?
+        let mutedUntil: Double?
 
         enum CodingKeys: String, CodingKey {
             case id, name, members
             case isDefault = "default"
+            case muted
+            case mutedUntil = "muted_until"
         }
     }
 

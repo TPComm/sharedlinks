@@ -120,6 +120,13 @@ public struct APIClient: Sendable {
         return r.group
     }
 
+    public func setGroupMuted(_ id: Int, muted: Bool, until: Date? = nil) async throws -> LinkGroup {
+        var body: [String: Any] = ["muted": muted]
+        if muted, let until { body["muted_until"] = until.timeIntervalSince1970 }
+        let r: GroupEnvelope = try await send("PATCH", "api/groups/\(id)", json: body)
+        return r.group
+    }
+
     /// Adds people already in Links. Nobody can remove anyone else; they can only leave.
     public func addMembers(_ members: [String], to id: Int) async throws -> LinkGroup {
         let r: GroupEnvelope = try await send("POST", "api/groups/\(id)/members", json: ["members": members])
