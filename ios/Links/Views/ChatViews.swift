@@ -61,9 +61,14 @@ struct ChatPicker: View {
         ) { group in
             Button("Leave Chat", role: .destructive) { Task { await model.leaveChat(group) } }
         } message: { group in
-            Text(group.isDefault
-                 ? "You stop getting links sent to everyone. The links you sent stay for everyone else."
-                 : "Its links leave your lists. The links you sent stay in the chat for everyone else.")
+            if group.isDefault {
+                Text("You stop getting links sent to everyone. The links you sent stay for everyone else.")
+            } else if group.members.allSatisfy({ $0 == inbox.me }) {
+                // The server deletes a chat nobody is in, with its links (deleteEmptyGroups).
+                Text("You’re the last one in it, so the chat and its links are deleted.")
+            } else {
+                Text("Its links leave your lists. The links you sent stay in the chat for everyone else.")
+            }
         }
     }
 }
