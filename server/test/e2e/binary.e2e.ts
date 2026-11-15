@@ -308,6 +308,25 @@ describe("a day with Links", () => {
     expect(linkIn((await call("/api/state", { token: bob.token })).data, shared).note).toBe(note);
   });
 
+  e2e("lets chat members discuss a link, with author-only edits and deletes", async () => {
+    const path = `/api/links/${shared}/comments`;
+    expect((await call(path, { token: alice.token })).data).toEqual({ comments: [] });
+    const made = await call(path, { token: bob.token, body: { body: "A reply from Bob" } });
+    expect(made.status, made.text).toBe(201);
+    const comment = made.data.comment;
+    expect(comment).toMatchObject({ link_id: shared, person: bob.id, body: "A reply from Bob", edited_at: null });
+    expect((await call(path, { token: alice.token })).data.comments).toEqual([comment]);
+    expect(linkIn((await call("/api/state", { token: alice.token })).data, shared)).toMatchObject({
+      comment_count: 1, last_comment: { person: bob.id, snippet: comment.body, at: comment.created_at },
+    });
+    expect((await call(`/api/comments/${comment.id}`, { token: alice.token, method: "PATCH", body: { body: "Not mine" } })).status).toBe(403);
+    expect((await call(`/api/comments/${comment.id}`, { token: alice.token, method: "DELETE" })).status).toBe(403);
+    const edited = await call(`/api/comments/${comment.id}`, { token: bob.token, method: "PATCH", body: { body: "Updated reply" } });
+    expect(edited.data.comment).toMatchObject({ ...comment, body: "Updated reply", edited_at: expect.any(Number) });
+    expect((await call(`/api/comments/${comment.id}`, { token: bob.token, method: "DELETE" })).data).toEqual({ ok: true });
+    expect((await call(path, { token: alice.token })).data.comments).toEqual([]);
+  });
+
   e2e("spots the same link spelled differently, TikTok tracking included", async () => {
     const again = await call("/api/links", { token: bob.token, body: { url: `${origin}/video/?id=7&fbclid=abc` } });
     expect(again.status, again.text).toBe(200);
@@ -457,7 +476,7 @@ describe("a day with Links", () => {
     const snapshot = new Database(file, { readonly: true });
     try {
       expect(snapshot.query("PRAGMA integrity_check").get()).toEqual({ integrity_check: "ok" });
-      expect(snapshot.query("PRAGMA user_version").get()).toEqual({ user_version: 13 });
+      expect(snapshot.query("PRAGMA user_version").get()).toEqual({ user_version: 14 });
       expect(snapshot.query("SELECT id, url FROM links ORDER BY id").all())
         .toEqual(live.links.map((l: any) => ({ id: l.id, url: l.url })).sort((a: any, b: any) => a.id - b.id));
       expect(snapshot.query("SELECT name FROM users WHERE id = ?").get(alice.id)).toEqual({ name: "Ally A" });
@@ -527,10 +546,10 @@ describe("upgrading a database from the web-app days (v0)", () => {
     if (server?.running) await server.stop();
   });
 
-  e2e("migrates to user_version 13 and keeps the history under legacy people", async () => {
+  e2e("migrates to user_version 14 and keeps the history under legacy people", async () => {
     const db = new Database(join(dataDir, "links.db"), { readonly: true });
     try {
-      expect(db.query("PRAGMA user_version").get()).toEqual({ user_version: 13 });
+      expect(db.query("PRAGMA user_version").get()).toEqual({ user_version: 14 });
       expect((db.query("SELECT sql FROM sqlite_master WHERE name = 'links'").get() as { sql: string }).sql).toContain("AUTOINCREMENT");
       expect(db.query("SELECT name FROM sqlite_master WHERE name = 'people'").get()).toBeNull();
     } finally {

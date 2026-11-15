@@ -46,11 +46,11 @@ export function findBlockedWord(text: string, words: Set<string>): string | null
 /** Throws a 400 the app shows as is when `text` has a listed word. */
 export function screener(dataDir: string) {
   const words = loadBlockedWords(dataDir);
-  return (text: string, what: "note" | "name") => {
+  return (text: string, what: "note" | "name" | "comment") => {
     if (!findBlockedWord(text, words)) return;
     throw new BadRequest(what === "name"
       ? "That name has a word Links doesn't allow. Choose another one."
-      : "That note has a word Links doesn't allow. Change it and try again.");
+      : `That ${what} has a word Links doesn't allow. Change it and try again.`);
   };
 }
 
@@ -74,7 +74,8 @@ export interface ReportRow {
 export function openReports(db: Database) {
   return db.query(
     `SELECT r.*, u.name AS reporter_name, u.email AS reporter_email,
-            (r.link_id IS NOT NULL AND NOT EXISTS (SELECT 1 FROM links WHERE id = r.link_id)) AS gone
+            ((r.link_id IS NOT NULL AND NOT EXISTS (SELECT 1 FROM links WHERE id = r.link_id))
+              OR (r.comment_id IS NOT NULL AND NOT EXISTS (SELECT 1 FROM comments WHERE id = r.comment_id))) AS gone
      FROM reports r LEFT JOIN users u ON u.id = r.reporter
      WHERE r.resolved_at IS NULL ORDER BY r.created_at, r.id`,
   ).all() as (ReportRow & { reporter_name: string | null; reporter_email: string | null; gone: number })[];
@@ -83,7 +84,7 @@ export function openReports(db: Database) {
 export function formatReport(r: ReturnType<typeof openReports>[number]): string {
   const when = new Date(r.created_at * 1000).toISOString().replace("T", " ").slice(0, 16);
   const target = r.link_id !== null ? `link ${r.link_id}${r.gone ? " (deleted since)" : ""}`
-    : r.user_id !== null ? `person ${r.user_id}` : `comment ${r.comment_id}`;
+    : r.user_id !== null ? `person ${r.user_id}` : `comment ${r.comment_id}${r.gone ? " (deleted since)" : ""}`;
   const by = `${r.reporter_name ?? r.reporter}${r.reporter_email ? ` <${r.reporter_email}>` : ""}`;
   const lines = [`#${r.id}  ${when} UTC  ${r.reason}  ${target}  reported by ${by}`];
   const snapshot = JSON.parse(r.snapshot) as Record<string, unknown>;
@@ -106,13 +107,18 @@ export function resolveReport(
     if (!report) throw new BadRequest(`no report #${id}`);
     if (report.resolved_at !== null) throw new BadRequest(`report #${id} was already resolved (${report.resolution})`);
     if (remove) {
-      if (report.link_id === null) {
-        throw new BadRequest("--remove only removes links; to remove a person, use links-server delete-user <email>");
+      if (report.link_id === null && report.comment_id === null) {
+        throw new BadRequest("--remove only removes links or comments; to remove a person, use links-server delete-user <email>");
       }
-      beforeRemove?.(report.link_id);
-      deleteLink(db, dataDir, report.link_id);
-      db.run("UPDATE reports SET resolved_at = ?, resolution = 'removed' WHERE link_id = ? AND resolved_at IS NULL",
-        [now(), report.link_id]);
+      if (report.link_id !== null) {
+        beforeRemove?.(report.link_id);
+        deleteLink(db, dataDir, report.link_id);
+      } else {
+        db.run("DELETE FROM comments WHERE id = ?", [report.comment_id]);
+      }
+      const column = report.link_id !== null ? "link_id" : "comment_id";
+      db.run(`UPDATE reports SET resolved_at = ?, resolution = 'removed' WHERE ${column} = ? AND resolved_at IS NULL`,
+        [now(), report.link_id ?? report.comment_id]);
     } else {
       db.run("UPDATE reports SET resolved_at = ?, resolution = 'kept' WHERE id = ?", [now(), id]);
     }
