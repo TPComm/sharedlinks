@@ -20,7 +20,7 @@
 		<key>NSExtensionAttributes</key>
 		<dict>
 			<key>NSExtensionActivationRule</key>
-			<string>SUBQUERY(extensionItems, $item, SUBQUERY($item.attachments, $attachment, ANY $attachment.registeredTypeIdentifiers UTI-CONFORMS-TO "public.url" OR ANY $attachment.registeredTypeIdentifiers UTI-CONFORMS-TO "public.plain-text").@count &gt; 0).@count &gt; 0</string>
+			<string>SUBQUERY(extensionItems, $item, SUBQUERY($item.attachments, $attachment, SUBQUERY($attachment.registeredTypeIdentifiers, $uti, ($uti UTI-CONFORMS-TO "public.url" AND NOT $uti UTI-CONFORMS-TO "public.file-url") OR $uti UTI-CONFORMS-TO "public.plain-text").@count &gt; 0).@count &gt; 0).@count &gt; 0</string>
 			<!-- Lets the "Links" conversation appear in the share sheet's suggestions row. -->
 			<key>IntentsSupported</key>
 			<array>
