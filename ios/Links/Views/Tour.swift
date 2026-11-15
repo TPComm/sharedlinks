@@ -257,7 +257,7 @@ private struct TourPageLayout<Art: View, Details: View>: View {
                 VStack(spacing: 0) {
                     if !typeSize.isAccessibilitySize {
                         art
-                            .frame(height: min(220, proxy.size.height * 0.34))
+                            .shrunkToFit(height: min(220, proxy.size.height * 0.34))
                             .frame(maxWidth: .infinity)
                             .padding(.bottom, 24)
                             .accessibilityHidden(true)
@@ -409,6 +409,8 @@ private struct MiniInbox: View {
             Divider().padding(.leading, 68)
             MiniRow(platform: .youtube, from: "You", title: "Best ten seconds online", receipt: "Seen by Sam")
         }
+        // The dividers would otherwise stretch the card past its rows on wide screens.
+        .frame(maxWidth: 330)
         .padding(.vertical, 4)
         .miniCard()
         .overlay(alignment: .topTrailing) { Bubble(emoji: "❤️").offset(x: 14, y: -18) }
@@ -647,7 +649,26 @@ private struct Bubble: View {
     }
 }
 
+/// Shrinks a picture taller than its slot to fit, rather than letting it spill over the title
+/// below (short or wide windows, like an unfolded iPhone Duo, leave little height for it).
+private struct ScaledToFitHeight: ViewModifier {
+    let height: CGFloat
+    @State private var natural: CGFloat = 0
+
+    func body(content: Content) -> some View {
+        content
+            .fixedSize(horizontal: false, vertical: true)
+            .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { natural = $0 }
+            .scaleEffect(natural > height ? height / natural : 1)
+            .frame(height: height)
+    }
+}
+
 private extension View {
+    func shrunkToFit(height: CGFloat) -> some View {
+        modifier(ScaledToFitHeight(height: height))
+    }
+
     func miniCard() -> some View {
         background(Color(.secondarySystemGroupedBackground), in: .rect(cornerRadius: 22, style: .continuous))
             .shadow(color: .black.opacity(0.1), radius: 18, y: 8)
