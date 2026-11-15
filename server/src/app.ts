@@ -853,13 +853,20 @@ export function createApp(config: Config, opts: AppOptions = {}) {
     });
   }
 
+  /** Resolves once in-flight preview fetches and pushes finish (tests use this). */
+  const idle = async () => { while (pending.size) await Promise.all([...pending]); };
+
   return {
     db,
     accounts,
     routes,
     push,
-    /** Resolves once in-flight preview fetches and pushes finish (tests use this). */
-    idle: async () => { while (pending.size) await Promise.all([...pending]); },
+    idle,
+    /** Shutting down: sends the pushes still waiting, then waits for in-flight work, up to `timeoutMs`. */
+    drain: async (timeoutMs: number) => {
+      push.flush();
+      await Promise.race([idle(), Bun.sleep(timeoutMs)]);
+    },
     fallback: route(() => { throw new NotFound("Not found"); }, pub),
   };
 }

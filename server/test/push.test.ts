@@ -324,6 +324,14 @@ describe("pushes", () => {
     await setNotifications(sam, { watched: true });
   });
 
+  test("shutting down sends the pushes still waiting instead of dropping them", async () => {
+    const id = await samsLink("shutdown");
+    await watch(id, alex);
+    expect(toSam()).toEqual([]);
+    await app.drain(200); // less than activityDelayMs: only sending it now gets it out in time
+    expect(toSam().map((s) => s.body.aps.alert.body)).toEqual(["watched your link: Cats & Dogs"]);
+  });
+
   test("watching and unwatching sends one coalesced badge-only push to your devices", async () => {
     const state = (await call("/api/state", { token: kim })).data;
     const unwatched = state.links.filter((l: any) => !l.seen["user_01KIM"] && l.added_by !== "user_01KIM");

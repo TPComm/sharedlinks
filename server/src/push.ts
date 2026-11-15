@@ -224,13 +224,24 @@ export class Pusher {
       if (this.badgeTimers.has(person)) continue;
       let done!: () => void;
       const task = new Promise<void>((resolve) => { done = resolve; });
-      const timer = setTimeout(() => {
-        this.badgeTimers.delete(person);
-        this.toPerson(person, "badge", (badge) => ({ aps: { badge } })).catch((e) => console.error(`push: ${e}`)).finally(done);
-      }, this.badgeDelayMs);
+      const timer = setTimeout(() => this.flushBadge(person), this.badgeDelayMs);
       this.badgeTimers.set(person, { timer, done });
       this.track(task);
     }
+  }
+
+  private flushBadge(person: string) {
+    const pending = this.badgeTimers.get(person);
+    if (!pending) return;
+    clearTimeout(pending.timer);
+    this.badgeTimers.delete(person);
+    this.toPerson(person, "badge", (badge) => ({ aps: { badge } })).catch((e) => console.error(`push: ${e}`)).finally(pending.done);
+  }
+
+  /** Send everything still waiting now (shutting down): an activity push can wait up to a minute. */
+  flush() {
+    for (const person of [...this.badgeTimers.keys()]) this.flushBadge(person);
+    for (const key of [...this.pendingActivity.keys()]) this.flushActivity(key);
   }
 
   /** Same as the app's To Watch: visible links from other people that they haven't watched. */
