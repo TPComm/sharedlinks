@@ -16,8 +16,8 @@ struct ThrowbackCard: View {
     }
 
     var body: some View {
-        TimelineView(.everyMinute) { context in
-            card(on: context.date)
+        TimelineView(.everyMinute) { _ in
+            card(on: .now)
         }
     }
 
