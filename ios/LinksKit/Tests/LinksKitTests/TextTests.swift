@@ -26,6 +26,7 @@ struct LinkTextTests {
     @Test func takesASharedURL() {
         let url = URL(string: "https://www.tiktok.com/@a/video/1")!
         #expect(LinkText.webURL(fromSharedItem: url) == url)
+        #expect(LinkText.webURL(fromSharedItem: url as NSURL) == url)
         #expect(LinkText.webURL(fromSharedItem: url.absoluteString) == url)
         #expect(LinkText.webURL(fromSharedItem: Data(url.absoluteString.utf8)) == url)
     }
@@ -44,6 +45,16 @@ struct LinkTextTests {
         #expect(LinkText.webURL(fromSharedItem: URL(string: "file:///tmp/x")!) == nil)
         #expect(LinkText.webURL(fromSharedItem: "tel:5551234") == nil)
         #expect(LinkText.webURL(fromSharedItem: 42) == nil)
+        #expect(LinkText.webURL(fromSharedItem: "") == nil)
+        #expect(LinkText.webURL(fromSharedItem: Data([0xFF, 0xFE])) == nil)
+    }
+
+    @Test(arguments: ["Episode title", "Episode: title"])
+    func readsPodcastsSharedText(_ title: String) {
+        let url = URL(string: "https://podcasts.apple.com/us/podcast/explain-it-to-me/id1042433083?i=1000802075437")!
+        let text = "\(title)\n\(url.absoluteString)"
+        #expect(LinkText.webURL(fromSharedItem: text) == url)
+        #expect(LinkText.webURL(fromSharedItem: Data(text.utf8)) == url)
     }
 }
 

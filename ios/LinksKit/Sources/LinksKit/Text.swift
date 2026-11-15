@@ -13,13 +13,12 @@ public enum LinkText {
             .first { ["http", "https"].contains($0.scheme?.lowercased()) }
     }
 
-    /// The web link in a shared URL attachment (what `NSItemProvider.loadItem` returns for
-    /// public.url). Most apps hand over a URL, but SwiftUI's ShareLink hands over the type's data.
+    /// The web link in a shared URL or text attachment. SwiftUI's ShareLink hands over URL data.
     public static func webURL(fromSharedItem item: Any?) -> URL? {
         let url: URL? = switch item {
         case let url as URL: url
         case let data as Data: url(fromURLData: data)
-        case let string as String: URL(string: string)
+        case let string as String: url(fromSharedText: string)
         default: nil
         }
         guard let url, ["http", "https"].contains(url.scheme?.lowercased()) else { return nil }
@@ -30,7 +29,12 @@ public enum LinkText {
     static func url(fromURLData data: Data) -> URL? {
         let plist = try? PropertyListSerialization.propertyList(from: data, format: nil)
         let string = (plist as? [Any])?.first as? String ?? plist as? String ?? String(data: data, encoding: .utf8)
-        return string.flatMap { URL(string: $0) }
+        return string.flatMap { url(fromSharedText: $0) }
+    }
+
+    static func url(fromSharedText text: String) -> URL? {
+        if let url = URL(string: text), ["http", "https"].contains(url.scheme?.lowercased()) { return url }
+        return firstURL(in: text)
     }
 }
 
