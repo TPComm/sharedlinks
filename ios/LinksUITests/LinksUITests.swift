@@ -712,6 +712,95 @@ final class LinksUITests: XCTestCase {
 
     // MARK: Chats
 
+    func testChatInfoSavesMuteDurationsAndKeepsLinksVisible() throws {
+        let meID = try server.state(as: server.me).me
+        let name = "Mute \(shortID())"
+        let chat = try server.startChat(name: name, members: [meID], as: server.friend)
+        leaveAfterwards(chat.id)
+        let link = try server.add(uniqueURL(), to: chat.id, as: server.friend)
+        deleteAfterwards(link.id)
+        launch()
+        pickChat(name)
+        openChatPicker()
+        app.buttons["Chat Info"].tap()
+        let toggle = app.switches["chat.mute"]
+        XCTAssert(toggle.waitForExistence(timeout: 5))
+
+        toggle.switches.firstMatch.tap()
+        // Popover-style confirmation dialogs dismiss by tapping outside instead of a Cancel row.
+        if app.buttons["Cancel"].exists { app.buttons["Cancel"].tap() }
+        else { app.navigationBars["Chat Info"].tap() }
+        waitFor(toggle, value: "0")
+        XCTAssertEqual(try server.state(as: server.me).group(chat.id)?.muted, false)
+
+        let start = Date().timeIntervalSince1970
+        toggle.switches.firstMatch.tap()
+        app.buttons["For 1 Hour"].tap()
+        waitFor(toggle, value: "1")
+        let hour = try server.eventually("chat muted for an hour") {
+            let group = try server.state(as: server.me).group(chat.id)
+            return group?.muted == true ? group?.mutedUntil : nil
+        }
+        XCTAssertEqual(hour, start + 3600, accuracy: 60)
+        XCTAssertEqual(try server.state(as: server.friend).group(chat.id)?.muted, false)
+
+        app.buttons["Change Duration…"].tap()
+        app.buttons["Until Tomorrow"].tap()
+        let tomorrow = try server.eventually("chat muted until tomorrow") {
+            let until = try server.state(as: server.me).group(chat.id)?.mutedUntil
+            return until != hour ? until : nil
+        }
+        let expected = Calendar.current.date(bySettingHour: 9, minute: 0, second: 0,
+            of: Calendar.current.date(byAdding: .day, value: 1, to: Date())!)!
+        XCTAssertEqual(tomorrow, expected.timeIntervalSince1970, accuracy: 1)
+
+        app.buttons["Change Duration…"].tap()
+        app.buttons["Until I Turn It Back On"].tap()
+        try server.eventually("chat muted indefinitely") {
+            let group = try server.state(as: server.me).group(chat.id)
+            return group?.muted == true && group?.mutedUntil == nil ? true : nil
+        }
+        app.buttons["Done"].tap()
+        waitForRow(link, in: "toWatch")
+        app.terminate()
+        launch()
+        pickChat(name)
+        openChatPicker()
+        app.buttons["Chat Info"].tap()
+        XCTAssert(toggle.waitForExistence(timeout: 5))
+        waitFor(toggle, value: "1")
+        toggle.switches.firstMatch.tap()
+        waitFor(toggle, value: "0")
+        try server.eventually("chat unmuted") {
+            try server.state(as: server.me).group(chat.id)?.muted == false ? true : nil
+        }
+    }
+
+    func testChatListSwipeMutesAndUnmutesOneChat() throws {
+        let meID = try server.state(as: server.me).me
+        let chat = try server.startChat(name: "Swipe \(shortID())", members: [meID], as: server.friend)
+        leaveAfterwards(chat.id)
+        launch()
+        openChatPicker()
+        app.buttons["Chats…"].tap()
+        let row = app.buttons["chat.row.\(chat.id)"]
+        XCTAssert(row.waitForExistence(timeout: 5))
+        row.swipeLeft()
+        app.buttons["Mute"].tap()
+        app.buttons["Until I Turn It Back On"].tap()
+        let indicator = app.images["chat.muted.\(chat.id)"]
+        XCTAssert(indicator.waitForExistence(timeout: 10))
+        try server.eventually("swipe muted the chat") {
+            try server.state(as: server.me).group(chat.id)?.muted == true ? true : nil
+        }
+        row.swipeLeft()
+        app.buttons["Unmute"].tap()
+        XCTAssert(indicator.waitForNonExistence(timeout: 10))
+        try server.eventually("swipe unmuted the chat") {
+            try server.state(as: server.me).group(chat.id)?.muted == false ? true : nil
+        }
+    }
+
     func testStartingAChatAndSendingALinkToIt() throws {
         let friendID = try server.state(as: server.friend).me
         launch()

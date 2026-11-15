@@ -141,12 +141,17 @@ public struct LinkGroup: Codable, Sendable, Hashable, Identifiable {
     public var isDefault: Bool
     /// User ids, oldest member first.
     public var members: [String]
+    /// Nil on servers and cached inboxes from before per-chat mute.
+    public var muted: Bool?
+    public var mutedUntil: Date?
 
     enum CodingKeys: String, CodingKey {
         case id, name, members
         case createdBy = "created_by"
         case createdAt = "created_at"
         case isDefault = "default"
+        case muted
+        case mutedUntil = "muted_until"
     }
 
     /// The thread its notifications and share sheet suggestions use: server/src/push.ts's thread-id.
@@ -154,13 +159,15 @@ public struct LinkGroup: Codable, Sendable, Hashable, Identifiable {
     public static let defaultConversationID = "links-inbox"
 
     public init(id: Int, name: String = "", createdBy: String? = nil, createdAt: Date = .now,
-                isDefault: Bool = false, members: [String] = []) {
+                isDefault: Bool = false, members: [String] = [], muted: Bool? = nil, mutedUntil: Date? = nil) {
         self.id = id
         self.name = name
         self.createdBy = createdBy
         self.createdAt = createdAt
         self.isDefault = isDefault
         self.members = members
+        self.muted = muted
+        self.mutedUntil = mutedUntil
     }
 
     public init(from decoder: Decoder) throws {
@@ -171,6 +178,13 @@ public struct LinkGroup: Codable, Sendable, Hashable, Identifiable {
         createdAt = try c.decodeIfPresent(Date.self, forKey: .createdAt) ?? .distantPast
         isDefault = try c.decodeIfPresent(Bool.self, forKey: .isDefault) ?? false
         members = try c.decodeIfPresent([String].self, forKey: .members) ?? []
+        muted = try c.decodeIfPresent(Bool.self, forKey: .muted)
+        mutedUntil = try c.decodeIfPresent(Date.self, forKey: .mutedUntil)
+    }
+
+    /// Expire cached timed mutes even before the next state refresh arrives.
+    public func isMuted(at now: Date = .now) -> Bool {
+        muted == true && (mutedUntil.map { $0 > now } ?? true)
     }
 }
 

@@ -566,6 +566,10 @@ final class AppModel {
         try await chatChange { try await self.client.renameGroup(group.id, to: name) }
     }
 
+    func setChatMuted(_ group: LinkGroup, muted: Bool, until: Date? = nil) async throws {
+        try await chatChange { try await self.client.setGroupMuted(group.id, muted: muted, until: until) }
+    }
+
     func addPeople(_ members: [String], to group: LinkGroup) async throws {
         let updated = try await chatChange { try await self.client.addMembers(members, to: group.id) }
         let added = members.compactMap { inbox.user($0)?.name }
