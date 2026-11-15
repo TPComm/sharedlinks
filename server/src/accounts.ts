@@ -443,11 +443,11 @@ export class Accounts {
       return named !== null && this.inGroup(named, userId) ? named : null;
     }
     if (!row || row.used_at !== null || row.expires_at <= now()) throw new AuthError("This invite doesn't work anymore.", 404);
+    if (!row.invited_by || row.invited_by === userId) return null;
     const email = (this.db.query("SELECT email FROM users WHERE id = ?").get(userId) as { email: string | null } | null)?.email ?? "";
     if (row.email && row.email.toLowerCase() !== email.toLowerCase() && !appleRelay(email)) {
       throw new AuthError("This invite is for a different email address.", 403);
     }
-    if (!row.invited_by || row.invited_by === userId) return null;
     const group = this.invitersChat(row, userId);
     if (this.inGroup(group, userId)) return group;
     this.db.run("INSERT INTO group_members (group_id, user_id, joined_at) VALUES (?, ?, ?)", [group, userId, now()]);
