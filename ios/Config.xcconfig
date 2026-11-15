@@ -21,7 +21,7 @@ LINKS_SERVER_URL_Debug = http:/$()/localhost:8000
 LINKS_SERVER_URL_Release = https:/$()/links.tpcomm.co
 LINKS_SERVER_URL = $(LINKS_SERVER_URL_$(CONFIGURATION))
 
-// Where people reach whoever runs the server (App Store guideline 1.2), shown in the account menu
+// Where people reach whoever runs the server (App Store guideline 1.2), shown in the profile
 // and on the sign-in screen: a mailto: address, or an https: page (written https:/$()/...).
 // Use the same address as the server's SUPPORT_EMAIL, which its /support page shows.
 LINKS_SUPPORT_URL = mailto:support@tpcomm.co

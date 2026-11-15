@@ -28,7 +28,7 @@ has seen it, and mark it watched when you're back. Coming back from TikTok lands
 even if iOS closed the app meanwhile. Long-press **Open in TikTok** still goes straight there and
 marks it watched in one go.
 
-New people get a short **welcome tour** after their first sign-in (Account menu → Show Tour Again).
+New people get a short **welcome tour** after their first sign-in (Profile → Show Tour Again).
 It walks through putting Links at the front of the share sheet, with a practice share that ticks
 itself off, and TipKit tips then point out the gestures once each.
 
@@ -214,15 +214,15 @@ editing it there, export it (Share → Export, without "Export for sharing exter
   your own, one per line, to `/var/lib/links/blocked-words.txt` and restart (`systemctl restart links`).
 - The support address, `support@tpcomm.co`, is shown on `https://YOUR-HOST/support`: use that page as
   the App Store listing's Support URL. The app shows the same address (`LINKS_SUPPORT_URL` in
-  `ios/Config.xcconfig`) in the account menu and on the sign-in screen. A different server can set
+  `ios/Config.xcconfig`) in the profile and on the sign-in screen. A different server can set
   its own with `SUPPORT_EMAIL` (pass it to `setup.sh`), along with `LINKS_SUPPORT_URL`.
 - The privacy policy (App Store guideline 5.1.1) is on `https://YOUR-HOST/privacy`: use that page as
-  the listing's Privacy Policy URL. The app opens it from the account menu and the sign-in screen.
+  the listing's Privacy Policy URL. The app opens it from the profile and the sign-in screen.
   It gives `SUPPORT_EMAIL` for privacy requests. Keep it in step with
   `ios/Links/PrivacyInfo.xcprivacy` and the listing's privacy answers.
 - Trademarks (App Store guideline 5.2): the sign-in screen and the tour say TikTok and Instagram
   are their owners' trademarks and that Links isn't affiliated with them, and **About Links** in
-  the account menu lists every platform the app names (`Platform.trademarkOwner` in
+  the profile lists every platform the app names (`Platform.trademarkOwner` in
   `ios/LinksKit`). Add an owner there when you add a platform.
 
 **Universal links** (needs a paid Apple Developer membership; free teams can't sign the
@@ -261,7 +261,7 @@ chown -R links:links /var/lib/links && systemctl start links
 On start the server upgrades the database in place. People from before sign-in become "legacy"
 entries. Anyone can type a name, so the admin decides who is who: `links-server claim` lists them,
 and `links-server claim you@x.com Sam` lets that account (a member of the default chat) claim Sam.
-The app then asks "Were you one of these?" (or offers Claim Earlier Links… in the account menu)
+The app then asks "Were you one of these?" (or offers Claim Earlier Links… in the profile)
 and moves that person's links, watched marks and reactions to the account. `claimable` lists only
 the legacy people approved for your account.
 

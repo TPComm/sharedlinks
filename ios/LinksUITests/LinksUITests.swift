@@ -305,7 +305,7 @@ final class LinksUITests: XCTestCase {
         try server.eventually("blocked") { try server.state(as: server.me).blocked == [friendID] ? true : nil }
 
         app.buttons["account"].tap()
-        app.buttons["Blocked People…"].tap()
+        app.buttons["blockedPeople"].tap()
         let unblock = app.buttons["unblock.\(friendID)"]
         XCTAssert(unblock.waitForExistence(timeout: 5), "not under Blocked People")
         unblock.tap()
@@ -389,12 +389,26 @@ final class LinksUITests: XCTestCase {
 
     // MARK: Account
 
+    func testTheProfileShowsWhoIsSignedIn() throws {
+        launch()
+        app.buttons["account"].tap()
+        let email = app.staticTexts["profile.email"]
+        XCTAssert(email.waitForExistence(timeout: 5), "no email on the profile")
+        XCTAssertEqual(email.label, "me@e2e.test")
+        XCTAssertFalse(app.staticTexts["profile.name"].label.isEmpty, "no name on the profile")
+        XCTAssert(app.buttons["people"].exists, "no People on the profile")
+        app.buttons["Done"].tap()
+        XCTAssert(email.waitForNonExistence(timeout: 5), "Done didn't close the profile")
+    }
+
     func testSigningOutReturnsToSignIn() throws {
         launch(as: server.spare)
         app.buttons["account"].tap()
-        XCTAssert(app.descendants(matching: .any)["Privacy Policy"].waitForExistence(timeout: 5),
-                  "no Privacy Policy in the account menu")
-        app.buttons["About Links"].tap()
+        XCTAssert(app.staticTexts["profile.email"].waitForExistence(timeout: 5), "the profile didn't open")
+        // The Help rows start below the fold, and a List only makes the rows on screen.
+        XCTAssert(scrolledTo(app.descendants(matching: .any)["Privacy Policy"]).exists,
+                  "no Privacy Policy in the profile")
+        scrolledTo(app.buttons["About Links"]).tap()
         let about = app.alerts.firstMatch
         XCTAssert(about.waitForExistence(timeout: 5), "About Links didn't open")
         XCTAssert(about.label.hasPrefix("Links "), "the About title has no version: \(about.label)")
@@ -403,8 +417,7 @@ final class LinksUITests: XCTestCase {
         XCTAssert(fullNotice.firstMatch.exists, "About Links doesn't list every platform's owner")
         about.buttons["OK"].tap()
         XCTAssert(about.waitForNonExistence(timeout: 5))
-        app.buttons["account"].tap()
-        let signOut = app.buttons["Sign Out"]
+        let signOut = scrolledTo(app.buttons["Sign Out"])
         XCTAssert(signOut.waitForExistence(timeout: 5))
         signOut.tap()
         let signIn = app.buttons["signIn"]
@@ -432,7 +445,7 @@ final class LinksUITests: XCTestCase {
         waitForRow(sent, in: "sent") // so the warning can count it
 
         app.buttons["account"].tap()
-        app.buttons["Delete Account…"].tap()
+        scrolledTo(app.buttons["Delete Account…"]).tap()
         let alert = app.alerts["Delete Your Account?"]
         XCTAssert(alert.waitForExistence(timeout: 5), "no confirmation")
         let warning = NSPredicate(format: "label CONTAINS %@", "the link you sent and its note (your friends lose it too)")
@@ -466,6 +479,15 @@ final class LinksUITests: XCTestCase {
         ]
         app.launch()
         XCTAssert(app.tabBars.buttons["To Watch"].waitForExistence(timeout: 20), "no inbox")
+    }
+
+    /// The profile's list makes rows only as they scroll in, so the bottom ones need a swipe.
+    @discardableResult
+    private func scrolledTo(_ element: XCUIElement) -> XCUIElement {
+        for _ in 0..<5 where !(element.exists && element.isHittable) {
+            app.swipeUp()
+        }
+        return element
     }
 
     private func row(_ link: LinksServer.Link, in list: String) -> XCUIElement {

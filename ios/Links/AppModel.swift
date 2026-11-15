@@ -26,6 +26,8 @@ final class AppModel {
     var addPrefill = ""
     var showClaimSheet = false
     var showTour = false
+    /// Set by ProfileButton while the profile sheet is up.
+    var isProfileOpen = false
     /// The page the tour opens on: the first, or the share-sheet page from "How to Share to Links".
     private(set) var tourStart: TourPage = .welcome
     private(set) var tourCompleted = Onboarding.shared.hasCompletedTour
@@ -181,14 +183,18 @@ final class AppModel {
         }
     }
 
-    func rename(to name: String) async {
+    /// Throws so the profile can say what went wrong over itself: RootView's alert would close it.
+    func rename(to name: String) async throws {
         let name = name.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !name.isEmpty else { return }
-        await perform {
-            let me = try await self.client.rename(to: name)
-            self.setAccount(me.user)
-            await self.refresh()
+        do {
+            let me = try await client.rename(to: name)
+            setAccount(me.user)
+        } catch APIError.signedOut {
+            endSession()
+            return
         }
+        await refresh()
     }
 
     // MARK: Invites
@@ -220,7 +226,8 @@ final class AppModel {
 
     /// Deletes the account on the server (and the links it sent, for everyone), then
     /// forgets everything on this device: what signing out does, plus this app's settings.
-    func deleteAccount() async {
+    /// Throws, like `rename`, for the profile to show.
+    func deleteAccount() async throws {
         isDeletingAccount = true
         defer { isDeletingAccount = false }
         do {
@@ -228,9 +235,6 @@ final class AppModel {
         } catch APIError.signedOut {
             endSession()
             errorMessage = "You were signed out, so your account wasn't deleted. Sign in, then try again."
-            return
-        } catch {
-            errorMessage = error.localizedDescription
             return
         }
         endSession()
@@ -340,7 +344,7 @@ final class AppModel {
     }
 
     /// Notifications for new links and reactions, and the To Watch count on the app icon. iOS only
-    /// asks once; later calls are no-ops (Settings changes it: the tour and account menu link there).
+    /// asks once; later calls are no-ops (Settings changes it: the tour and the profile link there).
     func requestNotificationPermission() {
         // No system prompt in UI tests: while it's up the app is inactive and doesn't fetch, and a
         // fresh CI Simulator shows it whenever it likes (ios/scripts/ui-tests.sh).
@@ -352,7 +356,7 @@ final class AppModel {
     // MARK: Tour
 
     /// Gesture tips wait until nothing covers the inbox, so a popover never lands under a sheet.
-    var canShowTips: Bool { tourCompleted && !showTour && !showClaimSheet && !showAddSheet }
+    var canShowTips: Bool { tourCompleted && !showTour && !showClaimSheet && !showAddSheet && !isProfileOpen }
 
     /// Shows the tour once, after sign-in and after the claim sheet (if any) has closed.
     func showTourIfNeeded() {

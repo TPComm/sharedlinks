@@ -68,7 +68,7 @@ struct LinkListScreen: View {
                 .navigationTitle(filter.title)
                 .navigationDestination(for: Int.self) { LinkDetailView(linkID: $0) }
                 .toolbar {
-                    ToolbarItem(placement: .topBarLeading) { AccountMenu() }
+                    ToolbarItem(placement: .topBarLeading) { ProfileButton() }
                     ToolbarItem(placement: .topBarTrailing) {
                         Button {
                             model.addPrefill = ""

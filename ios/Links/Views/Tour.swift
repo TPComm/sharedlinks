@@ -10,7 +10,7 @@ enum TourPage: Int, CaseIterable, Identifiable {
 }
 
 /// The welcome tour (#10): a few pages shown once after the first sign-in (after the claim sheet,
-/// if that appears), and again from the account menu. Any page can be skipped. The share-sheet
+/// if that appears), and again from the profile. Any page can be skipped. The share-sheet
 /// page (#9) ticks itself off when the Share Extension reports that it has been opened.
 struct TourView: View {
     @Environment(AppModel.self) private var model
