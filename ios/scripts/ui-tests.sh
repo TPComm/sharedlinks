@@ -111,6 +111,16 @@ warm_up
 # -- shard: deal the tests out in the order the test files list them, read from the source. The
 # last slice runs everything the others don't (-skip-testing), so a test the scan misses still runs.
 shard_args=()
+find "$ios/LinksUITests" -name '*.swift' -print0 | LC_ALL=C sort -z | xargs -0 awk '
+  FNR == 1 { class = "" }
+  /(^|[^A-Za-z0-9_])class[[:space:]]+[A-Za-z0-9_]+[[:space:]]*:[[:space:]]*XCTestCase/ {
+    sub(/.*class[[:space:]]+/, ""); sub(/[[:space:]]*:.*/, ""); class = $0; next
+  }
+  class != "" && /^[[:space:]]*(@[A-Za-z]+[[:space:]]+)*func[[:space:]]+test[A-Za-z0-9_]*[[:space:]]*\(/ {
+    sub(/.*func[[:space:]]+/, ""); sub(/[[:space:]]*\(.*/, ""); print "LinksUITests/" class "/" $0
+  }
+' >"$tmp/all-tests"
+cp "$tmp/all-tests" "$tmp/selected-tests"
 if [[ -n "${LINKS_UI_TEST_SHARD:-}" ]]; then
   if [[ ! "$LINKS_UI_TEST_SHARD" =~ ^([0-9]+)/([0-9]+)$ ]] \
     || (( BASH_REMATCH[1] < 1 || BASH_REMATCH[1] > BASH_REMATCH[2] )); then
@@ -118,23 +128,17 @@ if [[ -n "${LINKS_UI_TEST_SHARD:-}" ]]; then
     exit 1
   fi
   shard="${BASH_REMATCH[1]}" shards="${BASH_REMATCH[2]}" i=0 mine=0
+  : >"$tmp/selected-tests"
   while IFS= read -r test; do
     if (( i % shards == shard - 1 )); then
       mine=$((mine + 1))
+      echo "$test" >>"$tmp/selected-tests"
       if (( shard < shards )); then shard_args+=("-only-testing:$test"); fi
     elif (( shard == shards )); then
       shard_args+=("-skip-testing:$test")
     fi
     i=$((i + 1))
-  done < <(find "$ios/LinksUITests" -name '*.swift' -print0 | LC_ALL=C sort -z | xargs -0 awk '
-    FNR == 1 { class = "" }
-    /(^|[^A-Za-z0-9_])class[[:space:]]+[A-Za-z0-9_]+[[:space:]]*:[[:space:]]*XCTestCase/ {
-      sub(/.*class[[:space:]]+/, ""); sub(/[[:space:]]*:.*/, ""); class = $0; next
-    }
-    class != "" && /^[[:space:]]*(@[A-Za-z]+[[:space:]]+)*func[[:space:]]+test[A-Za-z0-9_]*[[:space:]]*\(/ {
-      sub(/.*func[[:space:]]+/, ""); sub(/[[:space:]]*\(.*/, ""); print "LinksUITests/" class "/" $0
-    }
-  ')
+  done <"$tmp/all-tests"
   if (( mine == 0 )); then
     echo "error: UI test slice $LINKS_UI_TEST_SHARD has no tests ($i in all)" >&2
     exit 1
@@ -180,25 +184,33 @@ if [[ $status -ne 0 ]] && grep -q "crashed while preparing to run tests" "$logs/
   run_tests "$@" || status=$?
 fi
 
-# A test that fails only because its app launch timed out ran nothing of its own, so each one gets
-# one more go, on its own, once the rest are done. Any other failure still fails the run.
-launch_timeouts() {
-  sed -nE "s/^.*error: -\[LinksUITests\.([A-Za-z0-9_]+) ([A-Za-z0-9_]+)\] : Failed to launch .*Timed out while launching.*$/\1\/\2/p" "$1" | sort -u
-}
-failed_tests() {
-  sed -nE "s/^Test Case '-\[LinksUITests\.([A-Za-z0-9_]+) ([A-Za-z0-9_]+)\]' failed .*$/\1\/\2/p" "$1" | sort -u
-}
+# Only infrastructure failures get another go; an assertion failure keeps the run red.
 if [[ $status -ne 0 ]]; then
-  timed_out="$(launch_timeouts "$logs/xcodebuild.log")"
-  if [[ -n "$timed_out" && "$timed_out" == "$(failed_tests "$logs/xcodebuild.log")" ]]; then
-    echo "warning: these tests failed only because the app took too long to launch; running them once more:" >&2
-    echo "$timed_out" >&2
-    mv "$logs/xcodebuild.log" "$logs/xcodebuild-launch-timeout.log"
+  recoverable="$(bash "$ios/scripts/ui-test-recoverable-failures.sh" "$logs/xcodebuild.log" "$tmp/selected-tests" || true)"
+  if [[ -n "$recoverable" ]]; then
+    if [[ "$recoverable" == *crash* ]]; then
+      if [[ -n "${udid:-}" ]]; then
+        echo "warning: simulator crash interrupted UI tests; rebooting and warming up before rerunning only affected tests once" >&2
+        xcrun simctl shutdown "$udid" 2>/dev/null || true
+        xcrun simctl boot "$udid"
+        xcrun simctl bootstatus "$udid" -b
+        warm_up
+      else
+        echo "warning: cannot recover a simulator crash on an externally supplied destination" >&2
+        recoverable=""
+      fi
+    else
+      echo "warning: app launch timed out; rerunning only affected tests once" >&2
+    fi
+  fi
+  if [[ -n "$recoverable" ]]; then
+    echo "$recoverable" >&2
+    mv "$logs/xcodebuild.log" "$logs/xcodebuild-infrastructure-failure.log"
     # The sign-out and account-deletion tests use up these two, so they get fresh ones.
     spare_token="$(mint me@e2e.test)"
     deletable_token="$(mint deletable@e2e.test Deletable)"
     shard_args=()
-    while IFS= read -r test; do shard_args+=("-only-testing:LinksUITests/$test"); done <<<"$timed_out"
+    while read -r _ test; do shard_args+=("-only-testing:LinksUITests/$test"); done <<<"$recoverable"
     status=0
     run_tests "$@" || status=$?
   fi
