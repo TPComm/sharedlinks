@@ -56,6 +56,13 @@ struct LinkTextTests {
         #expect(LinkText.webURL(fromSharedItem: Data(text.utf8)) == url)
     }
 
+    @Test(arguments: ["https://example.com/article.", "See https://example.com/article, it's good"])
+    func dropsSentencePunctuationFromSharedURLs(_ text: String) {
+        let url = URL(string: "https://example.com/article")!
+        #expect(LinkText.webURL(fromSharedItem: text) == url)
+        #expect(LinkText.webURL(fromSharedItem: Data(text.utf8)) == url)
+    }
+
     @Test(arguments: ["Episode title", "Episode: title"])
     func readsPodcastsSharedText(_ title: String) {
         let url = URL(string: "https://podcasts.apple.com/us/podcast/explain-it-to-me/id1042433083?i=1000802075437")!
