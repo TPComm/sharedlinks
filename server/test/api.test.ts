@@ -51,6 +51,7 @@ const fakeWorkOS = Bun.serve({
           lee: { id: "user_01LEE", email: "lee@else.test", email_verified: true, first_name: "Lee" },
           max: { id: "user_01MAX", email: "max@else.test", email_verified: true, first_name: "Max" },
           ida: { id: "user_01IDA", email: "ida@else.test", email_verified: true, first_name: "Ida" },
+          neo: { id: "user_01NEO", email: "neo@else.test", email_verified: true, first_name: "Neo" },
           unverifiedGuest: { id: "user_01UNVGUEST", email: "unv@else.test", email_verified: false },
         };
         const user = users[body.code];
@@ -330,7 +331,7 @@ describe("links", () => {
     const db = new Database(join(dataDir, "links.db"), { readonly: true });
     const { sql } = db.query("SELECT sql FROM sqlite_master WHERE name = 'links'").get() as { sql: string };
     expect(sql).toContain("AUTOINCREMENT");
-    expect((db.query("PRAGMA user_version").get() as any).user_version).toBe(12);
+    expect((db.query("PRAGMA user_version").get() as any).user_version).toBe(13);
     db.close();
     const { data } = await call("/api/state", { token });
     expect(data.links.map((l: any) => l.url)).toContain("https://de.wikipedia.org/wiki/M%C3%BCnchen");
@@ -901,6 +902,106 @@ describe("group chats", () => {
     const view = await state(them.data.token);
     expect(view.groups.map((g: any) => g.default)).toEqual([false]);
     expect(view.groups[0].members.sort()).toEqual([cyId, "user_01STRANGER"].sort());
+  });
+
+  test("someone already in who opens an invite link joins its chat", async () => {
+    const tokenOf = (made: any) => made.data.invite.url.split("/invite/")[1];
+    const accept = (token: string, invite: unknown) => call("/api/invites/accept", { token, body: { token: invite } });
+    const chat = (await call("/api/groups", { token: ann, body: { name: "Join me", members: [boId] } })).data.group;
+    const sent = await call("/api/links", { token: bo, body: { url: `${origin}/plain?n=before-cy`, group_id: chat.id } });
+    const made = await call("/api/invites", { token: ann, body: { group_id: chat.id } });
+
+    expect((await call("/api/invites/accept", { body: { token: tokenOf(made) } })).status).toBe(401);
+    const joined = await accept(cy, tokenOf(made));
+    expect(joined.status).toBe(200);
+    expect(joined.data.group).toMatchObject({ id: chat.id, name: "Join me" });
+    expect(joined.data.group.members.sort()).toEqual([annId, boId, cyId].sort());
+    const view = await state(cy);
+    expect(view.groups.map((g: any) => g.id)).toContain(chat.id);
+    expect(view.links.map((l: any) => l.id)).toContain(sent.data.link.id);
+    // Used up, though opening it again still goes to the chat.
+    expect((await call("/api/invites", { token: ann })).data.invites.map((i: any) => i.id)).not.toContain(made.data.invite.id);
+    expect((await accept(cy, tokenOf(made))).data.group.id).toBe(chat.id);
+    expect(await accept(bo, tokenOf(made))).toMatchObject({ status: 404, data: { error: "This invite doesn't work anymore." } });
+
+    // Someone already in the chat goes to it, and the invite stays for whoever it was for.
+    const another = await call("/api/invites", { token: ann, body: { group_id: chat.id } });
+    expect((await accept(bo, tokenOf(another))).data.group.id).toBe(chat.id);
+    expect((await call("/api/invites", { token: ann })).data.invites.map((i: any) => i.id)).toContain(another.data.invite.id);
+    // So does its sender, with nothing to join.
+    expect((await accept(ann, tokenOf(another))).data).toEqual({ group: null });
+
+    expect((await accept(cy, "x".repeat(43))).status).toBe(404);
+    expect((await accept(cy, "")).status).toBe(404);
+    const forSomeoneElse = await call("/api/invites", { token: ann, body: { email: "someone@else.test" } });
+    expect(await accept(cy, tokenOf(forSomeoneElse))).toMatchObject({ status: 403, data: { error: "This invite is for a different email address." } });
+    const forCy = await call("/api/invites", { token: bo, body: { email: "CY@groups.test" } });
+    expect((await accept(cy, tokenOf(forCy))).status).toBe(200);
+  });
+
+  test("an invite link opened by someone already in: their own, a full chat's, an unverified email's", async () => {
+    const tokenOf = (made: any) => made.data.invite.url.split("/invite/")[1];
+    const accept = (token: string, invite: unknown) => call("/api/invites/accept", { token, body: { token: invite } });
+    // Its sender, even one addressed to someone else, has nothing to join.
+    const forSomeone = await call("/api/invites", { token: ann, body: { email: "someone@else.test" } });
+    expect(await accept(ann, tokenOf(forSomeone))).toMatchObject({ status: 200, data: { group: null } });
+
+    // A member of a full chat goes back to it, without a new chat or using the invite.
+    const chat = (await call("/api/groups", { token: ann, body: { name: "Packed", members: [cyId] } })).data.group;
+    const raw = new Database(join(dataDir, "links.db"));
+    for (let i = 0; i < 48; i++) {
+      raw.run("INSERT OR IGNORE INTO users (id, email, name, created_at, member) VALUES (?, NULL, 'Filler', 1, 1)", [`user_fill${i}`]);
+      raw.run("INSERT INTO group_members (group_id, user_id, joined_at) VALUES (?, ?, 1)", [chat.id, `user_fill${i}`]);
+    }
+    raw.close();
+    const toFull = await call("/api/invites", { token: ann, body: { group_id: chat.id } });
+    const before = (await state(cy)).groups.length;
+    expect((await accept(cy, tokenOf(toFull))).data.group.id).toBe(chat.id);
+    expect((await state(cy)).groups).toHaveLength(before);
+    expect((await call("/api/invites", { token: ann })).data.invites.map((i: any) => i.id)).toContain(toFull.data.invite.id);
+
+    // An email-bound invite needs that email verified.
+    const open = await call("/api/invites", { token: ann, body: {} });
+    const unverified = await signIn("unverified", VERIFIER, tokenOf(open));
+    expect(unverified.status).toBe(200);
+    const forThem = await call("/api/invites", { token: bo, body: { email: "friend2@team.test" } });
+    expect(await accept(unverified.data.token, tokenOf(forThem)))
+      .toMatchObject({ status: 403, data: { error: "Verify your email address, then sign in again." } });
+  });
+
+  test("an invite to no chat takes someone already in to the chat of just the two of them", async () => {
+    const tokenOf = (made: any) => made.data.invite.url.split("/invite/")[1];
+    const dot = mint("dot@groups.test", "Dot");
+    const dotId = (await state(dot)).me;
+    const first = await call("/api/invites", { token: dot, body: {} });
+    const pair = (await call("/api/invites/accept", { token: cy, body: { token: tokenOf(first) } })).data.group;
+    expect(pair).toMatchObject({ default: false, name: "", created_by: dotId });
+    expect(pair.members.sort()).toEqual([cyId, dotId].sort());
+    // Not a second chat of the two of them.
+    const second = await call("/api/invites", { token: dot, body: {} });
+    expect((await call("/api/invites/accept", { token: cy, body: { token: tokenOf(second) } })).data.group.id).toBe(pair.id);
+    // Opened again, either goes back to that chat.
+    expect((await call("/api/invites/accept", { token: cy, body: { token: tokenOf(first) } })).data.group.id).toBe(pair.id);
+    expect((await state(cy)).groups.filter((g: any) => g.members.includes(dotId))).toHaveLength(2); // and the default chat
+  });
+
+  test("signing in with an invite link takes someone already in to its chat", async () => {
+    const tokenOf = (made: any) => made.data.invite.url.split("/invite/")[1];
+    expect((await signIn("good")).data.group_id).toBeNull();
+    const chat = (await call("/api/groups", { token: ann, body: { name: "Riley's" } })).data.group;
+    const made = await call("/api/invites", { token: ann, body: { group_id: chat.id } });
+    const riley = await signIn("good", VERIFIER, tokenOf(made));
+    expect(riley.status).toBe(200);
+    expect(riley.data.group_id).toBe(chat.id);
+    expect((await state(riley.data.token)).groups.map((g: any) => g.id)).toContain(chat.id);
+    // A link that doesn't work doesn't stop them signing in.
+    const again = await signIn("good", VERIFIER, "y".repeat(43));
+    expect(again.status).toBe(200);
+    expect(again.data.group_id).toBeNull();
+
+    // Someone new lands in the chat the invite let them in to.
+    const forNeo = await call("/api/invites", { token: ann, body: { group_id: chat.id } });
+    expect((await signIn("neo", VERIFIER, tokenOf(forNeo))).data.group_id).toBe(chat.id);
   });
 
   test("an app from before groups sends to the default chat, or the only chat left", async () => {

@@ -46,7 +46,7 @@ describe("names", () => {
   });
 
   test("publicUser leaves out the email", () => {
-    expect(publicUser({ id: "u", email: "a@x.com", name: "A", avatar: null, created_at: 1, member: 0, claimable_by: null, push_watched: 1, push_reactions: 1 })).toEqual({ id: "u", name: "A", avatar: null });
+    expect(publicUser({ id: "u", email: "a@x.com", name: "A", avatar: null, created_at: 1, member: 0, claimable_by: null, push_watched: 1, push_reactions: 1, email_verified: 0 })).toEqual({ id: "u", name: "A", avatar: null });
   });
 
   test("upsertUser creates once, then keeps the chosen name and refreshes email and avatar", () => {

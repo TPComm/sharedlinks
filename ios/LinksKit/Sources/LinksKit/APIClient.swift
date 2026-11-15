@@ -50,7 +50,8 @@ public struct APIClient: Sendable {
         return baseURL.appending(path: "auth/authorize").appending(queryItems: items)
     }
 
-    /// `invite` is the token from an invite link opened before signing in; the server uses it up.
+    /// `invite` is the token from an invite link opened before signing in; the server uses it up, and
+    /// the result's `groupID` is the chat it took them to.
     public func exchange(code: String, verifier: String, invite: String? = nil) async throws -> SignInResult {
         var body: [String: Any] = ["code": code, "code_verifier": verifier]
         if let invite { body["invite"] = invite }
@@ -188,6 +189,14 @@ public struct APIClient: Sendable {
         if let groupID { body["group_id"] = groupID }
         let r: InviteEnvelope = try await send("POST", "api/invites", json: body)
         return r.invite
+    }
+
+    /// An invite link opened while signed in: joins the chat it's for and returns it, or nil when
+    /// there's nothing to join (my own invite, or an admin's).
+    public func acceptInvite(_ token: String) async throws -> LinkGroup? {
+        struct Accepted: Decodable { var group: LinkGroup? }
+        let r: Accepted = try await send("POST", "api/invites/accept", json: ["token": token])
+        return r.group
     }
 
     /// Returns the invites still pending.

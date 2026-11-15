@@ -47,6 +47,8 @@ export interface UserRow {
   push_watched: number;
   /** 1 (the default) to get a push when someone reacts to a link they sent. */
   push_reactions: number;
+  /** 1 if WorkOS had verified `email` when they last signed in, or an admin vouched for it (see migrateToV13). */
+  email_verified: number;
 }
 
 export interface GroupRow {
@@ -69,7 +71,10 @@ export interface InviteRow {
   expires_at: number;
   used_by: string | null;
   used_at: number | null;
-  /** The inviter's chat the new member joins; null: a new chat of just the two of them. */
+  /**
+   * The inviter's chat the new member joins; null: a new chat of just the two of them. Once a
+   * friend's invite is used, the chat it took them to.
+   */
   group_id: number | null;
 }
 
@@ -177,6 +182,7 @@ export function openDatabase(dataDir: string, legacyAllowedEmails: string[] = []
   migrateToV10(db);
   migrateToV11(db);
   migrateToV12(db);
+  migrateToV13(db);
   return db;
 }
 
@@ -465,6 +471,22 @@ function migrateToV12(db: Database) {
   db.transaction(() => {
     db.run(`DELETE FROM group_members WHERE user_id IN (SELECT id FROM users WHERE member = 0 AND id NOT LIKE ? || '%')`, [LEGACY]);
     db.run("PRAGMA user_version = 12");
+  })();
+}
+
+/**
+ * v13: whether each person's email is verified, so an invite bound to an email can be used by someone
+ * already in (Accounts.joinWithInvite). Before this, only those an email-bound invite let in had shown it.
+ */
+function migrateToV13(db: Database) {
+  const { user_version } = db.query("PRAGMA user_version").get() as { user_version: number };
+  if (user_version >= 13) return;
+  db.transaction(() => {
+    const have = (db.query("PRAGMA table_info(users)").all() as { name: string }[]).map((c) => c.name);
+    if (!have.includes("email_verified")) db.run("ALTER TABLE users ADD COLUMN email_verified INTEGER NOT NULL DEFAULT 0");
+    db.run(`UPDATE users SET email_verified = 1 WHERE id IN (SELECT i.used_by FROM invites i JOIN users u ON u.id = i.used_by
+              WHERE i.email IS NOT NULL AND i.email = u.email COLLATE NOCASE)`);
+    db.run("PRAGMA user_version = 13");
   })();
 }
 

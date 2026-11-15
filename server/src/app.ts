@@ -685,7 +685,7 @@ export function createApp(config: Config, opts: AppOptions = {}) {
     },
 
     // Invites (#5): anyone who's in can let a friend in. The link (with its token) is only in the
-    // POST's reply; the server keeps its hash. Only POST /api/auth/token uses an invite up.
+    // POST's reply; the server keeps its hash. Only POST /api/auth/token and /api/invites/accept use an invite up.
     "/api/invites": {
       GET: route((_req, me) => json({ invites: accounts.pendingInvites(me) })),
       POST: route(async (req, me) => {
@@ -693,6 +693,15 @@ export function createApp(config: Config, opts: AppOptions = {}) {
         const { invite, token } = asUser(me, () =>
           accounts.createInvite(me, email, group_id === undefined || group_id === null ? null : groupOf(group_id, me)));
         return json({ invite: { ...invite, url: `${config.publicUrl}/invite/${token}` } }, 201);
+      }),
+    },
+    // Someone who's already in opens an invite link: they join its chat (see Accounts.joinWithInvite).
+    "/api/invites/accept": {
+      POST: route(async (req, me) => {
+        const { token } = await readJson(req);
+        const id = asUser(me, () => accounts.joinWithInvite(me, String(token ?? "")));
+        if (id !== null) push.badges([me]); // the chat's links land in their To Watch
+        return json({ group: id === null ? null : getGroup(id) });
       }),
     },
     "/api/invites/:id": {

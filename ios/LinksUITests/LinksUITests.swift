@@ -564,6 +564,22 @@ final class LinksUITests: XCTestCase {
         XCTAssert(row(everyone, in: "all").waitForExistence(timeout: 5))
     }
 
+    func testInviteLinkWhileSignedInOpensItsChat() throws {
+        let name = "Invited \(shortID())"
+        let chat = try server.startChat(name: name, as: server.friend)
+        leaveAfterwards(chat.id)
+        let inChat = try server.add(uniqueURL(), to: chat.id, as: server.friend)
+        deleteAfterwards(inChat.id)
+        let invite = try server.invite(to: chat.id, as: server.friend)
+
+        launch()
+        app.open(URL(string: "sharedlinks://invite/\(invite)")!)
+        XCTAssert(row(inChat, in: "toWatch").waitForExistence(timeout: 15), "the chat's link isn't in To Watch")
+        XCTAssert(app.buttons["chatPicker"].label.contains(name), app.buttons["chatPicker"].label)
+        let me = try server.state(as: server.me).me
+        XCTAssert(try server.state(as: server.friend).group(chat.id)?.members.contains(me) == true, "not in the chat")
+    }
+
     func testRenamingAddingPeopleToAndLeavingAChat() throws {
         let friendID = try server.state(as: server.friend).me
         let chat = try server.startChat(as: server.me)

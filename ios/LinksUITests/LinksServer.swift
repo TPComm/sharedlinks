@@ -87,6 +87,16 @@ struct LinksServer: Sendable {
         return try JSONDecoder().decode(Started.self, from: data).group
     }
 
+    /// An invite into `groupID` (nil: a chat with just whoever's token asks); returns the link's token.
+    func invite(to groupID: Int? = nil, as token: String) throws -> String {
+        struct Made: Decodable { struct Invite: Decodable { let url: String }; let invite: Invite }
+        var json: [String: Any] = [:]
+        if let groupID { json["group_id"] = groupID }
+        let data = try send("POST", "api/invites", json: json, as: token)
+        let url = try JSONDecoder().decode(Made.self, from: data).invite.url
+        return String(url.split(separator: "/").last ?? "")
+    }
+
     func leaveChat(_ id: Int, as token: String) throws {
         _ = try send("DELETE", "api/groups/\(id)", as: token)
     }
