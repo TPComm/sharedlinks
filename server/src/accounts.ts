@@ -66,8 +66,7 @@ export class Accounts {
       if (bound.length > 254 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(bound)) throw new BadRequest("That doesn't look like an email address.");
     }
     const t = now();
-    const pending = userId === null ? 0 : (this.db.query("SELECT COUNT(*) AS n FROM invites WHERE invited_by = ? AND used_at IS NULL AND expires_at > ?")
-      .get(userId, t) as { n: number }).n;
+    const pending = userId === null ? 0 : this.pendingInvites(userId).length;
     if (pending >= MAX_PENDING_INVITES) throw new BadRequest("You have a lot of invites waiting. Cancel some first.");
     const token = randomToken();
     const row = this.db.query(`INSERT INTO invites (token_hash, email, invited_by, created_at, expires_at, group_id)
