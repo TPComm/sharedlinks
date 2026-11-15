@@ -193,6 +193,100 @@ final class LinksUITests: XCTestCase {
         waitFor(receipt, labelContaining: "now")
     }
 
+    // MARK: Comments
+
+    func testCommentThreadCRUDAndUnreadState() throws {
+        let note = "Sender note stays separate \(shortID())"
+        let link = try seed(by: server.friend, note: note)
+        let friendComment = try server.addComment(link.id, body: "That ending!", as: server.friend)
+        launch()
+        let row = waitForRow(link, in: "toWatch")
+        waitFor(row, labelContaining: "1 comment · New")
+        row.tap()
+        let page = page(link)
+        XCTAssert(page.waitForExistence(timeout: 5))
+        for _ in 0..<3 where !app.staticTexts["That ending!"].isHittable { page.swipeUp() }
+        XCTAssert(app.staticTexts["That ending!"].waitForExistence(timeout: 10))
+        XCTAssertFalse(app.buttons["comment.edit.\(friendComment.id)"].exists)
+        XCTAssertFalse(app.buttons["comment.delete.\(friendComment.id)"].exists)
+
+        let field = app.textFields["comments.draft"]
+        XCTAssert(field.waitForExistence(timeout: 5))
+        XCTAssertFalse(app.buttons["comments.send"].isEnabled)
+        type("   ", into: field)
+        XCTAssertFalse(app.buttons["comments.send"].isEnabled, "whitespace must not send")
+        type("I watched it twice", into: field)
+        app.buttons["comments.send"].tap()
+        let posted = try server.eventually("new comment") {
+            try server.comments(link.id, as: server.friend).first { $0.body == "I watched it twice" }
+        }
+        let edit = app.buttons["comment.edit.\(posted.id)"]
+        for _ in 0..<4 where !edit.isHittable { page.swipeUp() }
+        XCTAssert(edit.waitForExistence(timeout: 10))
+        edit.tap()
+        field.tap()
+        field.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: "I watched it twice".count))
+        type("Even better the second time", into: field)
+        app.buttons["comments.send"].tap()
+        try server.eventually("edited comment") {
+            try server.comments(link.id, as: server.friend).first {
+                $0.id == posted.id && $0.body == "Even better the second time" && $0.editedAt != nil
+            }
+        }
+        XCTAssertEqual(try server.state(as: server.me).link(link.id)?.note, note)
+        let delete = app.buttons["comment.delete.\(posted.id)"]
+        for _ in 0..<3 where !delete.isHittable { page.swipeUp() }
+        delete.tap()
+        app.buttons["Delete Comment"].tap()
+        try server.eventually("comment deleted") {
+            try server.comments(link.id, as: server.friend).count == 1 ? true : nil
+        }
+        app.navigationBars.buttons.element(boundBy: 0).tap()
+        waitFor(row, labelContaining: "1 comment")
+        XCTAssertFalse(row.label.contains("· New"), row.label)
+        app.terminate()
+        launch()
+        let readRow = waitForRow(link, in: "toWatch")
+        XCTAssertFalse(readRow.label.contains("· New"), "read state lost after relaunch")
+
+        try server.addComment(link.id, body: "Did you spot the cat?", as: server.friend)
+        app.collectionViews["links.toWatch"].swipeDown()
+        waitFor(readRow, labelContaining: "2 comments · New")
+    }
+
+    func testCommentThreadRefreshesAfterForegrounding() throws {
+        let link = try seed(by: server.friend)
+        launch()
+        waitForRow(link, in: "toWatch").tap()
+        let page = page(link)
+        XCTAssert(page.waitForExistence(timeout: 5))
+        for _ in 0..<3 where !app.staticTexts["comments.empty"].isHittable { page.swipeUp() }
+        XCTAssert(app.staticTexts["comments.empty"].waitForExistence(timeout: 10))
+        XCUIDevice.shared.press(.home)
+        try server.addComment(link.id, body: "A fresh reply", as: server.friend)
+        app.activate()
+        XCTAssert(app.staticTexts["A fresh reply"].waitForExistence(timeout: 15))
+        XCTAssertFalse(app.staticTexts["comments.empty"].exists)
+    }
+
+    func testReportingACommentHidesOnlyThatComment() throws {
+        let link = try seed(by: server.friend, note: "Keep this link")
+        let comment = try server.addComment(link.id, body: "A reportable comment", as: server.friend)
+        launch()
+        waitForRow(link, in: "toWatch").tap()
+        let page = page(link)
+        XCTAssert(page.waitForExistence(timeout: 5))
+        let report = app.buttons["comment.report.\(comment.id)"]
+        for _ in 0..<4 where !report.isHittable { page.swipeUp() }
+        XCTAssert(report.waitForExistence(timeout: 10))
+        report.tap()
+        app.buttons["Harassment or Bullying"].tap()
+        XCTAssert(app.staticTexts["comments.empty"].waitForExistence(timeout: 10))
+        XCTAssertEqual(try server.comments(link.id, as: server.me).count, 0)
+        XCTAssertEqual(try server.comments(link.id, as: server.friend).count, 1)
+        XCTAssertNotNil(try server.state(as: server.me).link(link.id))
+    }
+
     // MARK: Changes
 
     func testAddingALinkInTheAppSendsIt() throws {

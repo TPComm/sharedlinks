@@ -131,6 +131,14 @@ struct LinkRow: View {
                         .lineLimit(3)
                 }
                 footer
+                if link.commentCount > 0 {
+                    let unread = model.hasUnreadComments(link)
+                    Label("\(link.commentCount) \(link.commentCount == 1 ? "comment" : "comments")\(unread ? " · New" : "")",
+                          systemImage: unread ? "bubble.left.fill" : "bubble.left")
+                        .font(.footnote.weight(unread ? .bold : .regular))
+                        .foregroundStyle(unread ? Color.accentColor : .secondary)
+                        .accessibilityIdentifier("comments.count.\(link.id)")
+                }
             }
         }
         .contentShape(.rect)
