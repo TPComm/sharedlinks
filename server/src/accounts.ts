@@ -351,6 +351,7 @@ export class Accounts {
     const groupId = this.db.transaction((): number | null => {
       if (this.isMember(user.id)) {
         this.upsertUser(user.id, email, name, avatar);
+        this.db.run("UPDATE users SET email_verified = ? WHERE id = ?", [user.email_verified ? 1 : 0, user.id]);
         if (!inviteToken) return null;
         // Already in: the link still takes them to its chat, but a link that doesn't work stops no one signing in.
         try {
@@ -374,6 +375,7 @@ export class Accounts {
         throw new AuthError("Links is invite-only. Ask a friend who uses it to invite you, then tap their invite link.", 403);
       }
       this.upsertUser(user.id, email, name, avatar);
+      this.db.run("UPDATE users SET email_verified = ? WHERE id = ?", [user.email_verified ? 1 : 0, user.id]);
       const group = this.admit(user.id, invite);
       this.useUp(invite, user.id, group);
       console.log(`invite ${invite.id} from ${invite.invited_by ?? "admin"} used by ${user.id}`);
@@ -444,9 +446,14 @@ export class Accounts {
     }
     if (!row || row.used_at !== null || row.expires_at <= now()) throw new AuthError("This invite doesn't work anymore.", 404);
     if (!row.invited_by || row.invited_by === userId) return null;
-    const email = (this.db.query("SELECT email FROM users WHERE id = ?").get(userId) as { email: string | null } | null)?.email ?? "";
-    if (row.email && row.email.toLowerCase() !== email.toLowerCase() && !appleRelay(email)) {
-      throw new AuthError("This invite is for a different email address.", 403);
+    const me = this.db.query("SELECT email, email_verified FROM users WHERE id = ?").get(userId) as
+      { email: string | null; email_verified: number } | null;
+    const email = me?.email ?? "";
+    if (row.email) {
+      if (row.email.toLowerCase() !== email.toLowerCase() && !appleRelay(email)) {
+        throw new AuthError("This invite is for a different email address.", 403);
+      }
+      if (!me?.email_verified) throw new AuthError("Verify your email address, then sign in again.", 403);
     }
     // Already in the chat it names (even a full one): just go there, and leave it for whoever it's for.
     if (row.group_id !== null && this.inGroup(row.group_id, userId)) return row.group_id;
@@ -484,7 +491,8 @@ export class Accounts {
       .get(email, `${LEGACY}%`) as { id: string } | null;
     const id = row?.id ?? `local_${Buffer.from(crypto.getRandomValues(new Uint8Array(8))).toString("hex")}`;
     this.upsertUser(id, email, name || titleCase(email.split("@")[0] ?? "Someone"), null);
-    if (!this.isMember(id)) this.admit(id); // the admin minting it vouches for them
+    this.db.run("UPDATE users SET email_verified = 1 WHERE id = ?", [id]); // the admin minting it vouches for the email
+    if (!this.isMember(id)) this.admit(id); // and for them
     return this.newSession(id);
   }
 }

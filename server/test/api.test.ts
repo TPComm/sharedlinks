@@ -331,7 +331,7 @@ describe("links", () => {
     const db = new Database(join(dataDir, "links.db"), { readonly: true });
     const { sql } = db.query("SELECT sql FROM sqlite_master WHERE name = 'links'").get() as { sql: string };
     expect(sql).toContain("AUTOINCREMENT");
-    expect((db.query("PRAGMA user_version").get() as any).user_version).toBe(12);
+    expect((db.query("PRAGMA user_version").get() as any).user_version).toBe(13);
     db.close();
     const { data } = await call("/api/state", { token });
     expect(data.links.map((l: any) => l.url)).toContain("https://de.wikipedia.org/wiki/M%C3%BCnchen");
@@ -937,6 +937,36 @@ describe("group chats", () => {
     expect((await accept(cy, tokenOf(forCy))).status).toBe(200);
   });
 
+  test("an invite link opened by someone already in: their own, a full chat's, an unverified email's", async () => {
+    const tokenOf = (made: any) => made.data.invite.url.split("/invite/")[1];
+    const accept = (token: string, invite: unknown) => call("/api/invites/accept", { token, body: { token: invite } });
+    // Its sender, even one addressed to someone else, has nothing to join.
+    const forSomeone = await call("/api/invites", { token: ann, body: { email: "someone@else.test" } });
+    expect(await accept(ann, tokenOf(forSomeone))).toMatchObject({ status: 200, data: { group: null } });
+
+    // A member of a full chat goes back to it, without a new chat or using the invite.
+    const chat = (await call("/api/groups", { token: ann, body: { name: "Packed", members: [cyId] } })).data.group;
+    const raw = new Database(join(dataDir, "links.db"));
+    for (let i = 0; i < 48; i++) {
+      raw.run("INSERT OR IGNORE INTO users (id, email, name, created_at, member) VALUES (?, NULL, 'Filler', 1, 1)", [`user_fill${i}`]);
+      raw.run("INSERT INTO group_members (group_id, user_id, joined_at) VALUES (?, ?, 1)", [chat.id, `user_fill${i}`]);
+    }
+    raw.close();
+    const toFull = await call("/api/invites", { token: ann, body: { group_id: chat.id } });
+    const before = (await state(cy)).groups.length;
+    expect((await accept(cy, tokenOf(toFull))).data.group.id).toBe(chat.id);
+    expect((await state(cy)).groups).toHaveLength(before);
+    expect((await call("/api/invites", { token: ann })).data.invites.map((i: any) => i.id)).toContain(toFull.data.invite.id);
+
+    // An email-bound invite needs that email verified.
+    const open = await call("/api/invites", { token: ann, body: {} });
+    const unverified = await signIn("unverified", VERIFIER, tokenOf(open));
+    expect(unverified.status).toBe(200);
+    const forThem = await call("/api/invites", { token: bo, body: { email: "friend2@team.test" } });
+    expect(await accept(unverified.data.token, tokenOf(forThem)))
+      .toMatchObject({ status: 403, data: { error: "Verify your email address, then sign in again." } });
+  });
+
   test("an invite to no chat takes someone already in to the chat of just the two of them", async () => {
     const tokenOf = (made: any) => made.data.invite.url.split("/invite/")[1];
     const dot = mint("dot@groups.test", "Dot");
@@ -948,6 +978,8 @@ describe("group chats", () => {
     // Not a second chat of the two of them.
     const second = await call("/api/invites", { token: dot, body: {} });
     expect((await call("/api/invites/accept", { token: cy, body: { token: tokenOf(second) } })).data.group.id).toBe(pair.id);
+    // Opened again, either goes back to that chat.
+    expect((await call("/api/invites/accept", { token: cy, body: { token: tokenOf(first) } })).data.group.id).toBe(pair.id);
     expect((await state(cy)).groups.filter((g: any) => g.members.includes(dotId))).toHaveLength(2); // and the default chat
   });
 
