@@ -199,6 +199,13 @@ host. Import it in Grafana (Dashboards → New → Import); it finds the stack's
 data sources itself. The live copy is "Links" in the Links folder of the Grafana Cloud stack; after
 editing it there, export it (Share → Export, without "Export for sharing externally") over this file.
 
+**Grafana alerts:** `deploy/grafana/links-alerts.json` is the live "links-prod" rule group in the
+Links folder: **Links site down** (`links` or `caddy` unit not active for 3m, or the host stops
+sending metrics), **Links 5xx spike** (5 or more 5xx request lines in 5m) and **Links disk filling
+up** (under 15% free on `/` for 10m). They match `instance`/`host` `links.tpcomm.co` only, so test
+servers never fire them, and send to the "Links → Sherlog (Devin webhook)" contact point. After
+changing them in Grafana, export the group (Alert rules → links-prod → Export, JSON) over this file.
+
 **Reports and moderation** (App Store guideline 1.2). Whoever runs the server reads the reports:
 
 - People report a link or a person from its long-press menu or its page. A reported link is hidden
