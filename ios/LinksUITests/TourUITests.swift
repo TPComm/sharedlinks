@@ -41,7 +41,9 @@ final class TourUITests: XCTestCase {
         XCTAssert(note.exists, "no note field in practice mode")
         type("Practice note", into: note)
         app.buttons["share.send"].tap()
-        XCTAssert(app.staticTexts["That's It"].waitForExistence(timeout: 10), "practice Send didn't say it worked")
+        // "That's It" is up for only 1.8 s, which a slow runner can miss; closing the sheet (no Cancel
+        // tapped) is what follows it, and stays.
+        XCTAssert(note.waitForNonExistence(timeout: 15), "practice Send didn't finish and close the sheet")
         // The extension told the app (App Group defaults), and the step ticked itself off.
         XCTAssert(waitForPage("Links Is in Your Share Sheet"), "the step didn't notice")
         app.buttons["tour.continue"].tap()
