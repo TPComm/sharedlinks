@@ -167,7 +167,7 @@ function privacyPage(email: string, sessionDays: number): string {
 <li>Your account and what you do in Links: until you delete them, or your account.</li>
 <li>A device's sign-in: until you sign out on it, or ${sessionDays} days after it was last used.</li>
 <li>A device's push token: until you sign out on it, or Apple tells the server the token no longer works.</li>
-<li>Server logs: until the server's system log replaces them with newer ones, usually within a few weeks. Grafana Cloud's copy of the logs and server health figures is kept for 14 days, the limit of its free plan that this server uses.</li>
+<li>Server logs: until the server's system log replaces them with newer ones, usually within a few weeks. Grafana Cloud's copy of the logs and server health figures is kept for up to 31 days.</li>
 <li>Backups: the newest 14 days are kept, so anything deleted is gone from the backups within two weeks.</li>
 </ul>
 
