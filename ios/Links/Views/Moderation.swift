@@ -115,10 +115,10 @@ struct ContactSupportButton: View {
         } label: {
             Label {
                 Text("Contact Support").foregroundStyle(Color.primary)
-                Text(address)
             } icon: {
                 Image(systemName: "envelope")
             }
+            Text(address)
         }
     }
 }
