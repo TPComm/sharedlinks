@@ -448,6 +448,8 @@ export class Accounts {
     if (row.email && row.email.toLowerCase() !== email.toLowerCase() && !appleRelay(email)) {
       throw new AuthError("This invite is for a different email address.", 403);
     }
+    // Already in the chat it names (even a full one): just go there, and leave it for whoever it's for.
+    if (row.group_id !== null && this.inGroup(row.group_id, userId)) return row.group_id;
     const group = this.invitersChat(row, userId);
     if (this.inGroup(group, userId)) return group;
     this.db.run("INSERT INTO group_members (group_id, user_id, joined_at) VALUES (?, ?, ?)", [group, userId, now()]);
