@@ -1,7 +1,7 @@
 import LinksKit
 import SwiftUI
 #if DEBUG
-import Darwin
+import CoreFoundation
 #endif
 
 struct ThrowbackCard: View {
@@ -12,23 +12,26 @@ struct ThrowbackCard: View {
 
     static var now: Date {
         #if DEBUG
-        if let token = testClockToken {
-            var milliseconds: UInt64 = 0
-            precondition(notify_get_state(token, &milliseconds) == 0)
-            return Date(timeIntervalSince1970: Double(milliseconds) / 1_000)
-        }
+        _ = configureTestClock
+        if let testNow { return testNow }
         #endif
         return .now
     }
 
     #if DEBUG
     // Read, don't observe: advancing the test clock must still wait for the real TimelineView tick.
-    private static let testClockToken: Int32? = {
+    private static var testNow: Date?
+    private static let configureTestClock: Void = {
         let env = ProcessInfo.processInfo.environment
-        guard env["LINKS_UI_TESTS"] == "1", let name = env["LINKS_THROWBACK_TEST_CLOCK"] else { return nil }
-        var token: Int32 = 0
-        precondition(notify_register_check(name, &token) == 0)
-        return token
+        guard env["LINKS_UI_TESTS"] == "1", let name = env["LINKS_THROWBACK_TEST_CLOCK"],
+              let value = env["LINKS_THROWBACK_TEST_NOW"], let seconds = TimeInterval(value),
+              seconds.isFinite else { return }
+        testNow = Date(timeIntervalSince1970: seconds)
+        CFNotificationCenterAddObserver(CFNotificationCenterGetDarwinNotifyCenter(), nil, { _, _, _, _, _ in
+            DispatchQueue.main.async {
+                ThrowbackCard.testNow = ThrowbackCard.testNow?.addingTimeInterval(2)
+            }
+        }, name as CFString, nil, .deliverImmediately)
     }()
     #endif
 

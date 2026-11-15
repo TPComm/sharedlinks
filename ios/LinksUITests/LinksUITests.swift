@@ -1,4 +1,4 @@
-import Darwin
+import CoreFoundation
 import XCTest
 
 /// End to end: the real app in a Simulator against a real server (ios/scripts/ui-tests.sh).
@@ -45,13 +45,8 @@ final class LinksUITests: XCTestCase {
         try server.react(link.id, emoji: "❤️", as: server.friend)
 
         let clockName = "com.tpcomm.links.throwback.\(UUID().uuidString)"
-        var clockToken: Int32 = 0
-        XCTAssertEqual(notify_register_check(clockName, &clockToken), 0)
-        defer { notify_cancel(clockToken) }
-        let addedAt = UInt64(link.addedAt * 1_000)
-        XCTAssertEqual(notify_set_state(clockToken, addedAt), 0)
-
-        launch(environment: ["LINKS_THROWBACK_MIN_AGE": "1", "LINKS_THROWBACK_TEST_CLOCK": clockName])
+        launch(environment: ["LINKS_THROWBACK_MIN_AGE": "1", "LINKS_THROWBACK_TEST_CLOCK": clockName,
+                             "LINKS_THROWBACK_TEST_NOW": String(link.addedAt)])
         pickChat(name)
         app.tabBars.buttons["Seen"].tap()
         waitForRow(link, in: "watched")
@@ -59,8 +54,9 @@ final class LinksUITests: XCTestCase {
         XCTAssertFalse(card.exists, "the link should initially be too recent")
 
         // Setup can take arbitrarily long: only advance time once the initial state is on screen.
-        // This sends no notification or UI update, so the real minute timeline must discover eligibility.
-        XCTAssertEqual(notify_set_state(clockToken, addedAt + 2_000), 0)
+        // The clock isn't observed by SwiftUI, so the real minute timeline must discover eligibility.
+        CFNotificationCenterPostNotification(CFNotificationCenterGetDarwinNotifyCenter(),
+                                             CFNotificationName(rawValue: clockName as CFString), nil, nil, true)
         XCTAssert(card.waitForExistence(timeout: 125), "the first Throwback never appeared as it aged")
         XCTAssert(card.buttons["throwback.open"].label.contains("Friend"))
     }
