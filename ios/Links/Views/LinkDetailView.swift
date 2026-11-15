@@ -3,8 +3,8 @@ import SwiftUI
 
 /// A link's own page, pushed when its row is tapped or its widget row opens the app: the preview,
 /// who sent it and why, the button that opens it in TikTok (or wherever), reactions, and who has
-/// seen it. Opening it from here doesn't mark it watched: the page stays underneath, and when the
-/// app comes back it asks "Watched it?".
+/// seen it. Opening it from here marks it watched; the page stays underneath, with Mark as Not
+/// Watched to undo.
 struct LinkDetailView: View {
     @Environment(AppModel.self) private var model
     let linkID: Int
@@ -41,8 +41,6 @@ private struct LinkPage: View {
     private var inbox: InboxState { model.inbox }
     private var mine: Bool { inbox.isMine(link) }
     private var seenAt: Date? { link.seen[inbox.me] }
-    /// Opened from this page and not marked since: the page asks.
-    private var asking: Bool { model.watching == link.id && inbox.isUnwatched(link) }
 
     var body: some View {
         ScrollView {
@@ -63,7 +61,6 @@ private struct LinkPage: View {
         .navigationTitle(link.platform.noun)
         .navigationBarTitleDisplayMode(.inline)
         .toolbar { toolbar }
-        .animation(.default, value: asking)
         .animation(.default, value: seenAt)
         .sensoryFeedback(.success, trigger: seenAt) { old, new in old == nil && new != nil }
         .sensoryFeedback(.selection, trigger: picks)
@@ -131,10 +128,7 @@ private struct LinkPage: View {
 
     @ViewBuilder private var actions: some View {
         VStack(spacing: 12) {
-            if asking {
-                watchedPrompt
-                watchButton(prominent: false)
-            } else if mine {
+            if mine {
                 watchButton(prominent: true)
             } else if let seenAt {
                 watchButton(prominent: false)
@@ -150,30 +144,6 @@ private struct LinkPage: View {
                 .accessibilityIdentifier("linkPage.markWatched")
             }
         }
-    }
-
-    /// Back from watching it: the one thing left to do, front and centre.
-    private var watchedPrompt: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            VStack(alignment: .leading, spacing: 2) {
-                Text("Watched it?").font(.headline)
-                Text("It moves to Watched, and \(inbox.name(of: link.addedBy)) sees you've seen it.")
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-            }
-            Button { mark(true) } label: {
-                Label("Mark as Watched", systemImage: "checkmark")
-                    .fontWeight(.semibold)
-                    .frame(maxWidth: .infinity)
-            }
-            .buttonStyle(.borderedProminent)
-            .controlSize(.large)
-            .accessibilityIdentifier("linkPage.markWatched")
-        }
-        .padding(16)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color.accentColor.opacity(0.12), in: .rect(cornerRadius: 20, style: .continuous))
-        .transition(.scale(scale: 0.95).combined(with: .opacity))
     }
 
     @ViewBuilder private func watchButton(prominent: Bool) -> some View {
@@ -304,7 +274,7 @@ private struct LinkPage: View {
     }
 
     private func watch() {
-        model.watch(link, with: openURL)
+        model.open(link, with: openURL)
     }
 
     private func mark(_ watched: Bool) {

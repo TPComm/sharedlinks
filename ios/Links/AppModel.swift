@@ -20,8 +20,6 @@ final class AppModel {
     /// open a page, and saved in SceneStorage (RootView) so coming back from TikTok lands on the
     /// same page even if iOS ended the app meanwhile.
     var paths: [InboxTab: [Int]] = [:]
-    /// The link last opened from its page: until it's marked, that page asks "Watched it?".
-    private(set) var watching: Int?
     var toast: String?
     var errorMessage: String?
     var showAddSheet = false
@@ -148,7 +146,6 @@ final class AppModel {
         claimable = []
         invites = []
         paths = [:]
-        watching = nil
         UNUserNotificationCenter.current().setBadgeCount(0)
         UNUserNotificationCenter.current().removeAllDeliveredNotifications() // names and titles from this account
         // Even if the server never heard about the sign-out (offline), this phone stops showing pushes.
@@ -408,7 +405,6 @@ final class AppModel {
     }
 
     func setSeen(_ link: SharedLink, _ seen: Bool) async {
-        if watching == link.id { watching = nil } // answered, either way
         let me = inbox.me
         var optimistic = link
         optimistic.seen[me] = seen ? .now : nil
@@ -509,15 +505,8 @@ final class AppModel {
         await refresh() // brings their links, marks and reactions back
     }
 
-    /// "Watch in TikTok" on a link's page: opens it (universal links) without marking it watched.
-    /// The page stays underneath, and asks "Watched it?" when the app comes back.
-    func watch(_ link: SharedLink, with openURL: OpenURLAction) {
-        if inbox.isUnwatched(link) { watching = link.id }
-        openURL(link.url)
-    }
-
-    /// The long-press menu's fast path: open it and count it as watched in one go, as tapping a
-    /// row did before links had pages.
+    /// Opens it in TikTok (or wherever; universal links) and counts it as watched, from a link's
+    /// page or a row's long-press menu. A page stays underneath, with Mark as Not Watched to undo.
     func open(_ link: SharedLink, with openURL: OpenURLAction) {
         if inbox.isUnwatched(link) {
             // Send the mark before leaving: once TikTok is in front, this app gets suspended.
@@ -578,10 +567,9 @@ final class AppModel {
     struct Navigation: Codable, Equatable {
         var tab: InboxTab
         var paths: [InboxTab: [Int]]
-        var watching: Int?
     }
 
-    var navigation: Navigation { Navigation(tab: tab, paths: paths, watching: watching) }
+    var navigation: Navigation { Navigation(tab: tab, paths: paths) }
 
     /// Puts back the tab and pages that were showing when iOS ended the app, minus links that
     /// have gone since. A page a widget already opened wins.
@@ -590,7 +578,6 @@ final class AppModel {
         let ids = Set(inbox.links.map(\.id))
         tab = saved.tab
         paths = saved.paths.mapValues { $0.filter(ids.contains) }
-        watching = saved.watching.flatMap { ids.contains($0) ? $0 : nil }
     }
 
     private func perform(onFailure: (() -> Void)? = nil, _ work: @escaping () async throws -> Void) async {

@@ -155,26 +155,22 @@ final class LinksUITests: XCTestCase {
         XCTAssertFalse(row(link, in: "toWatch").exists, "still in To Watch")
     }
 
-    /// The issue this page exists for (#7): watch it, come back, and you're on its page to react
-    /// and mark it watched, instead of on a list it has already left.
+    /// The issue this page exists for (#7): watch it, come back, and you're on its page to react,
+    /// instead of on a list it has already left. Opening it marked it watched (#76).
     func testComingBackFromWatchingLandsOnTheLinksPage() throws {
         let link = try seed(by: server.friend)
         launch()
         waitForRow(link, in: "toWatch").tap()
         XCTAssert(page(link).waitForExistence(timeout: 5), "no page for the link")
-        XCTAssertFalse(app.staticTexts["Watched it?"].exists, "asked before watching")
 
+        let me = try server.state(as: server.me).me
         app.buttons["linkPage.watch"].tap()
+        try server.eventually(timeout: 20, "seen by me") { try server.state(as: server.friend).link(link.id)?.seen[me] }
         XCTAssert(safari.wait(for: .runningForeground, timeout: safariLaunch), "the link didn't open")
         app.activate()
         XCTAssert(page(link).waitForExistence(timeout: 10), "not on the link's page")
-        XCTAssert(app.staticTexts["Watched it?"].waitForExistence(timeout: 5), "no Watched it? prompt")
-        let me = try server.state(as: server.me).me
-        XCTAssertNil(try server.state(as: server.friend).link(link.id)?.seen[me], "opening it marked it watched")
-
-        app.buttons["linkPage.markWatched"].tap()
-        try server.eventually("seen by me") { try server.state(as: server.friend).link(link.id)?.seen[me] }
-        XCTAssert(app.staticTexts["Watched it?"].waitForNonExistence(timeout: 5), "still asking")
+        XCTAssert(app.buttons["linkPage.markNotWatched"].waitForExistence(timeout: 5), "not shown as watched")
+        XCTAssertFalse(app.buttons["linkPage.markWatched"].exists, "still offers Mark as Watched")
     }
 
     func testSentLinksPageShowsWhoHasSeenIt() throws {
