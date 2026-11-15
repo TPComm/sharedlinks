@@ -3,9 +3,10 @@ import SwiftUI
 
 struct ThrowbackCard: View {
     @Environment(AppModel.self) private var model
+    @Environment(\.dynamicTypeSize) private var typeSize
     @State private var advances = 0
 
-    private var minimumAge: TimeInterval {
+    static var minimumAge: TimeInterval {
         let env = ProcessInfo.processInfo.environment
         if env["LINKS_UI_TESTS"] == "1", let value = env["LINKS_THROWBACK_MIN_AGE"],
            let seconds = TimeInterval(value), seconds.isFinite, seconds >= 0 {
@@ -21,17 +22,21 @@ struct ThrowbackCard: View {
     }
 
     @ViewBuilder private func card(on date: Date) -> some View {
-        let favorites = model.inbox.throwbacks(in: model.chat, now: date, minimumAge: minimumAge)
+        let favorites = model.inbox.throwbacks(in: model.chat, now: date, minimumAge: Self.minimumAge)
         if !favorites.isEmpty {
             let start = InboxState.throwbackStartIndex(count: favorites.count, on: date)
             let link = favorites[(start + advances) % favorites.count]
             VStack(alignment: .leading, spacing: 16) {
-                HStack {
+                let headerLayout = typeSize.isAccessibilitySize
+                    ? AnyLayout(VStackLayout(alignment: .leading, spacing: 8))
+                    : AnyLayout(HStackLayout())
+                headerLayout {
                     Label("THROWBACK", systemImage: "sparkles")
                         .font(.caption.weight(.bold))
                         .tracking(1.5)
                         .foregroundStyle(.orange)
-                    Spacer()
+                        .fixedSize()
+                    if !typeSize.isAccessibilitySize { Spacer() }
                     Text(link.addedAt, format: .dateTime.month(.abbreviated).day().year())
                         .font(.caption)
                         .foregroundStyle(.secondary)
@@ -63,6 +68,7 @@ struct ThrowbackCard: View {
                             Text("From \(model.inbox.name(of: link.addedBy)) · \(link.sourceName)")
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
+                                .fixedSize(horizontal: false, vertical: true)
                         }
                         .frame(maxWidth: .infinity, alignment: .leading)
                         Image(systemName: "chevron.right")

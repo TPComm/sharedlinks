@@ -96,7 +96,8 @@ struct LinkList: View {
     var body: some View {
         let links = model.inbox.links(for: filter, in: model.chat, matching: query)
         List {
-            if filter == .watched && query.isEmpty {
+            if filter == .watched && query.isEmpty,
+               !model.inbox.throwbacks(in: model.chat, minimumAge: ThrowbackCard.minimumAge).isEmpty {
                 ThrowbackCard()
                     .id(model.chat)
                     .listRowSeparator(.hidden)

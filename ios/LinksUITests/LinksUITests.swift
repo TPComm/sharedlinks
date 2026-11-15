@@ -22,6 +22,16 @@ final class LinksUITests: XCTestCase {
         let link = try server.add(uniqueURL(), to: chat.id, as: server.friend)
         deleteAfterwards(link.id)
         try server.setSeen(link.id, true, as: server.me)
+
+        launch(environment: ["LINKS_THROWBACK_MIN_AGE": "0"])
+        pickChat(name)
+        app.tabBars.buttons["Watched"].tap()
+        waitForRow(link, in: "watched")
+        XCTAssertFalse(app.otherElements["throwback.card"].exists)
+        let firstRow = app.collectionViews["links.watched"].cells.firstMatch
+        XCTAssert(firstRow.buttons["link.\(link.id)"].exists, "an empty row precedes the watched link")
+        app.terminate()
+
         try server.react(link.id, emoji: "❤️", as: server.me)
         try server.react(link.id, emoji: "❤️", as: server.friend)
 
