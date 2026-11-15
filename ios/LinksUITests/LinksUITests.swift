@@ -14,7 +14,7 @@ final class LinksUITests: XCTestCase {
 
     // MARK: Inbox
 
-    func testThrowbackOpensThePageWithoutChangingWatchedStatus() throws {
+    func testWatchedStartsWithTheLinkWhenNoThrowbackIsEligible() throws {
         let meID = try server.state(as: server.me).me
         let name = "Throwback \(shortID())"
         let chat = try server.startChat(name: name, members: [meID], as: server.friend)
@@ -30,8 +30,16 @@ final class LinksUITests: XCTestCase {
         XCTAssertFalse(app.otherElements["throwback.card"].exists)
         let firstRow = app.collectionViews["links.watched"].cells.firstMatch
         XCTAssert(firstRow.buttons["link.\(link.id)"].exists, "an empty row precedes the watched link")
-        app.terminate()
+    }
 
+    func testThrowbackOpensThePageWithoutChangingWatchedStatus() throws {
+        let meID = try server.state(as: server.me).me
+        let name = "Throwback \(shortID())"
+        let chat = try server.startChat(name: name, members: [meID], as: server.friend)
+        leaveAfterwards(chat.id)
+        let link = try server.add(uniqueURL(), to: chat.id, as: server.friend)
+        deleteAfterwards(link.id)
+        try server.setSeen(link.id, true, as: server.me)
         try server.react(link.id, emoji: "❤️", as: server.me)
         try server.react(link.id, emoji: "❤️", as: server.friend)
 
