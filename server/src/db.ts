@@ -1,4 +1,5 @@
 import { Database } from "bun:sqlite";
+import { randomBytes } from "node:crypto";
 import { mkdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { normalize } from "./links.ts";
@@ -13,6 +14,7 @@ export const DELETED_USER = "deleted";
 
 export interface LinkRow {
   id: number;
+  share_token: string;
   url: string;
   platform: string;
   title: string | null;
@@ -194,7 +196,22 @@ export function openDatabase(dataDir: string, legacyAllowedEmails: string[] = []
   migrateToV13(db);
   migrateToV14(db);
   migrateToV15(db);
+  migrateToV16(db);
   return db;
+}
+
+function migrateToV16(db: Database) {
+  const { user_version } = db.query("PRAGMA user_version").get() as { user_version: number };
+  if (user_version >= 16) return;
+  db.transaction(() => {
+    db.run("ALTER TABLE links ADD COLUMN share_token TEXT");
+    db.run("CREATE UNIQUE INDEX links_share_token ON links(share_token)");
+    const update = db.query("UPDATE links SET share_token = ? WHERE id = ?");
+    for (const row of db.query("SELECT id FROM links").all() as { id: number }[]) {
+      update.run(randomBytes(24).toString("base64url"), row.id);
+    }
+    db.run("PRAGMA user_version = 16");
+  })();
 }
 
 /**

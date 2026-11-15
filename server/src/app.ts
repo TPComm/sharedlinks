@@ -1,4 +1,5 @@
 import type { Database } from "bun:sqlite";
+import { randomBytes } from "node:crypto";
 import { rmSync } from "node:fs";
 import { join } from "node:path";
 import { Accounts, AuthError, INVITE_TOKEN_RE, MAX_GROUP_MEMBERS, publicUser } from "./accounts.ts";
@@ -124,6 +125,21 @@ function invitePage(config: Config, token: string, invite: { inviter: string | n
 <body><img src="/icon.png" width="72" height="72" alt="" style="border-radius:16px"><h1>${escapeHtml(title)}</h1><p>${escapeHtml(description)}</p>${steps}
 </body></html>
 `;
+}
+
+function linkPage(config: Config, link: LinkRow | null): string {
+  const platform = link ? ({ tiktok: "TikTok", instagram: "Instagram", youtube: "YouTube", x: "X", reddit: "Reddit", facebook: "Facebook" }[link.platform] ?? "Website") : "";
+  const title = link ? link.title || `A ${platform} shared on Links` : "This link isn't available";
+  const url = link ? `${config.publicUrl}/l/${link.share_token}` : "";
+  const image = `${config.publicUrl}${link?.thumb_type ? `/l/${link.share_token}/image` : "/icon.png"}`;
+  const banner = link && config.appStoreId ? `<meta name="apple-itunes-app" content="app-id=${escapeHtml(config.appStoreId)}, app-argument=${escapeHtml(url)}">` : "";
+  const og = link ? `<meta property="og:title" content="${escapeHtml(title)}">
+<meta property="og:image" content="${escapeHtml(image)}"><meta property="og:site_name" content="Links"><meta property="og:url" content="${escapeHtml(url)}">
+${link.thumb_type ? `<meta name="twitter:card" content="summary_large_image">${link.thumb_w ? `<meta property="og:image:width" content="${link.thumb_w}">` : ""}${link.thumb_h ? `<meta property="og:image:height" content="${link.thumb_h}">` : ""}` : ""}` : "";
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex"><title>${escapeHtml(title)}</title>${banner}${og}
+<style>body{font:17px/1.5 -apple-system,system-ui,sans-serif;max-width:30em;margin:3em auto;padding:0 1em}img{max-width:100%;border-radius:16px}a{display:inline-block;background:#1f9d55;color:#fff;padding:.6em 1.4em;border-radius:2em;text-decoration:none;font-weight:600}</style></head>
+<body><h1>${escapeHtml(title)}</h1>${link?.thumb_type ? `<img src="${escapeHtml(image)}" alt="">` : ""}${link ? `<p><a href="${escapeHtml(link.url)}">Watch on ${escapeHtml(platform)}</a></p>` : ""}</body></html>`;
 }
 
 /**
@@ -347,6 +363,7 @@ export function createApp(config: Config, opts: AppOptions = {}) {
 
   function toLink(r: LinkRow) {
     return {
+      token: r.share_token, share_url: `${config.publicUrl}/l/${r.share_token}`,
       id: r.id, group_id: r.group_id, url: r.url, platform: r.platform, title: r.title, author: r.author, note: r.note,
       description: r.description, site_name: r.site_name,
       thumb: r.thumb_type ? `/thumbs/${r.id}${r.thumb_v ? `/${r.thumb_v}` : ""}` : null, thumb_w: r.thumb_w, thumb_h: r.thumb_h, meta: r.meta, added_by: r.added_by, added_at: r.added_at,
@@ -459,8 +476,8 @@ export function createApp(config: Config, opts: AppOptions = {}) {
       // They may have left while the short link resolved.
       if (!inGroup(groupId, by)) throw new NotFound("That chat isn't there anymore.");
       return db.run(
-        "INSERT INTO links (group_id, url, platform, note, added_by, added_at) VALUES (?, ?, ?, ?, ?, ?)",
-        [groupId, url, platform, cleanNote, by, now()],
+        "INSERT INTO links (group_id, url, platform, note, added_by, added_at, share_token) VALUES (?, ?, ?, ?, ?, ?, ?)",
+        [groupId, url, platform, cleanNote, by, now(), randomBytes(24).toString("base64url")],
       );
     });
     const id = Number(lastInsertRowid);
@@ -672,13 +689,28 @@ export function createApp(config: Config, opts: AppOptions = {}) {
 
     ...appSiteRoute,
     // Invites have their own page, below.
-    ...Object.fromEntries(APP_PATHS.filter((prefix) => prefix !== "/invite/").map((prefix) => [`${prefix}:token`, {
+    ...Object.fromEntries(APP_PATHS.filter((prefix) => prefix === "/g/").map((prefix) => [`${prefix}:token`, {
       GET: route<Request & { params: { token: string } }>((req) => {
         if (!TOKEN.test(req.params.token)) throw new NotFound("Not found");
         return new Response(openInAppPage(`${config.publicUrl}${prefix}${req.params.token}`, config.appStoreId),
                             { headers: { "Content-Type": "text/html; charset=utf-8" } });
       }, pub),
     }])),
+    "/l/:token": {
+      GET: route<Request & { params: { token: string } }>((req) => {
+        const link = publicLink(req.params.token);
+        return new Response(linkPage(config, link), { status: link ? 200 : 404, headers: { "Content-Type": "text/html; charset=utf-8" } });
+      }, pub),
+    },
+    "/l/:token/image": {
+      GET: route<Request & { params: { token: string } }>(async (req) => {
+        const link = publicLink(req.params.token);
+        if (!link?.thumb_type) throw new NotFound("Not found");
+        const file = Bun.file(join(config.dataDir, "thumbs", String(link.id)));
+        if (!await file.exists()) throw new NotFound("Not found");
+        return new Response(file, { headers: { "Content-Type": link.thumb_type, "Cache-Control": "public, max-age=300" } });
+      }, pub),
+    },
     "/support": new Response(supportPage(config.supportEmail), { headers: { "Content-Type": "text/html; charset=utf-8" } }),
     "/privacy": new Response(privacyPage(config.supportEmail, config.sessionDays), { headers: { "Content-Type": "text/html; charset=utf-8" } }),
 
@@ -975,6 +1007,11 @@ export function createApp(config: Config, opts: AppOptions = {}) {
       if (!exists) throw new NotFound("Not found");
       return new Response(file, { headers: { "Content-Type": row.thumb_type!, "Cache-Control": "private, max-age=2592000" } });
     });
+  }
+
+  function publicLink(token: string): LinkRow | null {
+    if (!TOKEN.test(token)) return null;
+    return db.query("SELECT * FROM links WHERE share_token = ?").get(token) as LinkRow | null;
   }
 
   /** Resolves once in-flight preview fetches and pushes finish (tests use this). */

@@ -249,8 +249,8 @@ up** (under 15% free on `/` for 10m) and **Links backup stalled** (no `backed up
 
 **Universal links** (needs a paid Apple Developer membership; free teams can't sign the
 Associated Domains entitlement). With them, `https://YOUR-HOST/l/…`, `/invite/…` and `/g/…` links
-open the app instead of Safari, and show a short "Open this in the Links app" page when it isn't
-installed. The server serves `/.well-known/apple-app-site-association` once you pass
+open the app instead of Safari. When it isn't installed, link pages show the title, thumbnail and
+a button to watch the original; group links show "Open this in the Links app". The server serves `/.well-known/apple-app-site-association` once you pass
 `APPLE_APP_IDS=TEAMID.com.yourname.links` (comma-separated, case kept; the team ID is on
 developer.apple.com → Membership) to `setup.sh`; `APP_STORE_ID=<number>` adds a Smart App Banner to
 those pages once the app is on the App Store. In `ios/Config.xcconfig` set `LINKS_ASSOCIATED_DOMAIN`
@@ -289,7 +289,7 @@ the legacy people approved for your account.
 
 ## API
 
-All endpoints except sign-in need `Authorization: Bearer <session token>`.
+API endpoints except sign-in need `Authorization: Bearer <session token>`; pages marked public do not.
 
 | Method | Path | Body / notes |
 | --- | --- | --- |
@@ -320,12 +320,16 @@ All endpoints except sign-in need `Authorization: Bearer <session token>`.
 | DELETE | `/api/invites/:id` | cancels a pending invite → `{invites}` |
 | GET | `/invite/:token` | public page for an invite link: who sent it, Open in Links, the Smart App Banner. Loading it never uses the invite up |
 | GET | `/.well-known/apple-app-site-association` | public; which paths open the app (only with `APPLE_APP_IDS`) |
-| GET | `/l/:token`, `/g/:id` | public "Open this in the Links app" page; universal links into the app (as is `/invite/:token`) |
+| GET | `/l/:token` | public link page with only the title, thumbnail and original URL; rich previews and a universal link into the app. Unknown or deleted tokens return 404 |
+| GET | `/l/:token/image` | public cached thumbnail, accessible only with the link's unguessable token; 404 without a thumbnail or after deletion |
+| GET | `/g/:id` | public "Open this in the Links app" page; universal link into the app |
 | GET | `/privacy` | public privacy policy page, with the same address, for the App Store Privacy Policy URL |
 | GET | `/support` | public page with the support address (`SUPPORT_EMAIL`, default `support@tpcomm.co`), for the App Store Support URL |
 | GET | `/thumbs/:id` | the cached thumbnail |
 | GET | `/version` | public: `{commit}`, the git commit the server was built from (`dev` unless built by `deploy/deploy.sh`) |
 
+Each link includes `token` (its unguessable share token) and `share_url` (the absolute public `/l/:token` URL).
+Anyone with that URL can view its title and thumbnail and open the original URL, without seeing the inbox.
 Each link also includes `comment_count` and `last_comment: {person, snippet, at} | null`, scoped to
 what the reader may see. The snippet is at most 120 Unicode characters; `at` is the comment's
 creation time in Unix seconds, not its edit time. Comments stay separate from the sender's note.
