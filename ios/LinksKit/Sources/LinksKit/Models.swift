@@ -196,6 +196,8 @@ public struct SharedLink: Codable, Sendable, Hashable, Identifiable {
     public var addedAt: Date
     public var seen: [String: Date]
     public var reactions: [String: String]
+    public var commentCount: Int
+    public var lastComment: CommentActivity?
 
     enum CodingKeys: String, CodingKey {
         case id, url, platform, title, author, note, thumb, meta, seen, reactions
@@ -206,6 +208,8 @@ public struct SharedLink: Codable, Sendable, Hashable, Identifiable {
         case addedBy = "added_by"
         case addedAt = "added_at"
         case groupID = "group_id"
+        case commentCount = "comment_count"
+        case lastComment = "last_comment"
     }
 
     public init(from decoder: Decoder) throws {
@@ -231,12 +235,15 @@ public struct SharedLink: Codable, Sendable, Hashable, Identifiable {
         addedAt = try c.decode(Date.self, forKey: .addedAt)
         seen = try c.decodeIfPresent([String: Date].self, forKey: .seen) ?? [:]
         reactions = try c.decodeIfPresent([String: String].self, forKey: .reactions) ?? [:]
+        commentCount = try c.decodeIfPresent(Int.self, forKey: .commentCount) ?? 0
+        lastComment = try c.decodeIfPresent(CommentActivity.self, forKey: .lastComment)
     }
 
     public init(id: Int, groupID: Int? = nil, url: URL, platform: Platform, title: String? = nil, author: String? = nil,
                 note: String = "", thumb: String? = nil, summary: String? = nil, siteName: String? = nil,
                 thumbWidth: Int? = nil, thumbHeight: Int? = nil, meta: String = "done", addedBy: String,
-                addedAt: Date = .now, seen: [String: Date] = [:], reactions: [String: String] = [:]) {
+                addedAt: Date = .now, seen: [String: Date] = [:], reactions: [String: String] = [:],
+                commentCount: Int = 0, lastComment: CommentActivity? = nil) {
         self.id = id
         self.groupID = groupID
         self.url = url
@@ -254,6 +261,8 @@ public struct SharedLink: Codable, Sendable, Hashable, Identifiable {
         self.addedAt = addedAt
         self.seen = seen
         self.reactions = reactions
+        self.commentCount = commentCount
+        self.lastComment = lastComment
     }
 
     public var isLoadingPreview: Bool { meta == "pending" }

@@ -331,7 +331,7 @@ describe("links", () => {
     const db = new Database(join(dataDir, "links.db"), { readonly: true });
     const { sql } = db.query("SELECT sql FROM sqlite_master WHERE name = 'links'").get() as { sql: string };
     expect(sql).toContain("AUTOINCREMENT");
-    expect((db.query("PRAGMA user_version").get() as any).user_version).toBe(13);
+    expect((db.query("PRAGMA user_version").get() as any).user_version).toBe(14);
     db.close();
     const { data } = await call("/api/state", { token });
     expect(data.links.map((l: any) => l.url)).toContain("https://de.wikipedia.org/wiki/M%C3%BCnchen");
@@ -670,7 +670,7 @@ describe("reports, blocks and the word list", () => {
     expect(res.headers.get("content-type")).toContain("text/html");
     expect(res.data).toContain("Links Privacy Policy");
     expect(res.data).toContain("People only lists people you share a chat with.");
-    expect(res.data).toContain("Each link and its note, watched marks and reactions are only shared with members of that link's chat.");
+    expect(res.data).toContain("Each link and its note, comments, watched marks and reactions are only shared with members of that link's chat.");
     expect(res.data).toContain("Your name and photo can still appear on links in a chat you've left");
     expect(res.data).toContain('<a href="mailto:support@tpcomm.co">support@tpcomm.co</a>');
     expect(res.data).toContain("Delete Account");
@@ -804,12 +804,15 @@ describe("group chats", () => {
       return { send, res };
     };
     const link = (await call("/api/links", { token: bo, body: { url: `${origin}/plain?n=upload`, group_id: chat.id } })).data.link;
+    const comment = (await call(`/api/links/${link.id}/comments`, { token: bo, body: { body: "Before leaving" } })).data.comment;
     const inFlight = [
       slow("PATCH", `/api/groups/${chat.id}`, { name: "Mine now" }),
       slow("POST", `/api/groups/${chat.id}/members`, { members: [cyId] }),
       slow("PATCH", `/api/links/${link.id}`, { note: "late" }),
       slow("POST", `/api/links/${link.id}/seen`, { seen: true }),
       slow("POST", `/api/links/${link.id}/react`, { emoji: "🔥" }),
+      slow("POST", `/api/links/${link.id}/comments`, { body: "Too late" }),
+      slow("PATCH", `/api/comments/${comment.id}`, { body: "Also too late" }),
     ];
     await Bun.sleep(50);
     expect((await call(`/api/groups/${chat.id}`, { method: "DELETE", token: bo })).status).toBe(200);
@@ -818,6 +821,7 @@ describe("group chats", () => {
     const after = await state(ann);
     expect(after.groups.find((g: any) => g.id === chat.id)).toMatchObject({ name: "Before", members: [annId] });
     expect(after.links.find((l: any) => l.id === link.id)).toMatchObject({ note: "", seen: {}, reactions: {} });
+    expect((await call(`/api/links/${link.id}/comments`, { token: ann })).data.comments).toEqual([comment]);
     await idle();
   });
 
@@ -1370,4 +1374,140 @@ test("previews older than PREVIEW_VERSION are backfilled one at a time", async (
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
+});
+
+describe("comment threads", () => {
+  let ann: string, bo: string, cy: string, annId: string, boId: string;
+  let sequence = 0;
+  const state = async (token: string) => (await call("/api/state", { token })).data;
+  const send = async (group_id?: number) => (await call("/api/links", {
+    token: ann, body: { url: `${origin}/plain?comments=${++sequence}`, group_id },
+  })).data.link;
+  const post = (id: number, token: string, body: unknown = "A reply") => call(`/api/links/${id}/comments`, { token, body: { body } });
+  const thread = (id: number, token: string) => call(`/api/links/${id}/comments`, { token });
+  const summary = async (id: number, token: string) => (await state(token)).links.find((l: any) => l.id === id);
+
+  beforeAll(async () => {
+    ann = mint("ann@comments.test", "Comment Ann");
+    bo = mint("bo@comments.test", "Comment Bo");
+    cy = mint("cy@comments.test", "Comment Cy");
+    annId = (await state(ann)).me;
+    boId = (await state(bo)).me;
+  });
+
+  test("chat members read, post, edit and delete their own comments; summaries stay current", async () => {
+    const link = await send();
+    expect(link).toMatchObject({ comment_count: 0, last_comment: null });
+    expect((await thread(link.id, bo)).data).toEqual({ comments: [] });
+    const made = await post(link.id, bo, "  First reply  ");
+    expect(made.status).toBe(201);
+    const first = made.data.comment;
+    expect(first).toEqual({ id: expect.any(Number), link_id: link.id, person: boId, body: "First reply", created_at: expect.any(Number), edited_at: null });
+    expect((await thread(link.id, ann)).data.comments).toEqual([first]);
+    expect(await summary(link.id, ann)).toMatchObject({ comment_count: 1, last_comment: { person: boId, snippet: "First reply", at: first.created_at } });
+    for (const method of ["PATCH", "DELETE"]) {
+      expect((await call(`/api/comments/${first.id}`, { token: ann, method, ...(method === "PATCH" ? { body: { body: "Not mine" } } : {}) })).status).toBe(403);
+    }
+    const edit = await call(`/api/comments/${first.id}`, { token: bo, method: "PATCH", body: { body: "Updated" } });
+    expect(edit.data.comment).toMatchObject({ ...first, body: "Updated", edited_at: expect.any(Number) });
+    const second = (await post(link.id, ann, "Second reply")).data.comment;
+    expect((await thread(link.id, bo)).data.comments.map((c: any) => c.id)).toEqual([first.id, second.id]);
+    expect(await summary(link.id, bo)).toMatchObject({ comment_count: 2, last_comment: { person: annId, snippet: "Second reply", at: second.created_at } });
+    expect((await call(`/api/comments/${second.id}`, { token: ann, method: "DELETE" })).data).toEqual({ ok: true });
+    expect(await summary(link.id, ann)).toMatchObject({ comment_count: 1, last_comment: { person: boId, snippet: "Updated", at: first.created_at } });
+    expect((await call(`/api/comments/${first.id}`, { token: bo, method: "DELETE" })).status).toBe(200);
+    expect(await summary(link.id, ann)).toMatchObject({ comment_count: 0, last_comment: null });
+  });
+
+  test("comments require a session, a visible link and current chat membership", async () => {
+    const group = (await call("/api/groups", { token: ann, body: { members: [boId] } })).data.group;
+    const link = await send(group.id);
+    const comment = (await post(link.id, bo)).data.comment;
+    expect((await thread(link.id, "")).status).toBe(401);
+    expect((await post(link.id, "")).status).toBe(401);
+    expect((await thread(link.id, cy)).status).toBe(404);
+    expect((await post(link.id, cy)).status).toBe(404);
+    expect((await summary(link.id, cy))).toBeUndefined();
+    expect((await call(`/api/comments/${comment.id}`, { token: cy, method: "DELETE" })).status).toBe(404);
+    await call(`/api/groups/${group.id}`, { token: bo, method: "DELETE" });
+    expect((await thread(link.id, bo)).status).toBe(404);
+    expect((await call(`/api/comments/${comment.id}`, { token: bo, method: "PATCH", body: { body: "Left" } })).status).toBe(404);
+    expect((await call(`/api/comments/${comment.id}`, { token: bo, method: "DELETE" })).status).toBe(404);
+    expect((await state(ann)).users.map((u: any) => u.id)).toContain(boId);
+    expect((await thread(link.id, ann)).data.comments).toHaveLength(1);
+    await call("/api/blocks", { token: cy, body: { user_id: annId } });
+    const publicLink = await send();
+    expect((await thread(publicLink.id, cy)).status).toBe(404);
+    await call(`/api/blocks/${annId}`, { token: cy, method: "DELETE" });
+  });
+
+  test("empty or non-text comments are refused, long text is clipped by Unicode character and screened", async () => {
+    const link = await send();
+    for (const body of ["", " \n ", null, 123, {}, []]) expect((await post(link.id, bo, body)).status).toBe(400);
+    const first = (await post(link.id, bo, "😀".repeat(1001))).data.comment;
+    expect([...first.body]).toHaveLength(1000);
+    expect([...(await summary(link.id, ann)).last_comment.snippet]).toHaveLength(120);
+    expect((await post(link.id, bo, "a zonk")).data.error).toContain("comment has a word");
+    expect((await call(`/api/comments/${first.id}`, { token: bo, method: "PATCH", body: { body: "zonk" } })).status).toBe(400);
+    expect((await thread(link.id, ann)).data.comments[0].body).toBe(first.body);
+    for (const id of ["not-an-id", "99999999999999999999"]) {
+      expect((await thread(id as any, ann)).status).toBe(404);
+      expect((await call(`/api/comments/${id}`, { token: ann, method: "DELETE" })).status).toBe(404);
+    }
+  });
+
+  test("blocking and reporting hide comments and activity only for the reader", async () => {
+    const link = await send();
+    const first = (await post(link.id, ann, "Earlier")).data.comment;
+    const second = (await post(link.id, bo, "Hidden reply")).data.comment;
+    await call("/api/blocks", { token: cy, body: { user_id: boId } });
+    expect((await thread(link.id, cy)).data.comments).toEqual([first]);
+    expect(await summary(link.id, cy)).toMatchObject({ comment_count: 1, last_comment: { person: annId, snippet: "Earlier", at: first.created_at } });
+    expect(await summary(link.id, ann)).toMatchObject({ comment_count: 2 });
+    await call(`/api/blocks/${boId}`, { token: cy, method: "DELETE" });
+    expect((await thread(link.id, cy)).data.comments).toHaveLength(2);
+    expect((await call("/api/reports", { token: cy, body: { comment_id: second.id, reason: "offensive" } })).status).toBe(201);
+    expect((await call("/api/reports", { token: cy, body: { comment_id: second.id, reason: "offensive" } })).status).toBe(201);
+    expect((await thread(link.id, cy)).data.comments).toEqual([first]);
+    expect(await summary(link.id, cy)).toMatchObject({ comment_count: 1, last_comment: { snippet: "Earlier" } });
+    expect(await summary(link.id, bo)).toMatchObject({ comment_count: 2 });
+    expect((await call("/api/reports", { token: bo, body: { comment_id: second.id, reason: "spam" } })).status).toBe(400);
+    await call("/api/reports", { token: cy, body: { link_id: link.id, reason: "spam" } });
+    expect((await thread(link.id, cy)).status).toBe(404);
+  });
+
+  test("summaries respect chat filters, match link mutation responses and break timestamp ties by ID", async () => {
+    const group = (await call("/api/groups", { token: ann, body: { members: [boId] } })).data.group;
+    const link = await send(group.id);
+    const other = await send();
+    const first = (await post(link.id, ann, "First")).data.comment;
+    const second = (await post(link.id, bo, "Second")).data.comment;
+    await post(other.id, ann, "Other chat");
+    const db = openDatabase(dataDir);
+    db.run("UPDATE comments SET created_at = ? WHERE id IN (?, ?)", [first.created_at, first.id, second.id]);
+    db.close();
+    const filtered = (await call(`/api/state?group_id=${group.id}`, { token: ann })).data;
+    expect(filtered.links.map((l: any) => l.id)).toEqual([link.id]);
+    const want = { comment_count: 2, last_comment: { person: boId, snippet: "Second", at: first.created_at } };
+    expect(filtered.links[0]).toMatchObject(want);
+    expect((await call(`/api/links/${link.id}/seen`, { token: ann, body: { seen: true } })).data.link).toMatchObject(want);
+    await call("/api/blocks", { token: ann, body: { user_id: boId } });
+    expect((await call(`/api/links/${link.id}/seen`, { token: ann, body: { seen: true } })).data.link).toMatchObject({
+      comment_count: 1, last_comment: { person: annId, snippet: "First", at: first.created_at },
+    });
+    await call(`/api/blocks/${boId}`, { token: ann, method: "DELETE" });
+  });
+
+  test("deleting a link cascades comments and never reuses comment IDs", async () => {
+    const link = await send();
+    const first = (await post(link.id, bo)).data.comment;
+    await call(`/api/links/${link.id}`, { token: ann, method: "DELETE" });
+    expect((await thread(link.id, bo)).status).toBe(404);
+    expect((await call(`/api/comments/${first.id}`, { token: bo, method: "DELETE" })).status).toBe(404);
+    const db = openDatabase(dataDir);
+    expect(db.query("SELECT * FROM comments WHERE link_id = ?").all(link.id)).toEqual([]);
+    db.close();
+    const next = await send();
+    expect((await post(next.id, bo)).data.comment.id).toBeGreaterThan(first.id);
+  });
 });

@@ -10,6 +10,8 @@ import WidgetKit
 final class AppModel {
     private(set) var token: String? = SessionStore.token
     private(set) var inbox: InboxState = InboxSnapshot.load() ?? .empty
+    /// A successful poll can carry comment edits without changing the inbox's activity summary.
+    private(set) var inboxRefresh = 0
     private(set) var claimable: [LinkUser] = []
     /// My push settings for links I sent, as the switches show them; nil until the server says,
     /// or on a server too old to have them.
@@ -55,6 +57,7 @@ final class AppModel {
     private var linkEdits: [Int: Int] = [:]
     /// Like localEdits, for the notification settings.
     private var notificationEdits = 0
+    private var commentReads = CommentReadState.load()
 
     var isSignedIn: Bool { token != nil }
     var client: APIClient { APIClient(token: token) }
@@ -347,6 +350,7 @@ final class AppModel {
             guard session == sessionID, edits == localEdits else { return }
             isOffline = false
             if state != inbox { setInbox(state) }
+            inboxRefresh += 1
         } catch is CancellationError {
             // The scene went inactive; not an outage.
         } catch let error as URLError where error.code == .cancelled {
@@ -433,6 +437,62 @@ final class AppModel {
         // Nor over the tour: its last page offers it, and finishTour asks if that wasn't used.
         guard !Self.isUITesting, tourCompleted else { return }
         Task { _ = try? await UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .badge, .sound]) }
+    }
+
+    // MARK: Comments
+
+    func hasUnreadComments(_ link: SharedLink) -> Bool {
+        commentReads.hasUnread(link, person: inbox.me, server: client.baseURL)
+    }
+
+    func markCommentsRead(_ linkID: Int, comments: [LinkComment]) {
+        guard let date = comments.map(\.createdAt).max() else { return }
+        commentReads.markRead(linkID, through: date, person: inbox.me, server: client.baseURL)
+        commentReads.save()
+    }
+
+    func loadComments(_ linkID: Int) async throws -> [LinkComment] {
+        let session = sessionID
+        do {
+            let comments = try await client.comments(linkID)
+            guard session == sessionID else { throw CancellationError() }
+            return comments
+        } catch APIError.signedOut {
+            if session == sessionID { endSession() }
+            throw APIError.signedOut
+        }
+    }
+
+    func saveComment(_ linkID: Int, comment: LinkComment?, body: String) async throws {
+        try await changeComment {
+            if let comment {
+                _ = try await self.client.editComment(comment.id, body: body)
+            } else {
+                _ = try await self.client.addComment(linkID, body: body)
+            }
+        }
+    }
+
+    func deleteComment(_ comment: LinkComment) async throws {
+        try await changeComment { try await self.client.deleteComment(comment.id) }
+    }
+
+    func reportComment(_ comment: LinkComment, reason: ReportReason) async throws {
+        try await changeComment { try await self.client.report(comment: comment.id, reason: reason) }
+        toast = "Comment reported"
+    }
+
+    private func changeComment(_ work: () async throws -> Void) async throws {
+        let session = sessionID
+        do {
+            try await work()
+            guard session == sessionID else { throw CancellationError() }
+            localEdits += 1
+            await refresh()
+        } catch APIError.signedOut {
+            if session == sessionID { endSession() }
+            throw APIError.signedOut
+        }
     }
 
     // MARK: Tour

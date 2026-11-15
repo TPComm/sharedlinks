@@ -51,6 +51,15 @@ export interface UserRow {
   email_verified: number;
 }
 
+export interface CommentRow {
+  id: number;
+  link_id: number;
+  person: string;
+  body: string;
+  created_at: number;
+  edited_at: number | null;
+}
+
 export interface GroupRow {
   id: number;
   /** Empty: the app names it after its members. */
@@ -183,6 +192,7 @@ export function openDatabase(dataDir: string, legacyAllowedEmails: string[] = []
   migrateToV11(db);
   migrateToV12(db);
   migrateToV13(db);
+  migrateToV14(db);
   return db;
 }
 
@@ -487,6 +497,24 @@ function migrateToV13(db: Database) {
     db.run(`UPDATE users SET email_verified = 1 WHERE id IN (SELECT i.used_by FROM invites i JOIN users u ON u.id = i.used_by
               WHERE i.email IS NOT NULL AND i.email = u.email COLLATE NOCASE)`);
     db.run("PRAGMA user_version = 13");
+  })();
+}
+
+/** v14: flat comment threads, removed with their link or author. */
+function migrateToV14(db: Database) {
+  const { user_version } = db.query("PRAGMA user_version").get() as { user_version: number };
+  if (user_version >= 14) return;
+  db.transaction(() => {
+    db.exec(`CREATE TABLE IF NOT EXISTS comments (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      link_id INTEGER NOT NULL REFERENCES links(id) ON DELETE CASCADE,
+      person TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      body TEXT NOT NULL,
+      created_at REAL NOT NULL,
+      edited_at REAL
+    );
+    CREATE INDEX IF NOT EXISTS comments_link ON comments (link_id, created_at, id);`);
+    db.run("PRAGMA user_version = 14");
   })();
 }
 

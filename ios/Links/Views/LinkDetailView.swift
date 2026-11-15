@@ -25,7 +25,9 @@ private struct LinkPage: View {
     @Environment(AppModel.self) private var model
     @Environment(\.openURL) private var openURL
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.scenePhase) private var scenePhase
     let link: SharedLink
+    @State private var thread = LinkThread()
 
     @State private var editingNote = false
     @State private var noteDraft = ""
@@ -50,7 +52,7 @@ private struct LinkPage: View {
                 actions
                 reactions
                 receipts
-                // Comments (#6) go here, under the reactions.
+                CommentThreadView(thread: thread, linkID: link.id)
             }
             .padding(.horizontal, 20)
             .padding(.vertical, 16)
@@ -61,6 +63,19 @@ private struct LinkPage: View {
         .navigationTitle(link.platform.noun)
         .navigationBarTitleDisplayMode(.inline)
         .toolbar { toolbar }
+        .safeAreaInset(edge: .bottom) { CommentComposer(thread: thread, linkID: link.id) }
+        .scrollDismissesKeyboard(.interactively)
+        .task { await thread.load(link.id, model: model) }
+        .onChange(of: model.inboxRefresh) { _, _ in
+            Task { await thread.load(link.id, model: model) }
+        }
+        .refreshable {
+            await model.refresh()
+            await thread.load(link.id, model: model)
+        }
+        .onChange(of: scenePhase) { _, phase in
+            if phase == .active { Task { await thread.load(link.id, model: model) } }
+        }
         .animation(.default, value: seenAt)
         .sensoryFeedback(.success, trigger: seenAt) { old, new in old == nil && new != nil }
         .sensoryFeedback(.selection, trigger: picks)
