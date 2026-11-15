@@ -785,24 +785,24 @@ export function createApp(config: Config, opts: AppOptions = {}) {
       headers: { "Content-Type": "image/png", "Cache-Control": "public, max-age=86400" },
     }),
 
-    // Report a link or a person. It's hidden for the reporter at once; the owner reads reports
-    // with `links-server reports` (and in the log).
+    // Report a link, comment or person. Links and comments are hidden for the reporter at once.
+    // The owner reads reports with `links-server reports` (and in the log).
     "/api/reports": {
       POST: route(async (req, me) => {
         const data = await readJson(req);
         if (!REPORT_REASONS.includes(data.reason)) throw new BadRequest("Pick a reason for the report.");
         const details = clipText(data.details, 1000);
-        const { id, label } = asUser(me, () => {
+        const { id, label, linkId } = asUser(me, () => {
           const target = reportTarget(data, me);
           const { changes, lastInsertRowid } = db.run(
             "INSERT OR IGNORE INTO reports (reporter, link_id, comment_id, user_id, reason, details, snapshot, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
             [me, target.link_id, target.comment_id, target.user_id, data.reason, details, JSON.stringify(target.snapshot), now()],
           );
-          return { id: changes ? Number(lastInsertRowid) : null, label: target.label };
+          return { id: changes ? Number(lastInsertRowid) : null, label: target.label, linkId: target.link_id };
         });
         if (id !== null) {
           console.log(`report ${id}: ${data.reason}, ${label}, by ${me}`);
-          push.badges([me]); // a reported link leaves To Watch
+          if (linkId !== null) push.badges([me]); // a reported link leaves To Watch
         }
         return json({ ok: true }, 201);
       }),

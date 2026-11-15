@@ -348,6 +348,50 @@ describe("pushes", () => {
     expect(sent[0]!.body).toEqual({ aps: { badge: unwatched.length - 2 } });
   });
 
+  test("comment CRUD and reports send no pushes and leave To Watch unchanged", async () => {
+    const { data } = await call("/api/links", { token: sam, body: { url: `${fakeOrigin.url.origin}/video?n=comments` } });
+    const id = data.link.id;
+    await settle();
+    sent = [];
+    const before = app.push.toWatch("user_01ALEX");
+    const quiet = async () => {
+      await settle();
+      expect(sent).toEqual([]);
+      expect(app.push.toWatch("user_01ALEX")).toBe(before);
+    };
+    const made = await call(`/api/links/${id}/comments`, { token: sam, body: { body: "A reply" } });
+    expect(made.status).toBe(201);
+    const comment = made.data.comment.id;
+    await quiet();
+    expect((await call(`/api/comments/${comment}`, { method: "PATCH", token: sam, body: { body: "Edited reply" } })).status).toBe(200);
+    await quiet();
+    for (let i = 0; i < 2; i++) {
+      expect((await call("/api/reports", { token: alex, body: { comment_id: comment, reason: "spam" } })).status).toBe(201);
+      await quiet();
+    }
+    expect((await call(`/api/links/${id}/comments`, { token: alex })).data.comments).toEqual([]);
+    expect((await call(`/api/comments/${comment}`, { method: "DELETE", token: sam })).status).toBe(200);
+    await quiet();
+    expect((await call("/api/reports", { token: alex, body: { user_id: "user_01SAM", reason: "spam" } })).status).toBe(201);
+    await quiet();
+  });
+
+  test("reporting a link still updates only the reporter's badge, once", async () => {
+    const { data } = await call("/api/links", { token: sam, body: { url: `${fakeOrigin.url.origin}/video?n=report-badge` } });
+    await settle();
+    sent = [];
+    const before = app.push.toWatch("user_01ALEX");
+    const report = () => call("/api/reports", { token: alex, body: { link_id: data.link.id, reason: "spam" } });
+    expect((await report()).status).toBe(201);
+    await settle();
+    expect(app.push.toWatch("user_01ALEX")).toBe(before - 1);
+    expect(sent.map((s) => [s.token, s.body])).toEqual([[ALEX, { aps: { badge: before - 1 } }]]);
+    sent = [];
+    expect((await report()).status).toBe(201);
+    await settle();
+    expect(sent).toEqual([]);
+  });
+
   test("deleting a link updates the badges of people who hadn't watched it", async () => {
     const { data } = await call("/api/links", { token: sam, body: { url: `${fakeOrigin.url.origin}/video?n=del` } });
     await call(`/api/links/${data.link.id}/seen`, { token: kim, body: { seen: true } });
