@@ -609,7 +609,7 @@ final class AppModel {
                 errorMessage = nil
             }
         case .group(let id):
-            if let group = Int(id).flatMap(inbox.group) { chat = group.id }
+            if let group = Int(id).flatMap(inbox.group) { showChat(group.id) }
         // The server's universal links, handled once link pages ship.
         case .inbox, .link, nil:
             break
@@ -617,6 +617,12 @@ final class AppModel {
     }
 
     // MARK: Navigation
+
+    /// A chat's lists, from a deep link: the tab showing goes back to its list, off any link page.
+    private func showChat(_ id: Int) {
+        chat = id
+        paths[tab] = []
+    }
 
     /// A row's link page, on top of that row's list.
     func showPage(_ link: SharedLink, on tab: InboxTab) {
