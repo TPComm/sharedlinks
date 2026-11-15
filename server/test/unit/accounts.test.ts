@@ -46,7 +46,7 @@ describe("names", () => {
   });
 
   test("publicUser leaves out the email", () => {
-    expect(publicUser({ id: "u", email: "a@x.com", name: "A", avatar: null, created_at: 1, member: 0 })).toEqual({ id: "u", name: "A", avatar: null });
+    expect(publicUser({ id: "u", email: "a@x.com", name: "A", avatar: null, created_at: 1, member: 0, claimable_by: null })).toEqual({ id: "u", name: "A", avatar: null });
   });
 
   test("upsertUser creates once, then keeps the chosen name and refreshes email and avatar", () => {
@@ -153,8 +153,9 @@ describe("claimLegacy", () => {
   function setup() {
     addUser("user_A", "a@x.com", "sam rivers", 5);
     addUser("user_B", "b@x.com", "Bo", 6);
-    addUser("legacy:Sam", "a@x.com", "Sam", 1); // what `links-server claim a@x.com Sam` approves
+    addUser("legacy:Sam", null, "Sam", 1);
     addUser("legacy:Alex", null, "Alex", 2);
+    db.run("UPDATE users SET claimable_by = 'user_A' WHERE id = 'legacy:Sam'"); // `links-server claim a@x.com Sam`
     db.exec(`
       INSERT INTO links (group_id, id, url, platform, added_by, added_at) VALUES
         (1, 1, 'https://a.com/1', 'web', 'legacy:Sam', 1), (1, 2, 'https://a.com/2', 'web', 'legacy:Alex', 1),
@@ -264,9 +265,24 @@ describe("claimLegacy", () => {
     a.approveClaim("c@x.com", "Sam");
     expect(a.mePayload("user_A").claimable).toEqual([]);
     expect(a.mePayload("user_C").claimable.map((p) => p.id)).toEqual(["legacy:Sam", "legacy:sam"]);
-    expect(a.legacyPeople().map((p) => [p.id, p.links, p.email])).toEqual([
+    expect(a.legacyPeople().map((p) => [p.id, p.links, p.claimer])).toEqual([
       ["legacy:Sam", 1, "c@x.com"], ["legacy:Alex", 1, null], ["legacy:sam", 0, "c@x.com"],
     ]);
+  });
+
+  test("an approval stays with the account, not its email", () => {
+    const a = setup();
+    // The approved account moves to another email, and a new account signs in with the old one.
+    a.upsertUser("user_A", "new@x.com", "sam rivers", null);
+    addUser("user_E", "a@x.com", "Eve", 9);
+    db.run("INSERT INTO group_members (group_id, user_id, joined_at) VALUES (1, 'user_E', 1)");
+    expect(a.mePayload("user_E").claimable).toEqual([]);
+    expect(() => a.claimLegacy("user_E", "legacy:Sam")).toThrow(BadRequest);
+    expect(a.mePayload("user_A").claimable.map((p) => p.id)).toEqual(["legacy:Sam"]);
+    // Deleting the approved account withdraws the approval.
+    db.run("DELETE FROM users WHERE id = 'user_A'");
+    expect(rows("SELECT claimable_by FROM users WHERE id = 'legacy:Sam'")).toEqual([{ claimable_by: null }]);
+    expect(a.mePayload("user_E").claimable).toEqual([]);
   });
 });
 

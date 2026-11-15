@@ -121,20 +121,21 @@ export class Accounts {
   }
 
   /**
-   * The legacy people this account may be: those an admin approved for its email (`links-server
-   * claim`). A typed name proves nothing, since anyone can rename themselves to it. Their history is
-   * in the default chat, so only its members get any.
+   * The legacy people this account may be: those an admin let it claim (`links-server claim`). A
+   * typed name proves nothing, since anyone can rename themselves to it. Their history is in the
+   * default chat, so only its members get any.
    */
   private claimable(user: UserRow): UserRow[] {
-    if (!user.email || !this.inDefault(user.id)) return [];
-    return this.db.query("SELECT * FROM users WHERE id LIKE ? AND email = ? COLLATE NOCASE ORDER BY created_at")
-      .all(`${LEGACY}%`, user.email) as UserRow[];
+    if (!this.inDefault(user.id)) return [];
+    return this.db.query("SELECT * FROM users WHERE id LIKE ? AND claimable_by = ? ORDER BY created_at")
+      .all(`${LEGACY}%`, user.id) as UserRow[];
   }
 
-  /** Unclaimed legacy people, with how many links each sent and whose email may claim them. */
-  legacyPeople(): (UserRow & { links: number })[] {
-    return this.db.query(`SELECT u.*, (SELECT COUNT(*) FROM links l WHERE l.added_by = u.id) AS links
-        FROM users u WHERE u.id LIKE ? ORDER BY u.created_at`).all(`${LEGACY}%`) as (UserRow & { links: number })[];
+  /** Unclaimed legacy people, with how many links each sent and the email of whoever may claim them. */
+  legacyPeople(): (UserRow & { links: number; claimer: string | null })[] {
+    return this.db.query(`SELECT u.*, (SELECT COUNT(*) FROM links l WHERE l.added_by = u.id) AS links,
+          (SELECT c.email FROM users c WHERE c.id = u.claimable_by) AS claimer
+        FROM users u WHERE u.id LIKE ? ORDER BY u.created_at`).all(`${LEGACY}%`) as (UserRow & { links: number; claimer: string | null })[];
   }
 
   /**
@@ -149,8 +150,8 @@ export class Accounts {
     const matches = this.legacyPeople().filter((p) => p.name.trim().toLowerCase() === name.trim().toLowerCase());
     const legacy = matches.find((p) => p.name === name.trim()) ?? (matches.length === 1 ? matches[0] : undefined);
     if (!legacy) throw new BadRequest(matches.length ? `more than one legacy person is called ${name}; give the exact name` : `no unclaimed legacy person called ${name}`);
-    this.db.run("UPDATE users SET email = ? WHERE id = ?", [user.email, legacy.id]);
-    return { user, legacy: { ...legacy, email: user.email } };
+    this.db.run("UPDATE users SET claimable_by = ? WHERE id = ?", [user.id, legacy.id]);
+    return { user, legacy: { ...legacy, claimable_by: user.id } };
   }
 
   /** Create the account on first sign-in. Afterwards, keep the name they chose. */

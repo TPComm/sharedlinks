@@ -103,7 +103,7 @@ if (command === "mint-session") {
     if (!email) {
       const people = accounts.legacyPeople();
       console.log(people.length
-        ? people.map((p) => `${p.name}: ${p.links} link${p.links === 1 ? "" : "s"}${p.email ? `; ${p.email} may claim` : ""}`).join("\n")
+        ? people.map((p) => `${p.name}: ${p.links} link${p.links === 1 ? "" : "s"}${p.claimer ? `; ${p.claimer} may claim` : ""}`).join("\n")
         : "no unclaimed legacy people");
     } else {
       const { user, legacy } = accounts.approveClaim(email, name.join(" "));
