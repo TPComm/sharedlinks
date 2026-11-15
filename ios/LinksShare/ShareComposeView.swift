@@ -53,7 +53,7 @@ struct ShareComposeView: View {
                     // someone sees here is how every send looks: preview, note, Send.
                     Section {
                         Label {
-                            Text("You found Links. This is how you send a reel or TikTok: add a note if you like, then tap **Send**. It's a practice link, so nothing goes to anyone.")
+                            Text("You found Links. This is how you send any link: add a note if you like, then tap **Send**. It's a practice link, so nothing goes to anyone.")
                         } icon: {
                             Image(systemName: "checkmark.circle.fill").foregroundStyle(Color.linksAccent)
                         }

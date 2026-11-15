@@ -261,7 +261,7 @@ describe("pushes", () => {
     await watch(id, sam);
     await settle();
     expect(toSam().length).toBe(1);
-    expect(toSam()[0]!.body.aps).toMatchObject({ alert: { title: "Alex", body: "watched your link: Cats & Dogs" }, "interruption-level": "passive" });
+    expect(toSam()[0]!.body.aps).toMatchObject({ alert: { title: "Alex", body: "saw your link: Cats & Dogs" }, "interruption-level": "passive" });
     expect(toSam()[0]!.body.aps.sound).toBeUndefined();
   });
 
@@ -271,7 +271,7 @@ describe("pushes", () => {
       await (first === watch ? watch(id, alex) : react(id, alex, "🔥"));
       await (second === watch ? watch(id, alex) : react(id, alex, "🔥"));
       await settle();
-      expect(toSam().map((s) => s.body.aps.alert.body)).toEqual(["watched and reacted 🔥 to your link: Cats & Dogs"]);
+      expect(toSam().map((s) => s.body.aps.alert.body)).toEqual(["saw and reacted 🔥 to your link: Cats & Dogs"]);
     }
   });
 
@@ -312,7 +312,7 @@ describe("pushes", () => {
     await react(id, alex, "🔥");
     await watch(id, alex);
     await settle();
-    expect(toSam().map((s) => s.body.aps.alert.body)).toEqual(["watched your link: Cats & Dogs"]);
+    expect(toSam().map((s) => s.body.aps.alert.body)).toEqual(["saw your link: Cats & Dogs"]);
 
     // Turned off while one waits: it doesn't go out.
     await setNotifications(sam, { reactions: true });
@@ -329,7 +329,7 @@ describe("pushes", () => {
     await watch(id, alex);
     expect(toSam()).toEqual([]);
     await app.drain(200); // less than activityDelayMs: only sending it now gets it out in time
-    expect(toSam().map((s) => s.body.aps.alert.body)).toEqual(["watched your link: Cats & Dogs"]);
+    expect(toSam().map((s) => s.body.aps.alert.body)).toEqual(["saw your link: Cats & Dogs"]);
   });
 
   test("watching and unwatching sends one coalesced badge-only push to your devices", async () => {

@@ -46,7 +46,7 @@ struct LinkRow: View {
         .buttonStyle(.plain)
         .accessibilityElement(children: .combine)
         .accessibilityIdentifier("link.\(link.id)")
-        .accessibilityAction(named: seen ? "Mark as Not Watched" : "Mark as Watched") {
+        .accessibilityAction(named: seen ? "Mark as Unseen" : "Mark as Seen") {
             Task { await model.setSeen(link, !seen) }
         }
         // After the accessibility settings above, so it isn't merged into the row's element.
@@ -70,7 +70,7 @@ struct LinkRow: View {
                     SwipeToWatchTip().invalidate(reason: .actionPerformed)
                     Task { await model.setSeen(link, !seen) }
                 } label: {
-                    Label(seen ? "Not Watched" : "Watched", systemImage: seen ? "circle" : "checkmark.circle.fill")
+                    Label(seen ? "Unseen" : "Seen", systemImage: seen ? "circle" : "checkmark.circle.fill")
                 }
                 .tint(.blue)
             }
@@ -101,7 +101,7 @@ struct LinkRow: View {
                 .fill(unwatched ? Color.accentColor : .clear)
                 .frame(width: 9, height: 9)
                 .padding(.top, 36)
-                .accessibilityLabel(unwatched ? "Not watched" : "")
+                .accessibilityLabel(unwatched ? "Unseen" : "")
             ThumbnailView(link: link)
                 .frame(width: 60, height: 80)
             VStack(alignment: .leading, spacing: 3) {
@@ -233,7 +233,7 @@ struct LinkRow: View {
                 Button {
                     Task { await model.setSeen(link, !seen) }
                 } label: {
-                    Label(seen ? "Mark as Not Watched" : "Mark as Watched", systemImage: seen ? "circle" : "checkmark.circle")
+                    Label(seen ? "Mark as Unseen" : "Mark as Seen", systemImage: seen ? "circle" : "checkmark.circle")
                 }
             }
             // Notes are the sender's (the server refuses anyone else's edit).

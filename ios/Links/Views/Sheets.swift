@@ -24,7 +24,7 @@ struct AddLinkSheet: View {
         NavigationStack {
             Form {
                 Section {
-                    TextField("Paste a TikTok or Reel link", text: $text, axis: .vertical)
+                    TextField("Paste any link", text: $text, axis: .vertical)
                         .lineLimit(1...4)
                         .textInputAutocapitalization(.never)
                         .autocorrectionDisabled()
@@ -132,7 +132,7 @@ struct ClaimSheet: View {
                     Text("Links were shared here before sign-in. Were you one of these people?")
                         .textCase(nil)
                 } footer: {
-                    Text("Their links, watched marks and reactions move to your account, and you take that name.")
+                    Text("Their links, seen marks and reactions move to your account, and you take that name.")
                 }
             }
             .navigationTitle("Welcome to Links")

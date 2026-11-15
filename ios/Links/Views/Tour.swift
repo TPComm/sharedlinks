@@ -155,7 +155,7 @@ private struct WelcomePage: View {
     var body: some View {
         TourPageLayout(
             title: "Welcome to Links",
-            message: "One shared inbox for the reels and TikToks you send each other. See what's new, react, and know who's watched what."
+            message: "One shared inbox for articles, videos, recipes, gift ideas and more. Share any link, react, and see who's seen it."
         ) {
             MiniInbox()
         } details: {
@@ -172,12 +172,12 @@ private struct ShareSheetPage: View {
             title: found ? "Links Is in Your Share Sheet" : "Add Links to Your Share Sheet",
             message: found
                 ? "Nice. If it was hiding behind More, these steps bring it to the front."
-                : "Then sending a reel or TikTok takes two taps. iOS puts new apps at the end of the list, so bring Links to the front."
+                : "Then sending any link takes two taps. iOS puts new apps at the end of the list, so bring Links to the front."
         ) {
             MiniShareSheet(found: found)
         } details: {
             VStack(alignment: .leading, spacing: 14) {
-                Step(number: 1, text: "On a reel or TikTok, tap **Share**. If the app opens its own menu, tap **More** or \(Image(systemName: "square.and.arrow.up")) there.")
+                Step(number: 1, text: "On an article, video, post or any page, tap **Share**. If the app opens its own menu, tap **More** or \(Image(systemName: "square.and.arrow.up")) there.")
                 Step(number: 2, text: "Scroll the row of apps to the end and tap \(Image(systemName: "ellipsis")) **More**.")
                 Step(number: 3, text: "Tap **Edit**, then \(Text(Image(systemName: "plus.circle.fill")).foregroundStyle(.green)) next to **Links**.")
                 // Newer iOS shows Done as a checkmark; iOS 18 spells it out.
@@ -208,9 +208,9 @@ private struct TabsPage: View {
         } details: {
             VStack(alignment: .leading, spacing: 18) {
                 Feature(symbol: "play.rectangle.on.rectangle", title: "To Watch",
-                        text: "What friends sent that you haven't watched yet. The badge counts them.")
+                        text: "What friends sent that you haven't seen yet. The badge counts them.")
                 Feature(symbol: "checkmark.circle", title: "Watched",
-                        text: "Everything you've watched, to find again.")
+                        text: "Everything you've seen, to find again.")
                 Feature(symbol: "paperplane", title: "Sent",
                         text: "What you've shared, and who's seen it.")
                 Feature(symbol: "magnifyingglass", title: "Search",
@@ -230,7 +230,7 @@ private struct ExtrasPage: View {
         } details: {
             VStack(alignment: .leading, spacing: 18) {
                 Feature(symbol: "square.grid.2x2", title: "Home Screen Widget",
-                        text: "Touch and hold the Home Screen, tap **Edit**, then **Add Widget**, and search for Links. Tick links off as watched right from it.")
+                        text: "Touch and hold the Home Screen, tap **Edit**, then **Add Widget**, and search for Links. Mark links as seen right from it.")
                 Feature(symbol: "bell.badge", title: "Notifications",
                         text: "Get notified when friends send you something, and see how many are waiting on the app icon.") {
                     NotificationsButton()
@@ -430,7 +430,7 @@ private struct MiniShareSheet: View {
                     .frame(width: 30, height: 40)
                 VStack(alignment: .leading, spacing: 1) {
                     Text("Wait for the drop").font(.footnote.weight(.semibold))
-                    Text("tiktok.com").font(.caption).foregroundStyle(.secondary)
+                    Text("example.com").font(.caption).foregroundStyle(.secondary)
                 }
                 Spacer(minLength: 0)
                 Image(systemName: "xmark")
@@ -506,7 +506,7 @@ private struct MiniHomeScreen: View {
                     Spacer()
                     Image(systemName: "play.fill").font(.subheadline.weight(.semibold))
                 }
-                Text("to watch").font(.footnote.weight(.semibold)).opacity(0.85)
+                Text("to see").font(.footnote.weight(.semibold)).opacity(0.85)
                 Spacer(minLength: 0)
                 Text("Wait for the drop").font(.footnote.weight(.semibold)).lineLimit(1)
                 Text("from Sam").font(.caption).opacity(0.85)

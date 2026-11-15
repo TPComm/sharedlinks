@@ -11,14 +11,14 @@ enum WidgetFeed: String, AppEnum {
 
     static let typeDisplayRepresentation: TypeDisplayRepresentation = "Feed"
     static let caseDisplayRepresentations: [WidgetFeed: DisplayRepresentation] = [
-        .toWatch: DisplayRepresentation(title: "To Watch", subtitle: "Links you haven't watched yet"),
+        .toWatch: DisplayRepresentation(title: "To Watch", subtitle: "Links you haven't seen yet"),
         .sent: DisplayRepresentation(title: "Sent", subtitle: "What you sent, and who's seen it"),
     ]
 }
 
 struct LinksWidgetConfiguration: WidgetConfigurationIntent {
     static let title: LocalizedStringResource = "Links"
-    static let description = IntentDescription("Links you haven't watched, or read receipts for links you sent.")
+    static let description = IntentDescription("Links you haven't seen, or read receipts for links you sent.")
 
     @Parameter(title: "Show", default: .toWatch)
     var feed: WidgetFeed
@@ -138,7 +138,7 @@ extension LinksEntry {
 
 /// The checkmark button on widget rows. Runs in the widget's process, no app launch.
 struct MarkWatchedIntent: AppIntent {
-    static let title: LocalizedStringResource = "Mark as Watched"
+    static let title: LocalizedStringResource = "Mark as Seen"
     static let isDiscoverable = false
 
     @Parameter(title: "Link")

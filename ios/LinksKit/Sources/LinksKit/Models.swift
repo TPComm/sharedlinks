@@ -35,7 +35,7 @@ public enum Platform: String, Codable, Sendable, CaseIterable {
         switch self {
         case .tiktok: "TikTok"
         case .instagram: "Instagram post"
-        case .youtube: "YouTube video"
+        case .youtube: "YouTube link"
         case .x: "Post on X"
         case .reddit: "Reddit post"
         case .facebook: "Facebook post"
@@ -49,8 +49,8 @@ public enum Platform: String, Codable, Sendable, CaseIterable {
     /// Short-video platforms, which a link page offers to watch rather than open.
     public var isVideo: Bool { [.tiktok, .instagram, .youtube].contains(self) }
 
-    /// The main button on a link's page: "Watch in TikTok", "Open in Browser".
-    public var openTitle: String { "\(isVideo ? "Watch" : "Open") in \(opener)" }
+    /// The main button on a link's page.
+    public var openTitle: String { "Open in \(opener)" }
 
     /// Who owns the platform's name, for the trademark notice; nil for the open web.
     public var trademarkOwner: String? {

@@ -32,7 +32,7 @@ final class LinksUITests: XCTestCase {
         let row = waitForRow(link, in: "toWatch")
         XCTAssert(row.label.contains(note), row.label)
         XCTAssert(row.label.contains("Friend"), row.label)
-        XCTAssert(row.label.contains("Not watched"), row.label)
+        XCTAssert(row.label.contains("Unseen"), row.label)
     }
 
     func testLongPressOpenStillMarksItWatched() throws {
@@ -57,13 +57,13 @@ final class LinksUITests: XCTestCase {
         launch()
         let row = waitForRow(link, in: "toWatch")
         row.swipeRight()
-        app.collectionViews["links.toWatch"].buttons["Watched"].tap()
+        app.collectionViews["links.toWatch"].buttons["Seen"].tap()
         XCTAssert(row.waitForNonExistence(timeout: 5), "still in To Watch")
 
         app.tabBars.buttons["Watched"].tap()
         let watched = self.row(link, in: "watched")
         XCTAssert(watched.waitForExistence(timeout: 5))
-        XCTAssertFalse(watched.label.contains("Not watched"), watched.label)
+        XCTAssertFalse(watched.label.contains("Unseen"), watched.label)
 
         let me = try server.state(as: server.me).me
         try server.eventually("seen by me") { try server.state(as: server.friend).link(link.id)?.seen[me] }
@@ -133,6 +133,7 @@ final class LinksUITests: XCTestCase {
         XCTAssert(page.staticTexts.matching(NSPredicate(format: "label BEGINSWITH %@", "From Friend")).firstMatch.exists,
                   "no sender")
         XCTAssertEqual(app.buttons["linkPage.watch"].label, "Open in Browser")
+        XCTAssertEqual(app.buttons["linkPage.markWatched"].label, "Mark as Seen")
         let me = try server.state(as: server.me).me
         XCTAssertNil(try server.state(as: server.friend).link(link.id)?.seen[me], "showing the page marked it watched")
 

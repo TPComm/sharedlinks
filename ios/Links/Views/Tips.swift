@@ -11,7 +11,7 @@ nonisolated struct ReactTip: Tip {
 }
 
 nonisolated struct SwipeToWatchTip: Tip {
-    var title: Text { Text("Swipe Right to Mark Watched") }
+    var title: Text { Text("Swipe Right to Mark Seen") }
     var message: Text? { Text("Swipe left to share or delete.") }
 }
 

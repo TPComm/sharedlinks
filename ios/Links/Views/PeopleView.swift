@@ -97,7 +97,7 @@ struct InviteSheet: View {
                     Section {
                         ShareLink(item: url,
                                   subject: Text("Join me on Links"),
-                                  message: Text("Join me on Links, so we can send each other reels and TikToks."),
+                                  message: Text("Join me on Links to share articles, videos, recipes and more."),
                                   preview: SharePreview("\(inviter) invited you to Links")) {
                             Label("Send Invite", systemImage: "square.and.arrow.up")
                         }

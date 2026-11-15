@@ -16,7 +16,7 @@ struct LinksWidget: Widget {
             LinksWidgetView(entry: entry)
         }
         .configurationDisplayName("Links")
-        .description("What's waiting for you to watch, or who's seen what you sent.")
+        .description("What's waiting for you to see, or who's seen what you sent.")
         .supportedFamilies([.systemSmall, .systemMedium, .systemLarge,
                             .accessoryCircular, .accessoryRectangular, .accessoryInline])
         .contentMarginsDisabled()
@@ -62,7 +62,7 @@ private struct SmallView: View {
                     .font(.subheadline.weight(.semibold))
             }
             if feed == .toWatch {
-                Text("to watch").font(.subheadline.weight(.semibold)).opacity(0.85)
+                Text("to see").font(.subheadline.weight(.semibold)).opacity(0.85)
             }
             Spacer(minLength: 0)
             if let item {
@@ -200,7 +200,7 @@ private struct Row: View {
                         .foregroundStyle(.secondary)
                 }
                 .buttonStyle(.plain)
-                .accessibilityLabel("Mark as Watched")
+                .accessibilityLabel("Mark as Seen")
             }
         }
     }
@@ -225,7 +225,7 @@ private struct CircularView: View {
         }
         .widgetURL(DeepLink.inbox.url)
         .containerBackground(.clear, for: .widget)
-        .accessibilityLabel(feed == .toWatch ? "\(count) links to watch" : "\(count) links sent")
+        .accessibilityLabel(feed == .toWatch ? "\(count) links to see" : "\(count) links sent")
     }
 }
 
@@ -236,7 +236,7 @@ private struct RectangularView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 1) {
-            Label(feed == .toWatch ? "\(count) to watch" : "Sent", systemImage: feed == .toWatch ? "play.fill" : "paperplane.fill")
+            Label(feed == .toWatch ? "\(count) to see" : "Sent", systemImage: feed == .toWatch ? "play.fill" : "paperplane.fill")
                 .font(.headline)
                 .widgetAccentable()
             if let item = items.first {
@@ -257,7 +257,7 @@ private struct InlineView: View {
     let feed: WidgetFeed
 
     var body: some View {
-        Label(feed == .toWatch ? (count == 0 ? "All caught up" : "\(count) to watch") : "Links sent",
+        Label(feed == .toWatch ? (count == 0 ? "All caught up" : "\(count) to see") : "Links sent",
               systemImage: feed == .toWatch ? "play.rectangle.on.rectangle" : "paperplane")
             .containerBackground(.clear, for: .widget)
     }
