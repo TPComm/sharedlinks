@@ -37,9 +37,16 @@ class RecoveryTests(unittest.TestCase):
             self.assertEqual(result.stdout, "")
 
     def test_assertions_stay_red_even_with_crash(self):
-        crash = self.failure("Lost connection to the application")
+        crash = self.failure("Lost connection to the application") + "The system shell (SpringBoard:11909) probably crashed.\n"
         for name in ("testExample", "testOther"):
             result = self.parse(crash + self.failure("XCTAssertTrue failed", name))
+            self.assertNotEqual(result.returncode, 0)
+            self.assertEqual(result.stdout, "")
+
+    def test_lost_connection_requires_springboard_crash(self):
+        log = self.failure("Lost connection to the application")
+        for evidence in ("", "Simulator device failed to launch com.tpcomm.links.uitests.xctrunner\n"):
+            result = self.parse(log + evidence)
             self.assertNotEqual(result.returncode, 0)
             self.assertEqual(result.stdout, "")
 

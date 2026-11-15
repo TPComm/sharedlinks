@@ -4,7 +4,7 @@ set -euo pipefail
 # Emit only failures whose every recorded issue is infrastructure-related. A shell crash
 # elsewhere in the log must never turn an assertion failure into a recoverable failure.
 awk '
-  /The system shell \(SpringBoard.*probably crashed|Failed to launch app with identifier: .*uitests.xctrunner|Simulator device failed to launch .*uitests.xctrunner/ { shell_crashed = 1 }
+  /The system shell \(SpringBoard.*probably crashed/ { shell_crashed = 1 }
   /error: -\[LinksUITests\.[A-Za-z0-9_]+ [A-Za-z0-9_]+\] :/ {
     test = $0
     sub(/^.*error: -\[LinksUITests\./, "", test)
@@ -24,10 +24,10 @@ awk '
   }
   END {
     for (test in failed) {
-      if (genuine[test] || !(crash[test] || launch[test] || (shell_crashed && shell_launch[test]))) exit 1
+      if (genuine[test] || (crash[test] && !shell_crashed) || !(launch[test] || (shell_crashed && (crash[test] || shell_launch[test])))) exit 1
     }
     for (test in failed) {
-      kind = (crash[test] || (shell_crashed && shell_launch[test])) ? "crash" : "launch"
+      kind = (shell_crashed && (crash[test] || shell_launch[test])) ? "crash" : "launch"
       print kind, test
     }
   }
