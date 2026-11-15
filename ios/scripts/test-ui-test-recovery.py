@@ -11,13 +11,26 @@ REAL_LOG = pathlib.Path(sys.argv.pop(1)) if len(sys.argv) > 1 else None
 
 
 class RecoveryTests(unittest.TestCase):
-    def parse(self, log):
-        with tempfile.NamedTemporaryFile(mode="w") as fixture:
+    def parse(self, log, selection=""):
+        with tempfile.NamedTemporaryFile(mode="w") as fixture, tempfile.NamedTemporaryFile(mode="w") as selected:
             fixture.write(log)
             fixture.flush()
+            selected.write(selection)
+            selected.flush()
             return subprocess.run(
-                ["bash", str(PARSER), fixture.name], capture_output=True, text=True
+                ["bash", str(PARSER), fixture.name, selected.name], capture_output=True, text=True
             )
+
+    def test_incomplete_selection_stays_red(self):
+        log = self.failure("Lost connection to the application") + "The system shell (SpringBoard:11909) probably crashed.\n"
+        selection = "LinksUITests/LinksUITests/testExample\nLinksUITests/LinksUITests/testLater\n"
+        result = self.parse(log, selection)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(result.stdout, "")
+        self.assertIn("selection incomplete", result.stderr)
+        result = self.parse(log + "Test Case '-[LinksUITests.LinksUITests testLater]' passed (1 seconds).\n", selection)
+        self.assertEqual(result.returncode, 0)
+        self.assertEqual(result.stdout, "crash LinksUITests/testExample\n")
 
     def failure(self, message, name="testExample"):
         return (

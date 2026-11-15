@@ -71,6 +71,9 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
+      - name: UI test recovery classifier tests
+        run: python3 ios/scripts/test-ui-test-recovery.py
+
       - name: Xcode version and Simulator runtimes
         run: |
           xcodebuild -version
