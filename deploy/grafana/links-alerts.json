@@ -83,7 +83,7 @@
             {
               "datasourceUid": "grafanacloud-logs",
               "model": {
-                "expr": "sum(count_over_time({job=\"links\", host=\"links.tpcomm.co\", systemd_unit=\"links.service\"} |~ \" 5[0-9][0-9]$\" [5m]))",
+                "expr": "sum(count_over_time({job=\"links\", host=\"links.tpcomm.co\", systemd_unit=\"links.service\"} |~ \"^[A-Z]+ /[^ ]* 5[0-9][0-9]$\" [5m]))",
                 "intervalMs": 1000,
                 "maxDataPoints": 43200,
                 "queryType": "instant",
