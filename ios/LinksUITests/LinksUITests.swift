@@ -402,6 +402,38 @@ final class LinksUITests: XCTestCase {
         XCTAssert(email.waitForNonExistence(timeout: 5), "Done didn't close the profile")
     }
 
+    func testNotificationTogglesSaveEachSetting() throws {
+        let api = server!
+        guard try api.notifications(as: api.me) != nil else {
+            return XCTFail("this server has no notification settings (GET /api/me has no notifications)")
+        }
+        try api.setNotifications(watched: true, reactions: true, as: api.me)
+        addTeardownBlock { try? api.setNotifications(watched: true, reactions: true, as: api.me) }
+        launch()
+        app.buttons["account"].tap()
+        let watched = scrolledTo(app.switches["notify.watched"])
+        let reactions = app.switches["notify.reactions"]
+        XCTAssert(watched.waitForExistence(timeout: 10), "no watched toggle on the profile")
+        XCTAssertEqual(watched.value as? String, "1")
+        XCTAssertEqual(reactions.value as? String, "1")
+
+        watched.switches.firstMatch.tap()
+        waitFor(watched, value: "0")
+        try api.eventually("watched pushes off") {
+            try api.notifications(as: api.me) == .init(watched: false, reactions: true) ? true : nil
+        }
+        reactions.switches.firstMatch.tap()
+        waitFor(reactions, value: "0")
+        try api.eventually("reaction pushes off") {
+            try api.notifications(as: api.me) == .init(watched: false, reactions: false) ? true : nil
+        }
+        watched.switches.firstMatch.tap()
+        waitFor(watched, value: "1")
+        try api.eventually("watched pushes back on") {
+            try api.notifications(as: api.me) == .init(watched: true, reactions: false) ? true : nil
+        }
+    }
+
     func testSigningOutReturnsToSignIn() throws {
         launch(as: server.spare)
         app.buttons["account"].tap()
@@ -715,6 +747,11 @@ final class LinksUITests: XCTestCase {
     private func waitFor(_ element: XCUIElement, labelContaining text: String, timeout: TimeInterval = 30) {
         let label = XCTNSPredicateExpectation(predicate: NSPredicate(format: "label CONTAINS %@", text), object: element)
         wait(for: [label], timeout: timeout)
+    }
+
+    private func waitFor(_ toggle: XCUIElement, value: String, timeout: TimeInterval = 5) {
+        let flipped = XCTNSPredicateExpectation(predicate: NSPredicate(format: "value == %@", value), object: toggle)
+        wait(for: [flipped], timeout: timeout)
     }
 
     /// ".invalid" never resolves, so the server's preview fetch fails at once, even online.

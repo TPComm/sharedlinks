@@ -77,6 +77,14 @@ public struct APIClient: Sendable {
         try await send("PATCH", "api/me", json: ["name": name])
     }
 
+    /// Changes only the settings given; nil leaves one as it is.
+    public func setNotifications(watched: Bool? = nil, reactions: Bool? = nil) async throws -> MeResponse {
+        var settings: [String: Bool] = [:]
+        if let watched { settings["watched"] = watched }
+        if let reactions { settings["reactions"] = reactions }
+        return try await send("PATCH", "api/me", json: ["notifications": settings])
+    }
+
     public func claim(_ legacyID: String) async throws -> MeResponse {
         try await send("POST", "api/me/claim", json: ["id": legacyID])
     }

@@ -103,6 +103,21 @@ struct LinksServer: Sendable {
         _ = try send("DELETE", "api/blocks/\(id)", as: token)
     }
 
+    struct Notifications: Decodable, Equatable, Sendable {
+        let watched: Bool
+        let reactions: Bool
+    }
+
+    /// The push settings in GET /api/me; nil from a server without them.
+    func notifications(as token: String) throws -> Notifications? {
+        struct Me: Decodable { let notifications: Notifications? }
+        return try JSONDecoder().decode(Me.self, from: try send("GET", "api/me", as: token)).notifications
+    }
+
+    func setNotifications(watched: Bool, reactions: Bool, as token: String) throws {
+        _ = try send("PATCH", "api/me", json: ["notifications": ["watched": watched, "reactions": reactions]], as: token)
+    }
+
     func state(as token: String) throws -> State {
         try JSONDecoder().decode(State.self, from: try send("GET", "api/state", as: token))
     }

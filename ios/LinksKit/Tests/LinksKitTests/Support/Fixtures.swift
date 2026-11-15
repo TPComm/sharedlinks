@@ -12,6 +12,11 @@ enum Fixture {
     /// accounts.mePayload(): who I am, plus legacy people I could claim.
     static let me = #"{"user": \#(sam), "claimable": [\#(jo)]}"#
 
+    /// The same from a server with notification settings.
+    static func meWithNotifications(watched: Bool = true, reactions: Bool = true) -> String {
+        #"{"user": \#(sam), "claimable": [\#(jo)], "notifications": {"watched": \#(watched), "reactions": \#(reactions)}}"#
+    }
+
     static func link(id: Int = 7, url: String = "https://www.youtube.com/watch?v=abc", platform: String = "youtube",
                      note: String = "watch this", seen: String = "{}", reactions: String = "{}",
                      groupID: Int? = 1) -> String {

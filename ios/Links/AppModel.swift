@@ -11,6 +11,8 @@ final class AppModel {
     private(set) var token: String? = SessionStore.token
     private(set) var inbox: InboxState = InboxSnapshot.load() ?? .empty
     private(set) var claimable: [LinkUser] = []
+    /// My push settings for links I sent; nil until the server says, or on a server too old to have them.
+    private(set) var notifications: NotificationSettings?
     private(set) var isOffline = false
     private(set) var isSigningIn = false
     private(set) var isDeletingAccount = false
@@ -46,6 +48,8 @@ final class AppModel {
     private var localEdits = 0
     /// Like localEdits, per link: a save's reply is dropped only if that link changed since.
     private var linkEdits: [Int: Int] = [:]
+    /// Like localEdits, for the notification settings.
+    private var notificationEdits = 0
 
     var isSignedIn: Bool { token != nil }
     var client: APIClient { APIClient(token: token) }
@@ -154,6 +158,7 @@ final class AppModel {
         account = nil
         inbox = .empty
         claimable = []
+        notifications = nil
         invites = []
         paths = [:]
         chat = nil
@@ -170,9 +175,11 @@ final class AppModel {
 
     func loadAccount() async {
         let session = sessionID
+        let edits = notificationEdits
         guard isSignedIn, let me = try? await client.me(), session == sessionID else { return }
         setAccount(me.user)
         claimable = me.claimable
+        if edits == notificationEdits { notifications = me.notifications }
     }
 
     /// Throws rather than using the app-wide alert, which would close ClaimSheet.
@@ -200,11 +207,37 @@ final class AppModel {
         do {
             let me = try await client.rename(to: name)
             setAccount(me.user)
+            if me.notifications != nil { notifications = me.notifications }
         } catch APIError.signedOut {
             endSession()
             return
         }
         await refresh()
+    }
+
+    /// Shows the change at once and puts it back if saving fails, unless it was changed again
+    /// meanwhile. Throws, like `rename`, for the profile to show.
+    func setNotifications(watched: Bool? = nil, reactions: Bool? = nil) async throws {
+        guard let before = notifications else { return }
+        var next = before
+        if let watched { next.watched = watched }
+        if let reactions { next.reactions = reactions }
+        notifications = next
+        notificationEdits += 1
+        let edits = notificationEdits
+        let session = sessionID
+        do {
+            let me = try await client.setNotifications(watched: watched, reactions: reactions)
+            if session == sessionID, edits == notificationEdits, let saved = me.notifications { notifications = saved }
+        } catch APIError.signedOut {
+            endSession()
+        } catch {
+            guard session == sessionID, var now = notifications else { throw error }
+            if let watched, now.watched == watched { now.watched = before.watched }
+            if let reactions, now.reactions == reactions { now.reactions = before.reactions }
+            notifications = now
+            throw error
+        }
     }
 
     // MARK: Invites
