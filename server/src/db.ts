@@ -197,6 +197,12 @@ export function openDatabase(dataDir: string, legacyAllowedEmails: string[] = []
   migrateToV14(db);
   migrateToV15(db);
   migrateToV16(db);
+  db.transaction(() => {
+    const update = db.query("UPDATE links SET share_token = ? WHERE id = ? AND share_token IS NULL");
+    for (const row of db.query("SELECT id FROM links WHERE share_token IS NULL").all() as { id: number }[]) {
+      update.run(randomBytes(24).toString("base64url"), row.id);
+    }
+  })();
   return db;
 }
 

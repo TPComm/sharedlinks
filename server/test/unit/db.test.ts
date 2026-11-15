@@ -48,6 +48,24 @@ const addLink = (db: Database, url: string) =>
   Number(db.run("INSERT INTO links (group_id, url, platform, added_by, added_at) VALUES (1, ?, 'web', 'u', 1)", [url]).lastInsertRowid);
 
 describe("openDatabase", () => {
+  test("fills tokens after an old binary inserts into a v16 database without changing existing tokens", () => {
+    const db = openDatabase(tmp.dir);
+    db.run("INSERT INTO users (id, name, created_at) VALUES ('u', 'U', 1)");
+    const existing = addLink(db, "https://example.com/existing");
+    const token = "a".repeat(32);
+    db.run("UPDATE links SET share_token = ? WHERE id = ?", [token, existing]);
+    const missing = addLink(db, "https://example.com/rollback");
+    expect(pragma(db, "user_version")).toBe(16);
+    expect(db.query("SELECT share_token FROM links WHERE id = ?").get(missing)).toEqual({ share_token: null });
+    db.close();
+    const reopened = openDatabase(tmp.dir);
+    expect(reopened.query("SELECT share_token FROM links WHERE id = ?").get(existing)).toEqual({ share_token: token });
+    const repaired = reopened.query("SELECT share_token FROM links WHERE id = ?").get(missing) as { share_token: string };
+    expect(repaired.share_token).toMatch(/^[A-Za-z0-9_-]{32}$/);
+    expect(repaired.share_token).not.toBe(token);
+    reopened.close();
+  });
+
   test("backfills stable unique share tokens for existing links", () => {
     seed(`${LINKS_V0}
       INSERT INTO links (url, platform, added_by, added_at) VALUES
