@@ -331,7 +331,7 @@ describe("links", () => {
     const db = new Database(join(dataDir, "links.db"), { readonly: true });
     const { sql } = db.query("SELECT sql FROM sqlite_master WHERE name = 'links'").get() as { sql: string };
     expect(sql).toContain("AUTOINCREMENT");
-    expect((db.query("PRAGMA user_version").get() as any).user_version).toBe(14);
+    expect((db.query("PRAGMA user_version").get() as any).user_version).toBe(15);
     db.close();
     const { data } = await call("/api/state", { token });
     expect(data.links.map((l: any) => l.url)).toContain("https://de.wikipedia.org/wiki/M%C3%BCnchen");
@@ -704,6 +704,27 @@ describe("group chats", () => {
     expect(everyone.members).toEqual(expect.arrayContaining([annId, boId, cyId, "user_01FRIEND"]));
     expect(data.links.length).toBeGreaterThan(0);
     expect(data.links.every((l: any) => l.group_id === everyone.id)).toBe(true);
+  });
+
+  test("mute settings are per member, expire, and validate without renaming the chat", async () => {
+    const chat = (await call("/api/groups", { token: ann, body: { name: "Quiet", members: [boId] } })).data.group;
+    const patch = (body: object) => call(`/api/groups/${chat.id}`, { method: "PATCH", token: ann, body });
+    expect(chat).toMatchObject({ muted: false, muted_until: null });
+    for (const body of [{}, { muted: 1 }, { muted: null }, { muted_until: "later" }, { muted_until: 0 }, { muted_until: -1 }]) {
+      expect((await patch(body)).status).toBe(400);
+    }
+    const until = Date.now() / 1000 + 3600;
+    expect((await patch({ muted: true, muted_until: until })).data.group).toMatchObject({ name: "Quiet", muted: true, muted_until: until });
+    expect((await state(ann)).groups.find((g: any) => g.id === chat.id)).toMatchObject({ muted: true, muted_until: until });
+    expect((await state(bo)).groups.find((g: any) => g.id === chat.id)).toMatchObject({ muted: false, muted_until: null });
+    expect((await patch({ muted: false })).data.group).toMatchObject({ muted: false, muted_until: null });
+    expect((await patch({ muted: true })).data.group).toMatchObject({ muted: true, muted_until: null });
+    expect((await patch({ name: "Still quiet" })).data.group).toMatchObject({ name: "Still quiet", muted: true });
+    expect((await patch({ muted_until: until })).data.group).toMatchObject({ muted: true, muted_until: until });
+    const raw = new Database(join(dataDir, "links.db"));
+    raw.run("UPDATE group_members SET muted_until = 1 WHERE group_id = ? AND user_id = ?", [chat.id, annId]);
+    raw.close();
+    expect((await state(ann)).groups.find((g: any) => g.id === chat.id)).toMatchObject({ muted: false, muted_until: null });
   });
 
   test("a chat's links are only for its members; the same link can be in two chats", async () => {

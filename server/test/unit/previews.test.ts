@@ -332,7 +332,7 @@ describe("Instagram embed fallback", () => {
          VALUES (1, ?, 'instagram', 'beach day', 'Instagram', 'image/gif', 1, 1, 2, ?, 'done', 'u', 1)`, [REEL, PREVIEW_VERSION]).lastInsertRowid);
       const file = join(tmp.dir, "thumbs", String(id));
       await Bun.write(file, Uint8Array.from([0x47, 0x49, 0x46, 0x38, 0x39, 0x61, 1, 0, 1, 0])); // the logo
-      db.run("PRAGMA user_version = 5");
+      db.exec("ALTER TABLE group_members DROP COLUMN muted; ALTER TABLE group_members DROP COLUMN muted_until; PRAGMA user_version = 5;");
       db.close();
       db = openDatabase(tmp.dir);
       // The backfill's query now picks it up again.

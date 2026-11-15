@@ -193,6 +193,7 @@ export function openDatabase(dataDir: string, legacyAllowedEmails: string[] = []
   migrateToV12(db);
   migrateToV13(db);
   migrateToV14(db);
+  migrateToV15(db);
   return db;
 }
 
@@ -515,6 +516,16 @@ function migrateToV14(db: Database) {
     );
     CREATE INDEX IF NOT EXISTS comments_link ON comments (link_id, created_at, id);`);
     db.run("PRAGMA user_version = 14");
+  })();
+}
+
+function migrateToV15(db: Database) {
+  const { user_version } = db.query("PRAGMA user_version").get() as { user_version: number };
+  if (user_version >= 15) return;
+  db.transaction(() => {
+    db.exec(`ALTER TABLE group_members ADD COLUMN muted INTEGER NOT NULL DEFAULT 0;
+      ALTER TABLE group_members ADD COLUMN muted_until REAL;`);
+    db.run("PRAGMA user_version = 15");
   })();
 }
 

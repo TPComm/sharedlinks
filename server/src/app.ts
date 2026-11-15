@@ -283,17 +283,21 @@ export function createApp(config: Config, opts: AppOptions = {}) {
   }
 
   /** A chat as the app sees it: `members` are user ids, oldest first; `default` is the one everyone started in. */
-  function toGroup(r: GroupRow) {
+  function toGroup(r: GroupRow, me: string) {
     const members = (db.query("SELECT user_id FROM group_members WHERE group_id = ? ORDER BY joined_at, user_id")
       .all(r.id) as { user_id: string }[]).map((m) => m.user_id);
-    return { id: r.id, name: r.name, created_by: r.created_by, created_at: r.created_at, default: !!r.is_default, members };
+    const settings = db.query("SELECT muted, muted_until FROM group_members WHERE group_id = ? AND user_id = ?")
+      .get(r.id, me) as { muted: number; muted_until: number | null };
+    const muted = !!settings.muted && (settings.muted_until === null || settings.muted_until > now());
+    return { id: r.id, name: r.name, created_by: r.created_by, created_at: r.created_at, default: !!r.is_default, members,
+      muted, muted_until: muted ? settings.muted_until : null };
   }
 
-  const getGroup = (id: number) => toGroup(db.query("SELECT * FROM groups WHERE id = ?").get(id) as GroupRow);
+  const getGroup = (id: number, me: string) => toGroup(db.query("SELECT * FROM groups WHERE id = ?").get(id) as GroupRow, me);
 
   function groupsOf(me: string) {
     return (db.query(`SELECT g.* FROM groups g JOIN group_members m ON m.group_id = g.id AND m.user_id = ?
-        ORDER BY g.is_default DESC, g.created_at, g.id`).all(me) as GroupRow[]).map(toGroup);
+        ORDER BY g.is_default DESC, g.created_at, g.id`).all(me) as GroupRow[]).map((r) => toGroup(r, me));
   }
 
   /**
@@ -700,16 +704,34 @@ export function createApp(config: Config, opts: AppOptions = {}) {
           }
           return id;
         });
-        return json({ group: getGroup(id) }, 201);
+        return json({ group: getGroup(id, me) }, 201);
       }),
     },
     "/api/groups/:id": {
       PATCH: route<WithId>(async (req, me) => {
         const id = groupOf(req.params.id, me);
-        const name = groupName((await readJson(req)).name);
+        const data = await readJson(req);
+        if (data.name === undefined && data.muted === undefined && data.muted_until === undefined) {
+          throw new BadRequest("Choose a name or mute setting.");
+        }
+        const name = data.name === undefined ? undefined : groupName(data.name);
+        if (data.muted !== undefined && typeof data.muted !== "boolean") throw new BadRequest("muted must be a boolean.");
+        if (data.muted_until !== undefined && data.muted_until !== null &&
+            (typeof data.muted_until !== "number" || !Number.isFinite(data.muted_until) || data.muted_until <= now())) {
+          throw new BadRequest("muted_until must be a future timestamp.");
+        }
         // Again once the body is in: they may have left while it uploaded.
-        asUser(me, () => db.run("UPDATE groups SET name = ? WHERE id = ?", [name, groupOf(id, me)]));
-        return json({ group: getGroup(id) });
+        asUser(me, () => {
+          groupOf(id, me);
+          if (name !== undefined) db.run("UPDATE groups SET name = ? WHERE id = ?", [name, id]);
+          if (data.muted !== undefined) {
+            db.run("UPDATE group_members SET muted = ?, muted_until = ? WHERE group_id = ? AND user_id = ?",
+              [data.muted ? 1 : 0, data.muted ? data.muted_until ?? null : null, id, me]);
+          } else if (data.muted_until !== undefined) {
+            db.run("UPDATE group_members SET muted_until = ? WHERE group_id = ? AND user_id = ?", [data.muted_until, id, me]);
+          }
+        });
+        return json({ group: getGroup(id, me) });
       }),
       // Leave the chat.
       DELETE: route<WithId>((req, me) => {
@@ -729,7 +751,7 @@ export function createApp(config: Config, opts: AppOptions = {}) {
         const data = await readJson(req);
         const added = asUser(me, () => {
           groupOf(id, me); // still in it now the body is in
-          const have = toGroup(db.query("SELECT * FROM groups WHERE id = ?").get(id) as GroupRow).members;
+          const have = toGroup(db.query("SELECT * FROM groups WHERE id = ?").get(id) as GroupRow, me).members;
           const added = newMembers(data.members, me, have);
           const at = now();
           for (const user of added) {
@@ -738,7 +760,7 @@ export function createApp(config: Config, opts: AppOptions = {}) {
           return added;
         });
         push.badges(added); // the chat's links land in their To Watch
-        return json({ group: getGroup(id) });
+        return json({ group: getGroup(id, me) });
       }),
     },
 
@@ -759,7 +781,7 @@ export function createApp(config: Config, opts: AppOptions = {}) {
         const { token } = await readJson(req);
         const id = asUser(me, () => accounts.joinWithInvite(me, String(token ?? "")));
         if (id !== null) push.badges([me]); // the chat's links land in their To Watch
-        return json({ group: id === null ? null : getGroup(id) });
+        return json({ group: id === null ? null : getGroup(id, me) });
       }),
     },
     "/api/invites/:id": {
