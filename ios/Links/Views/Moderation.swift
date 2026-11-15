@@ -59,54 +59,45 @@ private struct LinkModeration: ViewModifier {
                 }
                 Button("Cancel", role: .cancel) {}
             } message: {
-                Text("You won't see their links, reactions or comments. They aren't told. You can unblock them from the account menu.")
+                Text("You won't see their links, reactions or comments. They aren't told. You can unblock them from your profile.")
             }
     }
 }
 
-/// Account menu → Blocked People…: everyone I've blocked, each with Unblock.
-struct BlockedPeopleSheet: View {
+/// Profile → Blocked People: everyone I've blocked, each with Unblock.
+struct BlockedPeopleList: View {
     @Environment(AppModel.self) private var model
-    @Environment(\.dismiss) private var dismiss
 
     var body: some View {
-        NavigationStack {
-            Group {
-                if model.inbox.blockedPeople.isEmpty {
-                    ContentUnavailableView("No One Blocked", systemImage: "hand.raised",
-                                           description: Text("To block someone, long-press one of their links and choose Block."))
-                } else {
-                    List {
-                        Section {
-                            ForEach(model.inbox.blockedPeople) { person in
-                                HStack(spacing: 12) {
-                                    AvatarView(user: person, size: 36)
-                                    Text(person.name)
-                                    Spacer()
-                                    Button("Unblock") { Task { await model.unblock(person) } }
-                                        .buttonStyle(.bordered)
-                                        .accessibilityIdentifier("unblock.\(person.id)")
-                                }
+        Group {
+            if model.inbox.blockedPeople.isEmpty {
+                ContentUnavailableView("No One Blocked", systemImage: "hand.raised",
+                                       description: Text("To block someone, long-press one of their links and choose Block."))
+            } else {
+                List {
+                    Section {
+                        ForEach(model.inbox.blockedPeople) { person in
+                            HStack(spacing: 12) {
+                                AvatarView(user: person, size: 36)
+                                Text(person.name)
+                                Spacer()
+                                Button("Unblock") { Task { await model.unblock(person) } }
+                                    .buttonStyle(.bordered)
+                                    .accessibilityIdentifier("unblock.\(person.id)")
                             }
-                        } footer: {
-                            Text("You don't see their links, reactions or comments. They aren't told.")
                         }
+                    } footer: {
+                        Text("You don't see their links, reactions or comments. They aren't told.")
                     }
                 }
             }
-            .navigationTitle("Blocked People")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("Done") { dismiss() }
-                }
-            }
         }
-        .presentationDetents([.medium, .large])
+        .navigationTitle("Blocked People")
+        .navigationBarTitleDisplayMode(.inline)
     }
 }
 
-/// "Contact Support" in the account menu, with the address under it. Copies the address when
+/// "Contact Support" in the profile, with the address under it. Copies the address when
 /// nothing can open it (no Mail app set up).
 struct ContactSupportButton: View {
     @Environment(AppModel.self) private var model
@@ -122,8 +113,12 @@ struct ContactSupportButton: View {
                 model.toast = "Copied \(address)"
             }
         } label: {
-            Label("Contact Support", systemImage: "envelope")
-            Text(address)
+            Label {
+                Text("Contact Support").foregroundStyle(Color.primary)
+                Text(address)
+            } icon: {
+                Image(systemName: "envelope")
+            }
         }
     }
 }

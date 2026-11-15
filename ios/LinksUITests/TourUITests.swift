@@ -13,7 +13,7 @@ final class TourUITests: XCTestCase {
         server = try LinksServer.fromEnvironment()
     }
 
-    func testTheTourShowsOnceAndComesBackFromTheAccountMenu() throws {
+    func testTheTourShowsOnceAndComesBackFromTheProfile() throws {
         // A friend's link, so the gesture tips have a row in To Watch to sit on.
         let link = try server.add("https://links-e2e.invalid/\(UUID().uuidString.lowercased())", as: server.friend)
         let server = server!

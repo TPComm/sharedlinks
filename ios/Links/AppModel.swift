@@ -343,7 +343,7 @@ final class AppModel {
     }
 
     /// Notifications for new links and reactions, and the To Watch count on the app icon. iOS only
-    /// asks once; later calls are no-ops (Settings changes it: the tour and account menu link there).
+    /// asks once; later calls are no-ops (Settings changes it: the tour and the profile link there).
     func requestNotificationPermission() {
         // No system prompt in UI tests: while it's up the app is inactive and doesn't fetch, and a
         // fresh CI Simulator shows it whenever it likes (ios/scripts/ui-tests.sh).

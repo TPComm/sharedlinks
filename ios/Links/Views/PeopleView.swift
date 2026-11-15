@@ -1,72 +1,67 @@
 import LinksKit
 import SwiftUI
 
-/// Everyone in this Links, the invites I sent that nobody has used yet, and Invite a Friend (#5).
-struct PeopleSheet: View {
+/// Profile → People: everyone in this Links, the invites I sent that nobody has used yet, and
+/// Invite a Friend (#5).
+struct PeopleList: View {
     @Environment(AppModel.self) private var model
-    @Environment(\.dismiss) private var dismiss
     @State private var inviting = false
 
     private var people: [LinkUser] { [model.me].compactMap { $0 } + model.inbox.otherPeople }
 
     var body: some View {
-        NavigationStack {
-            List {
+        List {
+            Section {
+                Button("Invite a Friend", systemImage: "person.badge.plus") { inviting = true }
+                    .accessibilityIdentifier("inviteFriend")
+            } footer: {
+                if model.inbox.otherPeople.isEmpty {
+                    Text("It’s just you here. Invite someone to start sharing.")
+                }
+            }
+            Section("In This Links") {
+                ForEach(people) { user in
+                    HStack(spacing: 12) {
+                        AvatarView(user: user, size: 32)
+                        Text(user.name)
+                        Spacer()
+                        if user.id == model.me?.id {
+                            Text("You").foregroundStyle(.secondary)
+                        }
+                    }
+                }
+            }
+            if !model.invites.isEmpty {
                 Section {
-                    Button("Invite a Friend", systemImage: "person.badge.plus") { inviting = true }
-                        .accessibilityIdentifier("inviteFriend")
+                    ForEach(model.invites) { invite in
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(invite.email ?? "Invite link")
+                            Text("Expires \(invite.expiresAt, format: .relative(presentation: .named))")
+                                .font(.footnote)
+                                .foregroundStyle(.secondary)
+                        }
+                        .swipeActions {
+                            Button("Cancel Invite", role: .destructive) {
+                                Task { await model.revokeInvite(invite) }
+                            }
+                        }
+                    }
+                } header: {
+                    Text("Invited")
                 } footer: {
-                    if model.inbox.otherPeople.isEmpty {
-                        Text("It’s just you here. Invite someone to start sharing.")
-                    }
-                }
-                Section("In This Links") {
-                    ForEach(people) { user in
-                        HStack(spacing: 12) {
-                            AvatarView(user: user, size: 32)
-                            Text(user.name)
-                            Spacer()
-                            if user.id == model.me?.id {
-                                Text("You").foregroundStyle(.secondary)
-                            }
-                        }
-                    }
-                }
-                if !model.invites.isEmpty {
-                    Section {
-                        ForEach(model.invites) { invite in
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(invite.email ?? "Invite link")
-                                Text("Expires \(invite.expiresAt, format: .relative(presentation: .named))")
-                                    .font(.footnote)
-                                    .foregroundStyle(.secondary)
-                            }
-                            .swipeActions {
-                                Button("Cancel Invite", role: .destructive) {
-                                    Task { await model.revokeInvite(invite) }
-                                }
-                            }
-                        }
-                    } header: {
-                        Text("Invited")
-                    } footer: {
-                        Text("Swipe to cancel an invite. Each link works once, for a week.")
-                    }
+                    Text("Swipe to cancel an invite. Each link works once, for a week.")
                 }
             }
-            .navigationTitle("People")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } }
-            }
-            .task { await model.loadInvites() }
-            .refreshable {
-                await model.refresh()
-                await model.loadInvites()
-            }
-            .sheet(isPresented: $inviting) {
-                InviteSheet().environment(model)
-            }
+        }
+        .navigationTitle("People")
+        .navigationBarTitleDisplayMode(.inline)
+        .task { await model.loadInvites() }
+        .refreshable {
+            await model.refresh()
+            await model.loadInvites()
+        }
+        .sheet(isPresented: $inviting) {
+            InviteSheet().environment(model)
         }
     }
 }
