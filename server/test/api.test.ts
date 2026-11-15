@@ -1476,6 +1476,28 @@ describe("comment threads", () => {
     expect((await thread(link.id, cy)).status).toBe(404);
   });
 
+  test("summaries respect chat filters, match link mutation responses and break timestamp ties by ID", async () => {
+    const group = (await call("/api/groups", { token: ann, body: { members: [boId] } })).data.group;
+    const link = await send(group.id);
+    const other = await send();
+    const first = (await post(link.id, ann, "First")).data.comment;
+    const second = (await post(link.id, bo, "Second")).data.comment;
+    await post(other.id, ann, "Other chat");
+    const db = openDatabase(dataDir);
+    db.run("UPDATE comments SET created_at = ? WHERE id IN (?, ?)", [first.created_at, first.id, second.id]);
+    db.close();
+    const filtered = (await call(`/api/state?group_id=${group.id}`, { token: ann })).data;
+    expect(filtered.links.map((l: any) => l.id)).toEqual([link.id]);
+    const want = { comment_count: 2, last_comment: { person: boId, snippet: "Second", at: first.created_at } };
+    expect(filtered.links[0]).toMatchObject(want);
+    expect((await call(`/api/links/${link.id}/seen`, { token: ann, body: { seen: true } })).data.link).toMatchObject(want);
+    await call("/api/blocks", { token: ann, body: { user_id: boId } });
+    expect((await call(`/api/links/${link.id}/seen`, { token: ann, body: { seen: true } })).data.link).toMatchObject({
+      comment_count: 1, last_comment: { person: annId, snippet: "First", at: first.created_at },
+    });
+    await call(`/api/blocks/${boId}`, { token: ann, method: "DELETE" });
+  });
+
   test("deleting a link cascades comments and never reuses comment IDs", async () => {
     const link = await send();
     const first = (await post(link.id, bo)).data.comment;

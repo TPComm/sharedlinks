@@ -9,7 +9,7 @@
  *   links-server claim [you@example.com Name]        list legacy people, or let that account claim one
  *   links-server backup [dir]                        snapshot the database (keeps the newest 14)
  *   links-server reports                             list open reports (what was reported, by whom)
- *   links-server reports resolve <id> [--remove]     mark one handled; --remove deletes the link for everyone
+ *   links-server reports resolve <id> [--remove]     mark one handled; --remove deletes the link or comment for everyone
  *   links-server version                             print the git commit it was built from (also on /version)
  *
  * In development, `bun src/main.ts ...` does the same as the compiled `links-server`.
@@ -152,7 +152,8 @@ if (command === "mint-session") {
       push.badges(unwatched);
       await Promise.all(tasks);
       push.close();
-      console.log(`report #${report.id} resolved: ${report.resolution}${remove ? ` (link ${report.link_id} deleted)` : ""}`);
+      const target = report.link_id !== null ? `link ${report.link_id}` : `comment ${report.comment_id}`;
+      console.log(`report #${report.id} resolved: ${report.resolution}${remove ? ` (${target} deleted)` : ""}`);
     }
   } catch (e) {
     if (!(e instanceof BadRequest)) throw e;

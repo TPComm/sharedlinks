@@ -333,13 +333,9 @@ export function createApp(config: Config, opts: AppOptions = {}) {
       const link = links.get(r.link_id);
       if (link && !blocked.has(r.person)) link.reactions[r.person] = r.emoji;
     }
-    const comments = db.query(`SELECT c.* FROM comments c JOIN links ON links.id = c.link_id
-      WHERE ${VISIBLE} AND NOT EXISTS (SELECT 1 FROM blocks WHERE blocker = ?1 AND blocked = c.person)
-      AND NOT EXISTS (SELECT 1 FROM reports WHERE reporter = ?1 AND comment_id = c.id)
-      ORDER BY c.created_at, c.id`).all(me) as CommentRow[];
-    for (const comment of comments) {
-      const link = links.get(comment.link_id);
-      if (link) addCommentSummary(link, comment);
+    for (const summary of commentSummaries(me, "group_id", groupId)) {
+      const link = links.get(summary.link_id);
+      if (link) applyCommentSummary(link, summary);
     }
     const users = (db.query(`SELECT * FROM users WHERE id IN (${PEOPLE}) ORDER BY created_at`).all(me) as UserRow[]).map(publicUser);
     return { me, users, groups: groupsOf(me), links: [...links.values()], blocked: [...blocked] };
@@ -355,9 +351,24 @@ export function createApp(config: Config, opts: AppOptions = {}) {
     };
   }
 
-  function addCommentSummary(link: ReturnType<typeof toLink>, comment: CommentRow) {
-    link.comment_count++;
-    link.last_comment = { person: comment.person, snippet: [...comment.body].slice(0, 120).join(""), at: comment.created_at };
+  function commentSummaries(me: string, field: "group_id" | "id", id?: number) {
+    const only = id === undefined ? "" : ` AND links.${field} = ?2`;
+    return db.query(`SELECT link_id, comment_count, person, snippet, at FROM (
+      SELECT c.link_id, c.person, substr(c.body, 1, 120) AS snippet, c.created_at AS at,
+        count(*) OVER (PARTITION BY c.link_id) AS comment_count,
+        row_number() OVER (PARTITION BY c.link_id ORDER BY c.created_at DESC, c.id DESC) AS rank
+      FROM comments c JOIN links ON links.id = c.link_id
+      WHERE ${VISIBLE}${only}
+        AND NOT EXISTS (SELECT 1 FROM blocks WHERE blocker = ?1 AND blocked = c.person)
+        AND NOT EXISTS (SELECT 1 FROM reports WHERE reporter = ?1 AND comment_id = c.id)
+    ) WHERE rank = 1`).all(...(id === undefined ? [me] : [me, id])) as {
+      link_id: number; comment_count: number; person: string; snippet: string; at: number;
+    }[];
+  }
+
+  function applyCommentSummary(link: ReturnType<typeof toLink>, summary: ReturnType<typeof commentSummaries>[number]) {
+    link.comment_count = summary.comment_count;
+    link.last_comment = { person: summary.person, snippet: summary.snippet, at: summary.at };
   }
 
   function commentsFor(id: number, me: string): CommentRow[] {
@@ -396,7 +407,8 @@ export function createApp(config: Config, opts: AppOptions = {}) {
     for (const r of db.query("SELECT person, emoji FROM reactions WHERE link_id = ?").all(id) as { person: string; emoji: string }[]) {
       if (!blocked.has(r.person)) link.reactions[r.person] = r.emoji;
     }
-    for (const comment of commentsFor(id, me)) addCommentSummary(link, comment);
+    const [summary] = commentSummaries(me, "id", id);
+    if (summary) applyCommentSummary(link, summary);
     return link;
   }
 

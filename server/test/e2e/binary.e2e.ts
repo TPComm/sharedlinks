@@ -447,6 +447,22 @@ describe("a day with Links", () => {
     expect([usage.code, usage.stderr]).toEqual([1, "usage: links-server reports [resolve <id> [--remove]]\n"]);
   });
 
+  e2e("reports and removes a comment by name in the CLI, without deleting its link", async () => {
+    const made = await call(`/api/links/${shared}/comments`, { token: bob.token, body: { body: "Reported reply" } });
+    expect(made.status, made.text).toBe(201);
+    const id = made.data.comment.id;
+    expect((await call("/api/reports", { token: alice.token, body: { comment_id: id, reason: "spam" } })).status).toBe(201);
+    const list = await cli(dataDir, "reports");
+    const reportId = list.stdout.match(new RegExp(`^#(\\d+) .* spam  comment ${id}  reported by `, "m"))?.[1];
+    expect(reportId, list.stdout).toBeDefined();
+    expect(list.stdout).toContain('body: "Reported reply"');
+    const removed = await cli(dataDir, "reports", "resolve", reportId!, "--remove");
+    expect(removed.code, removed.logs()).toBe(0);
+    expect(removed.stdout).toBe(`report #${reportId} resolved: removed (comment ${id} deleted)\n`);
+    expect(linkIn((await call("/api/state", { token: bob.token })).data, shared)).toMatchObject({ comment_count: 0, last_comment: null });
+    expect((await call(`/api/links/${shared}/comments`, { token: bob.token })).data.comments).toEqual([]);
+  });
+
   e2e("exits 1 with a message for mint-session without an email, or an unknown command", async () => {
     const usage = await cli(dataDir, "mint-session");
     expect([usage.code, usage.stdout, usage.stderr]).toEqual([1, "", "usage: links-server mint-session <email> [name]\n"]);
