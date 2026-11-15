@@ -19,7 +19,7 @@ struct ShareComposeView: View {
                             noteFocused = false
                             Task { await model.send() }
                         }
-                        .disabled(model.phase != .ready && model.phase != .practice && !isFailed)
+                        .disabled(model.phase != .ready && model.phase != .practice && !isFailed || model.needsChat)
                         .accessibilityIdentifier("share.send")
                     }
                 }
@@ -80,6 +80,18 @@ struct ShareComposeView: View {
                         }
                     }
                     .padding(.vertical, 4)
+                }
+                // The practice send goes nowhere, so it has no chat to pick.
+                if !isPractice, let snapshot = model.snapshot, !snapshot.groups.isEmpty {
+                    Section {
+                        Picker("To", selection: $model.groupID) {
+                            if model.groupID == nil { Text("Choose a Chat").tag(Int?.none) }
+                            ForEach(snapshot.groups) { group in
+                                Text(snapshot.title(of: group)).tag(Int?.some(group.id))
+                            }
+                        }
+                        .accessibilityIdentifier("share.chat")
+                    }
                 }
                 Section {
                     TextField("Add a note (optional)", text: $model.note, axis: .vertical)

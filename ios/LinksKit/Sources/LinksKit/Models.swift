@@ -130,8 +130,54 @@ public struct LinkUser: Codable, Sendable, Hashable, Identifiable {
     }
 }
 
+/// A group chat (#12): its links are only for its members. Everyone starts in the default one.
+public struct LinkGroup: Codable, Sendable, Hashable, Identifiable {
+    public let id: Int
+    /// Empty: the app names it after its members.
+    public var name: String
+    public var createdBy: String?
+    public var createdAt: Date
+    /// The chat everyone was in before chats, which new members join.
+    public var isDefault: Bool
+    /// User ids, oldest member first.
+    public var members: [String]
+
+    enum CodingKeys: String, CodingKey {
+        case id, name, members
+        case createdBy = "created_by"
+        case createdAt = "created_at"
+        case isDefault = "default"
+    }
+
+    /// The thread its notifications and share sheet suggestions use: server/src/push.ts's thread-id.
+    public var conversationID: String { isDefault ? Self.defaultConversationID : "links-group-\(id)" }
+    public static let defaultConversationID = "links-inbox"
+
+    public init(id: Int, name: String = "", createdBy: String? = nil, createdAt: Date = .now,
+                isDefault: Bool = false, members: [String] = []) {
+        self.id = id
+        self.name = name
+        self.createdBy = createdBy
+        self.createdAt = createdAt
+        self.isDefault = isDefault
+        self.members = members
+    }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(Int.self, forKey: .id)
+        name = try c.decodeIfPresent(String.self, forKey: .name) ?? ""
+        createdBy = try c.decodeIfPresent(String.self, forKey: .createdBy)
+        createdAt = try c.decodeIfPresent(Date.self, forKey: .createdAt) ?? .distantPast
+        isDefault = try c.decodeIfPresent(Bool.self, forKey: .isDefault) ?? false
+        members = try c.decodeIfPresent([String].self, forKey: .members) ?? []
+    }
+}
+
 public struct SharedLink: Codable, Sendable, Hashable, Identifiable {
     public let id: Int
+    /// The chat it was sent to. Nil from servers (and cached inboxes) from before chats.
+    public var groupID: Int?
     public var url: URL
     public var platform: Platform
     public var title: String?
@@ -159,11 +205,13 @@ public struct SharedLink: Codable, Sendable, Hashable, Identifiable {
         case thumbHeight = "thumb_h"
         case addedBy = "added_by"
         case addedAt = "added_at"
+        case groupID = "group_id"
     }
 
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         id = try c.decode(Int.self, forKey: .id)
+        groupID = try? c.decodeIfPresent(Int.self, forKey: .groupID)
         let raw = try c.decode(String.self, forKey: .url)
         guard let url = URL.webURL(raw) else {
             throw DecodingError.dataCorruptedError(forKey: .url, in: c, debugDescription: "Unusable URL \(raw)")
@@ -185,11 +233,12 @@ public struct SharedLink: Codable, Sendable, Hashable, Identifiable {
         reactions = try c.decodeIfPresent([String: String].self, forKey: .reactions) ?? [:]
     }
 
-    public init(id: Int, url: URL, platform: Platform, title: String? = nil, author: String? = nil,
+    public init(id: Int, groupID: Int? = nil, url: URL, platform: Platform, title: String? = nil, author: String? = nil,
                 note: String = "", thumb: String? = nil, summary: String? = nil, siteName: String? = nil,
                 thumbWidth: Int? = nil, thumbHeight: Int? = nil, meta: String = "done", addedBy: String,
                 addedAt: Date = .now, seen: [String: Date] = [:], reactions: [String: String] = [:]) {
         self.id = id
+        self.groupID = groupID
         self.url = url
         self.platform = platform
         self.title = title
@@ -261,25 +310,30 @@ public struct SharedLink: Codable, Sendable, Hashable, Identifiable {
 public struct InboxState: Codable, Sendable, Hashable {
     public var me: String
     public var users: [LinkUser]
+    /// The chats I'm in, the default one first, then oldest first.
+    public var groups: [LinkGroup]
     public var links: [SharedLink]
     /// The people I've blocked. The server already leaves out their links, seen marks and
     /// reactions; they stay in `users` so Blocked People can name them.
     public var blocked: [String]
 
-    public init(me: String, users: [LinkUser], links: [SharedLink], blocked: [String] = []) {
+    public init(me: String, users: [LinkUser], groups: [LinkGroup] = [], links: [SharedLink], blocked: [String] = []) {
         self.me = me
         self.users = users
+        self.groups = groups
         self.links = links
         self.blocked = blocked
     }
 
-    enum CodingKeys: String, CodingKey { case me, users, links, blocked }
+    enum CodingKeys: String, CodingKey { case me, users, groups, links, blocked }
 
     /// One bad row must not take down the whole inbox: undecodable users and links are skipped.
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         me = try c.decode(String.self, forKey: .me)
         users = try c.decode([Lossy<LinkUser>].self, forKey: .users).compactMap(\.value)
+        // Servers and cached snapshots from before chats have no `groups`.
+        groups = try c.decodeIfPresent([Lossy<LinkGroup>].self, forKey: .groups)?.compactMap(\.value) ?? []
         links = try c.decode([Lossy<SharedLink>].self, forKey: .links).compactMap(\.value)
         // Older servers and cached snapshots have no `blocked`.
         blocked = try c.decodeIfPresent([String].self, forKey: .blocked) ?? []
@@ -333,8 +387,95 @@ public extension InboxState {
             .map { name(of: $0.key) }
     }
 
-    /// The people a new link goes to: everyone who has signed in, except me.
-    var otherPeople: [LinkUser] { users.filter { $0.id != me && !$0.isLegacy } }
+    /// The people the server lists for me (those I share a chat with), except me: who a new chat can have in it.
+    /// `users` also has senders of links I can still see, after they've left all my chats: those
+    /// aren't people I share a chat with. Servers from before chats have no chats to go by.
+    var otherPeople: [LinkUser] {
+        let members = Set(groups.flatMap(\.members))
+        return users.filter { $0.id != me && !$0.isLegacy && (groups.isEmpty || members.contains($0.id)) }
+    }
+
+    // MARK: Chats
+
+    func group(_ id: Int?) -> LinkGroup? { id.flatMap { id in groups.first { $0.id == id } } }
+
+    /// The chat a notification thread or share sheet suggestion is for.
+    func group(conversationID: String?) -> LinkGroup? {
+        guard let conversationID else { return nil }
+        return groups.first { $0.conversationID == conversationID }
+    }
+
+    /// The chat everyone starts in, if I'm still in it.
+    var defaultGroup: LinkGroup? { groups.first(where: \.isDefault) }
+
+    /// More than one chat: only then do the lists, sheets and widgets say which chat a link is in.
+    var hasChats: Bool { groups.count > 1 }
+
+    /// Other people in a chat who are still in Links, oldest member first.
+    func otherMembers(of group: LinkGroup) -> [LinkUser] {
+        group.members.compactMap { id in id == me ? nil : user(id) }.filter { !$0.isLegacy }
+    }
+
+    /// Who a link sent to this chat goes to. Without a chat (servers from before chats), everyone.
+    func recipients(in group: LinkGroup?) -> [LinkUser] {
+        guard let group else { return otherPeople }
+        return otherMembers(of: group)
+    }
+
+    /// The people a link went to besides its sender: its chat's members.
+    func recipients(of link: SharedLink) -> [LinkUser] {
+        recipients(in: group(link.groupID)).filter { $0.id != link.addedBy }
+    }
+
+    /// A chat's name, or, like Messages, its members' names when nobody has named it.
+    func title(of group: LinkGroup) -> String {
+        let name = group.name.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !name.isEmpty { return name }
+        if group.isDefault { return "Everyone" }
+        let others = otherMembers(of: group).map(\.name)
+        return others.isEmpty ? "Just You" : LinkFormat.names(others)
+    }
+
+    /// The chat a new link goes to unless I pick another: the default one, else my first.
+    var preferredGroup: LinkGroup? { defaultGroup ?? groups.first }
+
+    /// The chat the Share Extension starts on. Without a share-sheet suggestion, `preferredGroup`.
+    /// From one (`conversationID`, as ShareSuggestions donated it), that chat; if I've since left it
+    /// (e.g. on another device), my only chat, else `nil`, so I pick rather than send it elsewhere.
+    func shareGroup(fromSuggestion: Bool, conversationID: String? = nil) -> LinkGroup? {
+        guard fromSuggestion, !groups.isEmpty else { return preferredGroup }
+        return group(conversationID: conversationID) ?? (groups.count == 1 ? groups[0] : nil)
+    }
+
+    /// People I know who aren't in this chat yet and whom I haven't blocked, to add.
+    func addable(to group: LinkGroup) -> [LinkUser] {
+        otherPeople.filter { !group.members.contains($0.id) && !isBlocked($0.id) }
+    }
+
+    /// Links in one chat; `nil` is all of them.
+    func links(in groupID: Int?) -> [SharedLink] {
+        guard let groupID else { return links }
+        return links.filter { $0.groupID == groupID }
+    }
+
+    /// What the server shows once I've left a chat: none of its links.
+    func leaving(group id: Int) -> InboxState {
+        var state = self
+        state.groups.removeAll { $0.id == id }
+        state.links.removeAll { $0.groupID == id }
+        return state
+    }
+
+    /// The server's copy of a chat I'm in, new or changed.
+    func updating(_ group: LinkGroup) -> InboxState {
+        var state = self
+        if let i = state.groups.firstIndex(where: { $0.id == group.id }) {
+            state.groups[i] = group
+        } else {
+            state.groups.append(group)
+        }
+        return state
+    }
 
     func isBlocked(_ id: String) -> Bool { blocked.contains(id) }
 
@@ -370,9 +511,11 @@ public extension InboxState {
         return state
     }
 
-    func links(for filter: InboxFilter, matching query: String = "") -> [SharedLink] {
+    /// One list's links, in one chat (`nil`: every chat), matching a search.
+    func links(for filter: InboxFilter, in groupID: Int? = nil, matching query: String = "") -> [SharedLink] {
         let words = query.lowercased().split(whereSeparator: \.isWhitespace)
         return links.filter { link in
+            if let groupID, link.groupID != groupID { return false }
             switch filter {
             case .toWatch: guard isUnwatched(link) else { return false }
             case .watched: guard !isMine(link), isSeenByMe(link) else { return false }
@@ -381,7 +524,7 @@ public extension InboxState {
             }
             guard !words.isEmpty else { return true }
             let haystack = [link.title, link.author, link.note, name(of: link.addedBy),
-                            link.url.absoluteString, link.platform.label]
+                            link.url.absoluteString, link.platform.label, group(link.groupID).map(title(of:))]
                 .compactMap { $0 }.joined(separator: " ").lowercased()
             return words.allSatisfy { haystack.contains($0) }
         }
@@ -414,6 +557,10 @@ public struct SignInResult: Codable, Sendable {
     public var token: String
     public var user: LinkUser
     public var claimable: [LinkUser]
+}
+
+public struct GroupEnvelope: Codable, Sendable {
+    public var group: LinkGroup
 }
 
 public struct AddResult: Codable, Sendable {

@@ -38,7 +38,7 @@ struct LinksWidgetView: View {
             case .accessoryRectangular: RectangularView(count: count, items: items, feed: entry.feed)
             case .accessoryInline: InlineView(count: count, feed: entry.feed)
             case .systemSmall: SmallView(count: count, item: items.first, feed: entry.feed)
-            default: ListView(count: count, items: items, feed: entry.feed)
+            default: ListView(count: count, items: items, feed: entry.feed, chat: entry.chat)
             }
         }
     }
@@ -100,6 +100,7 @@ private struct ListView: View {
     let count: Int
     let items: [WidgetItem]
     let feed: WidgetFeed
+    var chat: String?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -107,6 +108,12 @@ private struct ListView: View {
                 Label(feed == .toWatch ? "To Watch" : "Sent", systemImage: feed == .toWatch ? "play.rectangle.on.rectangle" : "paperplane")
                     .font(.subheadline.weight(.semibold))
                     .foregroundStyle(Color.linksAccent)
+                if let chat {
+                    Text(chat)
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
                 Spacer()
                 if feed == .toWatch, count > 0 {
                     Text("\(count)")

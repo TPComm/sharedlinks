@@ -43,6 +43,7 @@ struct InboxView: View {
         .sheet(isPresented: $model.showAddSheet) {
             AddLinkSheet(prefill: model.addPrefill)
         }
+        .sheet(item: $model.chatSheet) { ChatSheetView(sheet: $0) }
         // The tour waits for the claim sheet to be gone, not just going.
         .sheet(isPresented: $model.showClaimSheet, onDismiss: { model.showTourIfNeeded() }) {
             ClaimSheet()
@@ -69,6 +70,10 @@ struct LinkListScreen: View {
                 .navigationDestination(for: Int.self) { LinkDetailView(linkID: $0) }
                 .toolbar {
                     ToolbarItem(placement: .topBarLeading) { ProfileButton() }
+                    // Servers from before chats have none to pick from.
+                    if !model.inbox.groups.isEmpty {
+                        ToolbarItem(placement: .topBarTrailing) { ChatPicker() }
+                    }
                     ToolbarItem(placement: .topBarTrailing) {
                         Button {
                             model.addPrefill = ""
@@ -89,7 +94,7 @@ struct LinkList: View {
     let query: String
 
     var body: some View {
-        let links = model.inbox.links(for: filter, matching: query)
+        let links = model.inbox.links(for: filter, in: model.chat, matching: query)
         List(links) { link in
             LinkRow(link: link, tab: InboxTab(filter))
         }
@@ -116,6 +121,15 @@ struct LinkList: View {
     @ViewBuilder private var emptyState: some View {
         if !query.isEmpty {
             ContentUnavailableView.search(text: query)
+        } else if let group = model.inbox.group(model.chat), model.inbox.links(in: group.id).isEmpty {
+            ContentUnavailableView {
+                Label("Nothing in \(model.inbox.title(of: group)) Yet", systemImage: "bubble.left.and.bubble.right")
+            } description: {
+                Text("Links sent to this chat show up here.")
+            } actions: {
+                Button("New Link") { model.showAddSheet = true }
+                    .buttonStyle(.borderedProminent)
+            }
         } else if model.inbox.links.isEmpty {
             ContentUnavailableView {
                 Label("No Links Yet", systemImage: "film.stack")

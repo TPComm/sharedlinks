@@ -16,6 +16,10 @@ final class AppModel {
     private(set) var isDeletingAccount = false
 
     var tab: InboxTab = .toWatch
+    /// The chat the lists show; `nil` is all of them. The To Watch badge always counts every chat.
+    var chat: Int?
+    /// The chat sheet showing, from the inbox's chat picker.
+    var chatSheet: ChatSheet?
     /// Each tab's stack of link pages, by link id. Kept here, not in the views, so a widget can
     /// open a page, and saved in SceneStorage (RootView) so coming back from TikTok lands on the
     /// same page even if iOS ended the app meanwhile.
@@ -152,6 +156,8 @@ final class AppModel {
         claimable = []
         invites = []
         paths = [:]
+        chat = nil
+        chatSheet = nil
         UNUserNotificationCenter.current().setBadgeCount(0)
         UNUserNotificationCenter.current().removeAllDeliveredNotifications() // names and titles from this account
         // Even if the server never heard about the sign-out (offline), this phone stops showing pushes.
@@ -208,10 +214,10 @@ final class AppModel {
     }
 
     /// Throws so the invite sheet can say what went wrong where the person is looking.
-    func createInvite(email: String) async throws -> Invite {
+    func createInvite(email: String, groupID: Int?) async throws -> Invite {
         let email = email.trimmingCharacters(in: .whitespacesAndNewlines)
         do {
-            let invite = try await client.createInvite(email: email.isEmpty ? nil : email)
+            let invite = try await client.createInvite(email: email.isEmpty ? nil : email, groupID: groupID)
             invites.insert(invite, at: 0)
             return invite
         } catch APIError.signedOut {
@@ -326,6 +332,8 @@ final class AppModel {
     private func setInbox(_ state: InboxState) {
         guard isSignedIn else { return }
         inbox = state
+        // Left on another device, or emptied: back to all chats.
+        if let chat, state.group(chat) == nil { self.chat = nil }
         InboxSnapshot.save(state)
         ShareSuggestions.seedIfNeeded(in: state)
         ThumbnailStore.prune(keeping: state.links)
@@ -386,7 +394,7 @@ final class AppModel {
     @discardableResult
     func add(_ text: String, note: String = "") async -> Bool {
         do {
-            try await send(text, note: note)
+            try await send(text, note: note, groupID: chat)
             return true
         } catch {
             errorMessage = error.localizedDescription
@@ -396,9 +404,12 @@ final class AppModel {
 
     /// `add` without the app-wide alert, for the New Link sheet: RootView's alert would close
     /// the sheet and lose what was typed, so the sheet shows the error over itself.
-    func send(_ text: String, note: String = "") async throws {
-        let result = try await client.add(text, note: note)
+    /// `groupID` is the chat it goes to; `nil` lets the server pick the default one.
+    func send(_ text: String, note: String = "", groupID: Int? = nil) async throws {
+        let result = try await client.add(text, note: note, groupID: groupID)
         patch(result.link)
+        // Sent to a chat other than the one the lists show: show that one, so the link is there.
+        if let chat, result.link.groupID != chat { self.chat = result.link.groupID }
         if result.duplicate {
             let link = result.link
             toast = inbox.isMine(link)
@@ -408,7 +419,58 @@ final class AppModel {
             toast = "Sent"
             if tab != .search { tab = .sent }
             fastPollUntil = .now.addingTimeInterval(15)
-            ShareSuggestions.donateSend(in: inbox)
+            ShareSuggestions.donateSend(in: inbox, groupID: result.link.groupID)
+        }
+    }
+
+    // MARK: Chats
+
+    /// Starts a chat with me and `members` in it, and shows it. Throws so the sheet can say why.
+    func startChat(name: String, members: [String]) async throws {
+        let group = try await chatChange { try await self.client.createGroup(name: name, members: members) }
+        chat = group.id
+        toast = "Started \(inbox.title(of: group))"
+    }
+
+    func renameChat(_ group: LinkGroup, to name: String) async throws {
+        try await chatChange { try await self.client.renameGroup(group.id, to: name) }
+    }
+
+    func addPeople(_ members: [String], to group: LinkGroup) async throws {
+        let updated = try await chatChange { try await self.client.addMembers(members, to: group.id) }
+        let added = members.compactMap { inbox.user($0)?.name }
+        toast = "Added \(LinkFormat.names(added)) to \(inbox.title(of: updated))"
+    }
+
+    /// Its links leave my lists; the ones I sent stay in the chat for everyone else.
+    func leaveChat(_ group: LinkGroup) async {
+        let title = inbox.title(of: group)
+        let before = inbox, chatBefore = chat
+        if chat == group.id { chat = nil }
+        applyLocally { $0.leaving(group: group.id) }
+        ShareSuggestions.forget(group)
+        // Offline I'm still in it, and the refresh can't put it back: setInbox re-donates its suggestion.
+        await perform(onFailure: {
+            self.setInbox(before)
+            self.chat = chatBefore
+        }) {
+            try await self.client.leaveGroup(group.id)
+            self.toast = "Left \(title)"
+        }
+    }
+
+    /// Applies the server's copy of a chat at once (picker, lists, widgets), then refreshes.
+    @discardableResult
+    private func chatChange(_ save: @escaping () async throws -> LinkGroup) async throws -> LinkGroup {
+        do {
+            let group = try await save()
+            applyLocally { $0.updating(group) }
+            ShareSuggestions.seedIfNeeded(in: inbox)
+            Task { await refresh() }
+            return group
+        } catch APIError.signedOut {
+            endSession()
+            throw APIError.signedOut
         }
     }
 
@@ -551,13 +613,30 @@ final class AppModel {
                 pendingInvite = invite
                 errorMessage = nil
             }
-        // The server's universal links, handled once link pages and chats ship.
-        case .inbox, .link, .group, nil:
+        case .group(let id):
+            guard let id = Int(id) else { break }
+            if inbox.group(id) != nil {
+                showChat(id)
+            } else {
+                // A chat I've just been added to, newer than this (backgrounded) app's inbox.
+                Task {
+                    await refresh()
+                    if inbox.group(id) != nil { showChat(id) }
+                }
+            }
+        // The server's universal links, handled once link pages ship.
+        case .inbox, .link, nil:
             break
         }
     }
 
     // MARK: Navigation
+
+    /// A chat's lists, from a deep link: the tab showing goes back to its list, off any link page.
+    private func showChat(_ id: Int) {
+        chat = id
+        paths[tab] = []
+    }
 
     /// A row's link page, on top of that row's list.
     func showPage(_ link: SharedLink, on tab: InboxTab) {
@@ -566,6 +645,7 @@ final class AppModel {
 
     /// A link's page on the tab whose list has it, e.g. from a widget.
     func showPage(_ link: SharedLink) {
+        if let chat, link.groupID != chat { self.chat = nil } // e.g. a push from another chat
         let tab = InboxTab(inbox.home(of: link))
         self.tab = tab
         paths[tab] = [link.id]
@@ -575,9 +655,10 @@ final class AppModel {
     struct Navigation: Codable, Equatable {
         var tab: InboxTab
         var paths: [InboxTab: [Int]]
+        var chat: Int?
     }
 
-    var navigation: Navigation { Navigation(tab: tab, paths: paths) }
+    var navigation: Navigation { Navigation(tab: tab, paths: paths, chat: chat) }
 
     /// Puts back the tab and pages that were showing when iOS ended the app, minus links that
     /// have gone since. A page a widget already opened wins.
@@ -586,6 +667,7 @@ final class AppModel {
         let ids = Set(inbox.links.map(\.id))
         tab = saved.tab
         paths = saved.paths.mapValues { $0.filter(ids.contains) }
+        chat = saved.chat.flatMap { inbox.group($0)?.id }
     }
 
     private func perform(onFailure: (() -> Void)? = nil, _ work: @escaping () async throws -> Void) async {

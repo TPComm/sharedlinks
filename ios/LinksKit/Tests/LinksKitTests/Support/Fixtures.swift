@@ -13,11 +13,21 @@ enum Fixture {
     static let me = #"{"user": \#(sam), "claimable": [\#(jo)]}"#
 
     static func link(id: Int = 7, url: String = "https://www.youtube.com/watch?v=abc", platform: String = "youtube",
-                     note: String = "watch this", seen: String = "{}", reactions: String = "{}") -> String {
+                     note: String = "watch this", seen: String = "{}", reactions: String = "{}",
+                     groupID: Int? = 1) -> String {
         """
-        {"id": \(id), "url": "\(url)", "platform": "\(platform)", "title": "A video", "author": "Some Channel",
+        {"id": \(id), \(groupID.map { #""group_id": \#($0), "# } ?? "")"url": "\(url)", "platform": "\(platform)", "title": "A video", "author": "Some Channel",
          "note": "\(note)", "thumb": "/thumbs/\(id)", "meta": "done", "added_by": "user_01SAM",
          "added_at": 1794525713.5, "seen": \(seen), "reactions": \(reactions)}
+        """
+    }
+
+    /// getGroup(): a chat Sam started with Jo in it.
+    static func group(id: Int = 5, name: String = "Film club", isDefault: Bool = false,
+                      members: String = #"["user_01SAM", "user_01JO"]"#) -> String {
+        """
+        {"id": \(id), "name": "\(name)", "created_by": "user_01SAM", "created_at": 1794525700,
+         "default": \(isDefault), "members": \(members)}
         """
     }
 

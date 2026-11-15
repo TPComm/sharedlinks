@@ -39,8 +39,24 @@ final class ShareModel {
     var title: String?
     var image: UIImage?
     var note = ""
-    var recipients: [String] = []
+    /// The inbox as the app last saw it, for the chats to pick from and who's in them.
+    private(set) var snapshot: InboxState?
+    /// The chat the link goes to; `nil` (no chats cached yet) lets the server pick the default one.
+    var groupID: Int?
+    private var suggestedRecipients: [String] = []
+
+    /// Who the link goes to: the picked chat's members.
+    var recipients: [String] {
+        guard let snapshot else { return suggestedRecipients }
+        if needsChat { return [] }
+        return snapshot.recipients(in: snapshot.group(groupID)).map(\.name)
+    }
+
+    var groups: [LinkGroup] { snapshot?.groups ?? [] }
     private var practiceFinished = false
+
+    /// A real send that has chats to choose from but none picked yet.
+    var needsChat: Bool { groupID == nil && !groups.isEmpty && phase != .practice && phase != .practiceSent }
 
     init(context: NSExtensionContext?) {
         self.context = context
@@ -49,12 +65,11 @@ final class ShareModel {
     var platform: Platform { Platform(host: url?.host()) }
 
     func load() async {
-        let snapshot = InboxSnapshot.load()
-        recipients = (snapshot?.otherPeople ?? []).map(\.name)
-        // Picked the "Links" conversation from the share sheet's suggestions row.
-        if let intent = context?.intent as? INSendMessageIntent, recipients.isEmpty {
-            recipients = intent.recipients?.compactMap(\.displayName) ?? []
-        }
+        snapshot = InboxSnapshot.load()
+        // Picked a chat from the share sheet's suggestions row: that one, as donated by ShareSuggestions.
+        let intent = context?.intent as? INSendMessageIntent
+        groupID = snapshot?.shareGroup(fromSuggestion: intent != nil, conversationID: intent?.conversationIdentifier)?.id
+        suggestedRecipients = intent?.recipients?.compactMap(\.displayName) ?? []
         url = await sharedURL()
         if Onboarding.isPractice(url) {
             phase = .practice
@@ -110,6 +125,7 @@ final class ShareModel {
     }
 
     func send() async {
+        guard !needsChat else { return }
         if phase == .practice {
             phase = .practiceSent
             #if DEBUG
@@ -122,7 +138,7 @@ final class ShareModel {
         guard let url else { return }
         phase = .sending
         do {
-            let result = try await APIClient().add(url.absoluteString, note: note)
+            let result = try await APIClient().add(url.absoluteString, note: note, groupID: groupID)
             InboxSnapshot.update { state in
                 if !state.links.contains(where: { $0.id == result.link.id }) { state.links.insert(result.link, at: 0) }
             }
@@ -132,7 +148,7 @@ final class ShareModel {
                 let who = snapshot.map { $0.isMine(result.link) ? "You" : $0.name(of: result.link.addedBy) } ?? "Someone"
                 phase = .duplicate("\(who) already sent this \(LinkFormat.ago(result.link.addedAt).lowercased()).")
             } else {
-                if let state = InboxSnapshot.load() { ShareSuggestions.donateSend(in: state) }
+                if let state = InboxSnapshot.load() { ShareSuggestions.donateSend(in: state, groupID: result.link.groupID) }
                 phase = .sent
             }
             try? await Task.sleep(for: .seconds(1.1))

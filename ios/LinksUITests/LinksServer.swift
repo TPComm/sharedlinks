@@ -31,22 +31,38 @@ struct LinksServer: Sendable {
         let url: String
         let note: String
         let addedBy: String
+        let groupID: Int
         let seen: [String: Double]
         let reactions: [String: String]
 
         enum CodingKeys: String, CodingKey {
             case id, url, note, seen, reactions
             case addedBy = "added_by"
+            case groupID = "group_id"
+        }
+    }
+
+    struct Group: Decodable, Sendable {
+        let id: Int
+        let name: String
+        let isDefault: Bool
+        let members: [String]
+
+        enum CodingKeys: String, CodingKey {
+            case id, name, members
+            case isDefault = "default"
         }
     }
 
     struct State: Decodable, Sendable {
         /// The id of whoever's token asked.
         let me: String
+        let groups: [Group]
         let links: [Link]
         let blocked: [String]
 
         func link(_ id: Int) -> Link? { links.first { $0.id == id } }
+        func group(_ id: Int) -> Group? { groups.first { $0.id == id } }
     }
 
     struct Failure: Error, CustomStringConvertible {
@@ -55,10 +71,24 @@ struct LinksServer: Sendable {
 
     // MARK: API
 
-    func add(_ text: String, note: String = "", as token: String) throws -> Link {
+    /// `groupID` nil sends it to the default chat, as the app did before chats.
+    func add(_ text: String, note: String = "", to groupID: Int? = nil, as token: String) throws -> Link {
         struct Added: Decodable { let link: Link }
-        let data = try send("POST", "api/links", json: ["url": text, "note": note], as: token)
+        var json: [String: Any] = ["url": text, "note": note]
+        if let groupID { json["group_id"] = groupID }
+        let data = try send("POST", "api/links", json: json, as: token)
         return try JSONDecoder().decode(Added.self, from: data).link
+    }
+
+    /// A chat with whoever's token asks, plus `members` (user ids).
+    func startChat(name: String = "", members: [String] = [], as token: String) throws -> Group {
+        struct Started: Decodable { let group: Group }
+        let data = try send("POST", "api/groups", json: ["name": name, "members": members], as: token)
+        return try JSONDecoder().decode(Started.self, from: data).group
+    }
+
+    func leaveChat(_ id: Int, as token: String) throws {
+        _ = try send("DELETE", "api/groups/\(id)", as: token)
     }
 
     func setSeen(_ id: Int, _ seen: Bool, as token: String) throws {

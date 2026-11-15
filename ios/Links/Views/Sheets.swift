@@ -8,11 +8,15 @@ struct AddLinkSheet: View {
     @State private var note = ""
     @State private var sending = false
     @State private var failure: String?
+    /// The chat it goes to: the one the lists show, else the default chat.
+    @State private var groupID: Int?
     @FocusState private var focused: Bool
 
     init(prefill: String) {
         _text = State(initialValue: prefill)
     }
+
+    private var group: LinkGroup? { model.inbox.group(groupID) }
 
     private var detected: URL? { LinkText.firstURL(in: text) }
 
@@ -47,8 +51,18 @@ struct AddLinkSheet: View {
                         .lineLimit(1...5)
                         .accessibilityIdentifier("addLink.note")
                 } footer: {
-                    let people = model.inbox.otherPeople.map(\.name)
+                    let people = model.inbox.recipients(in: group).map(\.name)
                     if !people.isEmpty { Text("Goes to \(LinkFormat.names(people)).") }
+                }
+                if model.inbox.groups.count > 1 {
+                    Section {
+                        Picker("To", selection: $groupID) {
+                            ForEach(model.inbox.groups) { group in
+                                Text(model.inbox.title(of: group)).tag(Int?.some(group.id))
+                            }
+                        }
+                        .accessibilityIdentifier("addLink.chat")
+                    }
                 }
             }
             .navigationTitle("New Link")
@@ -62,7 +76,7 @@ struct AddLinkSheet: View {
                         sending = true
                         Task {
                             do {
-                                try await model.send(text, note: note)
+                                try await model.send(text, note: note, groupID: groupID)
                                 dismiss()
                             } catch {
                                 failure = error.localizedDescription
@@ -77,7 +91,10 @@ struct AddLinkSheet: View {
             .failureAlert($failure)
         }
         .presentationDetents([.medium, .large])
-        .onAppear { if text.isEmpty { focused = true } }
+        .onAppear {
+            if groupID == nil { groupID = (model.inbox.group(model.chat) ?? model.inbox.preferredGroup)?.id }
+            if text.isEmpty { focused = true }
+        }
     }
 }
 

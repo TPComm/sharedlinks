@@ -16,17 +16,22 @@ struct SaveLinkIntent: AppIntent {
     @Parameter(title: "Note")
     var note: String?
 
+    @Parameter(title: "Chat", description: "The chat it goes to. Without one, it goes to everyone.")
+    var chat: ChatEntity?
+
     static var parameterSummary: some ParameterSummary {
         Summary("Send \(\.$link) to Links") {
+            \.$chat
             \.$note
         }
     }
 
     init() {}
 
-    init(link: String, note: String? = nil) {
+    init(link: String, note: String? = nil, chat: ChatEntity? = nil) {
         self.link = link
         self.note = note
+        self.chat = chat
     }
 
     func perform() async throws -> some IntentResult & ProvidesDialog & ReturnsValue<String> {
@@ -34,7 +39,7 @@ struct SaveLinkIntent: AppIntent {
             throw IntentError.message("Open Links and sign in first.")
         }
         do {
-            let result = try await APIClient().add(link, note: note ?? "")
+            let result = try await APIClient().add(link, note: note ?? "", groupID: chat?.id)
             InboxSnapshot.update { state in
                 if !state.links.contains(where: { $0.id == result.link.id }) { state.links.insert(result.link, at: 0) }
             }
@@ -42,7 +47,12 @@ struct SaveLinkIntent: AppIntent {
             if result.duplicate {
                 return .result(value: result.link.url.absoluteString, dialog: "That one's already in Links.")
             }
-            if let state = InboxSnapshot.load() { ShareSuggestions.donateSend(in: state) }
+            if let state = InboxSnapshot.load() {
+                ShareSuggestions.donateSend(in: state, groupID: result.link.groupID)
+                if let group = state.group(result.link.groupID), !group.isDefault {
+                    return .result(value: result.link.url.absoluteString, dialog: "Sent to \(state.title(of: group)).")
+                }
+            }
             return .result(value: result.link.url.absoluteString, dialog: "Sent to Links.")
         } catch {
             throw IntentError.message(error.localizedDescription)
