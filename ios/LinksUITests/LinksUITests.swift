@@ -1,3 +1,4 @@
+import CoreFoundation
 import XCTest
 
 /// End to end: the real app in a Simulator against a real server (ios/scripts/ui-tests.sh).
@@ -37,23 +38,25 @@ final class LinksUITests: XCTestCase {
         let name = "Throwback \(shortID())"
         let chat = try server.startChat(name: name, members: [meID], as: server.friend)
         leaveAfterwards(chat.id)
-        let seededAt = Date()
         let link = try server.add(uniqueURL(), to: chat.id, as: server.friend)
         deleteAfterwards(link.id)
         try server.setSeen(link.id, true, as: server.me)
         try server.react(link.id, emoji: "❤️", as: server.me)
         try server.react(link.id, emoji: "❤️", as: server.friend)
 
-        launch(environment: ["LINKS_THROWBACK_MIN_AGE": "60"])
+        let clockName = "com.tpcomm.links.throwback.\(UUID().uuidString)"
+        launch(environment: ["LINKS_THROWBACK_MIN_AGE": "1", "LINKS_THROWBACK_TEST_CLOCK": clockName,
+                             "LINKS_THROWBACK_TEST_NOW": String(link.addedAt)])
         pickChat(name)
         app.tabBars.buttons["Seen"].tap()
         waitForRow(link, in: "watched")
-        XCTAssertLessThan(Date().timeIntervalSince(seededAt), 55, "setup must finish before the link is eligible")
         let card = app.otherElements["throwback.card"]
         XCTAssertFalse(card.exists, "the link should initially be too recent")
 
-        // No reactions, refresh gesture or tab switch: only the passage of time makes it eligible.
-        // Allow a full minute after the age cutoff for the timeline's next tick.
+        // Setup can take arbitrarily long: only advance time once the initial state is on screen.
+        // The clock isn't observed by SwiftUI, so the real minute timeline must discover eligibility.
+        CFNotificationCenterPostNotification(CFNotificationCenterGetDarwinNotifyCenter(),
+                                             CFNotificationName(rawValue: clockName as CFString), nil, nil, true)
         XCTAssert(card.waitForExistence(timeout: 125), "the first Throwback never appeared as it aged")
         XCTAssert(card.buttons["throwback.open"].label.contains("Friend"))
     }

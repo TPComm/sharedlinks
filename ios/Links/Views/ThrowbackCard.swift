@@ -1,11 +1,39 @@
 import LinksKit
 import SwiftUI
+#if DEBUG
+import CoreFoundation
+#endif
 
 struct ThrowbackCard: View {
     @Environment(AppModel.self) private var model
     @Environment(\.dynamicTypeSize) private var typeSize
     @State private var advances = 0
     let date: Date
+
+    static var now: Date {
+        #if DEBUG
+        _ = configureTestClock
+        if let testNow { return testNow }
+        #endif
+        return .now
+    }
+
+    #if DEBUG
+    // Read, don't observe: advancing the test clock must still wait for the real TimelineView tick.
+    private static var testNow: Date?
+    private static let configureTestClock: Void = {
+        let env = ProcessInfo.processInfo.environment
+        guard env["LINKS_UI_TESTS"] == "1", let name = env["LINKS_THROWBACK_TEST_CLOCK"],
+              let value = env["LINKS_THROWBACK_TEST_NOW"], let seconds = TimeInterval(value),
+              seconds.isFinite else { return }
+        testNow = Date(timeIntervalSince1970: seconds)
+        CFNotificationCenterAddObserver(CFNotificationCenterGetDarwinNotifyCenter(), nil, { _, _, _, _, _ in
+            DispatchQueue.main.async {
+                ThrowbackCard.testNow = ThrowbackCard.testNow?.addingTimeInterval(2)
+            }
+        }, name as CFString, nil, .deliverImmediately)
+    }()
+    #endif
 
     static var minimumAge: TimeInterval {
         let env = ProcessInfo.processInfo.environment
