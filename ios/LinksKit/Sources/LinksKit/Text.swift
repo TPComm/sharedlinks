@@ -13,13 +13,12 @@ public enum LinkText {
             .first { ["http", "https"].contains($0.scheme?.lowercased()) }
     }
 
-    /// The web link in a shared URL attachment (what `NSItemProvider.loadItem` returns for
-    /// public.url). Most apps hand over a URL, but SwiftUI's ShareLink hands over the type's data.
+    /// The web link in a shared URL attachment. SwiftUI's ShareLink hands over URL data.
     public static func webURL(fromSharedItem item: Any?) -> URL? {
         let url: URL? = switch item {
         case let url as URL: url
         case let data as Data: url(fromURLData: data)
-        case let string as String: URL(string: string)
+        case let string as String: URL(string: string.trimmingCharacters(in: .whitespacesAndNewlines))
         default: nil
         }
         guard let url, ["http", "https"].contains(url.scheme?.lowercased()) else { return nil }
@@ -30,7 +29,22 @@ public enum LinkText {
     static func url(fromURLData data: Data) -> URL? {
         let plist = try? PropertyListSerialization.propertyList(from: data, format: nil)
         let string = (plist as? [Any])?.first as? String ?? plist as? String ?? String(data: data, encoding: .utf8)
-        return string.flatMap { URL(string: $0) }
+        return string.flatMap { URL(string: $0.trimmingCharacters(in: .whitespacesAndNewlines)) }
+    }
+
+    /// The first web link in a plain-text attachment, supplied as a string or UTF-8 data.
+    public static func webURL(fromSharedText item: Any?) -> URL? {
+        let text: String? = switch item {
+        case let string as String: string
+        case let data as Data: String(data: data, encoding: .utf8)
+        default: nil
+        }
+        guard let text else { return nil }
+        if let url = firstURL(in: text) { return url }
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.rangeOfCharacter(from: .whitespacesAndNewlines) == nil,
+           let url = URL(string: trimmed), ["http", "https"].contains(url.scheme?.lowercased()) { return url }
+        return nil
     }
 }
 

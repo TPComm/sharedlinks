@@ -26,6 +26,7 @@ struct LinkTextTests {
     @Test func takesASharedURL() {
         let url = URL(string: "https://www.tiktok.com/@a/video/1")!
         #expect(LinkText.webURL(fromSharedItem: url) == url)
+        #expect(LinkText.webURL(fromSharedItem: url as NSURL) == url)
         #expect(LinkText.webURL(fromSharedItem: url.absoluteString) == url)
         #expect(LinkText.webURL(fromSharedItem: Data(url.absoluteString.utf8)) == url)
     }
@@ -44,6 +45,51 @@ struct LinkTextTests {
         #expect(LinkText.webURL(fromSharedItem: URL(string: "file:///tmp/x")!) == nil)
         #expect(LinkText.webURL(fromSharedItem: "tel:5551234") == nil)
         #expect(LinkText.webURL(fromSharedItem: 42) == nil)
+        #expect(LinkText.webURL(fromSharedItem: "") == nil)
+        #expect(LinkText.webURL(fromSharedItem: Data([0xFF, 0xFE])) == nil)
+    }
+
+    @Test(arguments: ["https://example.com/article.", "\nhttps://example.com/article.\n"])
+    func preservesExactURLAttachments(_ text: String) throws {
+        let url = URL(string: "https://example.com/article.")!
+        #expect(LinkText.webURL(fromSharedItem: url) == url)
+        #expect(LinkText.webURL(fromSharedItem: text) == url)
+        #expect(LinkText.webURL(fromSharedItem: Data(text.utf8)) == url)
+        let data = try PropertyListSerialization.data(fromPropertyList: [text, "", [String: String]()],
+                                                      format: .binary, options: 0)
+        #expect(LinkText.webURL(fromSharedItem: data) == url)
+    }
+
+    @Test func ignoresTextWithoutAWebLink() {
+        #expect(LinkText.webURL(fromSharedText: nil) == nil)
+        #expect(LinkText.webURL(fromSharedText: 42) == nil)
+        #expect(LinkText.webURL(fromSharedText: "") == nil)
+        #expect(LinkText.webURL(fromSharedText: "no link here") == nil)
+        #expect(LinkText.webURL(fromSharedText: "file:///tmp/x") == nil)
+        #expect(LinkText.webURL(fromSharedText: "tel:5551234") == nil)
+        #expect(LinkText.webURL(fromSharedText: Data([0xFF, 0xFE])) == nil)
+    }
+
+    @Test(arguments: ["https://example.com/a watch this", "\nhttps://example.com/a", "https://example.com/a\n", "\nhttps://example.com/a\n"])
+    func keepsSurroundingTextOutOfSharedURLs(_ text: String) {
+        let url = URL(string: "https://example.com/a")!
+        #expect(LinkText.webURL(fromSharedText: text) == url)
+        #expect(LinkText.webURL(fromSharedText: Data(text.utf8)) == url)
+    }
+
+    @Test(arguments: ["https://example.com/article.", "See https://example.com/article, it's good"])
+    func dropsSentencePunctuationFromSharedURLs(_ text: String) {
+        let url = URL(string: "https://example.com/article")!
+        #expect(LinkText.webURL(fromSharedText: text) == url)
+        #expect(LinkText.webURL(fromSharedText: Data(text.utf8)) == url)
+    }
+
+    @Test(arguments: ["Episode title", "Episode: title"])
+    func readsPodcastsSharedText(_ title: String) {
+        let url = URL(string: "https://podcasts.apple.com/us/podcast/explain-it-to-me/id1042433083?i=1000802075437")!
+        let text = "\(title)\n\(url.absoluteString)"
+        #expect(LinkText.webURL(fromSharedText: text) == url)
+        #expect(LinkText.webURL(fromSharedText: Data(text.utf8)) == url)
     }
 }
 
