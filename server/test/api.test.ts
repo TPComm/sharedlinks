@@ -670,7 +670,7 @@ describe("reports, blocks and the word list", () => {
     expect(res.headers.get("content-type")).toContain("text/html");
     expect(res.data).toContain("Links Privacy Policy");
     expect(res.data).toContain("People only lists people you share a chat with.");
-    expect(res.data).toContain("Each link and its note, comments, watched marks and reactions are only shared with members of that link's chat.");
+    expect(res.data).toContain("Each link and its note, comments, seen marks and reactions are only shared with members of that link's chat.");
     expect(res.data).toContain("Your name and photo can still appear on links in a chat you've left");
     expect(res.data).toContain('<a href="mailto:support@tpcomm.co">support@tpcomm.co</a>');
     expect(res.data).toContain("Delete Account");

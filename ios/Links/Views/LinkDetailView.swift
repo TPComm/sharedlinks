@@ -154,7 +154,7 @@ private struct LinkPage: View {
             } else {
                 watchButton(prominent: true)
                 Button { mark(true) } label: {
-                    Label("Mark as Watched", systemImage: "checkmark.circle")
+                    Label("Mark as Seen", systemImage: "checkmark.circle")
                         .frame(maxWidth: .infinity)
                 }
                 .buttonStyle(.bordered)
@@ -166,7 +166,7 @@ private struct LinkPage: View {
 
     @ViewBuilder private func watchButton(prominent: Bool) -> some View {
         let button = Button(action: watch) {
-            Label(link.platform.openTitle, systemImage: link.platform.isVideo ? "play.fill" : "arrow.up.forward.app")
+            Label(link.platform.openTitle, systemImage: "arrow.up.forward.app")
                 .fontWeight(.semibold)
                 .frame(maxWidth: .infinity)
         }
@@ -181,11 +181,11 @@ private struct LinkPage: View {
 
     private func watchedStatus(_ date: Date) -> some View {
         let status = Label {
-            Text("Watched · \(LinkFormat.ago(date))")
+            Text("Seen · \(LinkFormat.ago(date))")
         } icon: {
             Image(systemName: "checkmark.circle.fill").foregroundStyle(Color.accentColor)
         }
-        let undo = Button("Mark as Not Watched") { mark(false) }
+        let undo = Button("Mark as Unseen") { mark(false) }
             .accessibilityIdentifier("linkPage.markNotWatched")
         return ViewThatFits(in: .horizontal) {
             HStack { status; Spacer(); undo }

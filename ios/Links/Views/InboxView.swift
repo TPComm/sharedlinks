@@ -22,12 +22,12 @@ struct InboxView: View {
     var body: some View {
         @Bindable var model = model
         TabView(selection: $model.tab) {
-            Tab("To Watch", systemImage: "play.rectangle.on.rectangle", value: .toWatch) {
+            Tab("Queue", systemImage: "tray.full", value: .toWatch) {
                 LinkListScreen(filter: .toWatch)
             }
             .badge(model.inbox.toWatch.count)
 
-            Tab("Watched", systemImage: "checkmark.circle", value: .watched) {
+            Tab("Seen", systemImage: "checkmark.circle", value: .watched) {
                 LinkListScreen(filter: .watched)
             }
 
@@ -142,7 +142,7 @@ struct LinkList: View {
             ContentUnavailableView {
                 Label("No Links Yet", systemImage: "film.stack")
             } description: {
-                Text("Share a reel or TikTok to Links from any app, or tap + to paste one.")
+                Text("Share any link to Links from another app, or tap + to paste one.")
             } actions: {
                 Button("New Link") { model.showAddSheet = true }
                     .buttonStyle(.borderedProminent)
@@ -154,10 +154,10 @@ struct LinkList: View {
             switch filter {
             case .toWatch:
                 ContentUnavailableView("All Caught Up", systemImage: "checkmark.circle",
-                                       description: Text("You've watched everything you were sent."))
+                                       description: Text("You've seen everything you were sent."))
             case .watched:
-                ContentUnavailableView("Nothing Watched Yet", systemImage: "popcorn",
-                                       description: Text("Links you've watched show up here."))
+                ContentUnavailableView("Nothing Seen Yet", systemImage: "popcorn",
+                                       description: Text("Links you've seen show up here."))
             case .sent:
                 ContentUnavailableView("Nothing Sent Yet", systemImage: "paperplane",
                                        description: Text("Links you share show up here, with who's seen them."))

@@ -63,7 +63,7 @@ struct PlatformTests {
     }
 
     @Test(arguments: [
-        (Platform.tiktok, "Watch in TikTok"), (.instagram, "Watch in Instagram"), (.youtube, "Watch in YouTube"),
+        (Platform.tiktok, "Open in TikTok"), (.instagram, "Open in Instagram"), (.youtube, "Open in YouTube"),
         (.x, "Open in X"), (.reddit, "Open in Reddit"), (.facebook, "Open in Facebook"), (.web, "Open in Browser"),
     ])
     func openTitle(_ platform: Platform, _ title: String) {
@@ -184,7 +184,7 @@ struct DisplayTitleTests {
         (Platform.tiktok, "https://www.tiktok.com/@/video/7301234567890123456", "TikTok"),
         (.instagram, "https://www.instagram.com/reel/Cxyz", "Instagram reel"),
         (.instagram, "https://www.instagram.com/p/Cxyz", "Instagram post"),
-        (.youtube, "https://www.youtube.com/watch?v=abc", "YouTube video"),
+        (.youtube, "https://www.youtube.com/watch?v=abc", "YouTube link"),
         (.x, "https://x.com/someone/status/1", "Post on X"),
         (.reddit, "https://www.reddit.com/r/swift/comments/1", "Reddit post"),
         (.facebook, "https://www.facebook.com/watch?v=1", "Facebook post"),

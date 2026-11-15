@@ -38,7 +38,7 @@ struct SignInView: View {
             }
             Text("Links")
                 .font(.system(size: titleSize, weight: .bold, design: .rounded))
-            Text("The reels and TikToks you send each other,\nand who's watched them.")
+            Text("Articles, videos, recipes and more,\nshared with your people.")
                 .font(.body)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)

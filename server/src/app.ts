@@ -102,7 +102,7 @@ function invitePage(config: Config, token: string, invite: { inviter: string | n
   const store = config.appStoreId ? `https://apps.apple.com/app/id${encodeURIComponent(config.appStoreId)}` : "";
   const title = !invite ? "This invite doesn't work anymore" : invite.inviter ? `${invite.inviter} invited you to Links` : "You're invited to Links";
   const description = invite
-    ? "Send each other reels and TikToks, and see who's watched them."
+    ? "Share articles, videos, recipes, gift ideas and more, and see who's seen them."
     : "It was already used, cancelled, or it expired. Ask for a new one.";
   const banner = invite && config.appStoreId
     ? `<meta name="apple-itunes-app" content="app-id=${escapeHtml(config.appStoreId)}, app-argument=${escapeHtml(`${config.publicUrl}/invite/${token}`)}">`
@@ -143,10 +143,10 @@ function privacyPage(email: string, sessionDays: number): string {
 <h2>What Links keeps, and why</h2>
 <ul>
 <li><b>Your account:</b> your email address, display name and profile photo address. They come from WorkOS, our sign-in provider, when you first sign in, and you can change your name in the app. They sign you in, match invites sent to you, and show your friends who sent what.</li>
-<li><b>What you do in Links:</b> the links you send and their notes, your comments, which links you've watched, your reactions, the reports you make and the people you block. For each link the server also fetches its title, author and thumbnail from the link's page.</li>
+<li><b>What you do in Links:</b> the links you send and their notes, your comments, which links you've seen, your reactions, the reports you make and the people you block. For each link the server also fetches its title, author and thumbnail from the link's page.</li>
 <li><b>Invites you send:</b> the email address you invite, if you type one, when the invite expires, and who used it. They let your friend in; cancelling an invite deletes it.</li>
 <li><b>Signed-in devices:</b> a scrambled (hashed) copy of each device's sign-in token, with when it was created and last used, and the push notification token Apple gives the app on that device, which the server uses to send it notifications.</li>
-<li><b>Server logs:</b> one line per request, with what was asked for (for example, "mark link 12 watched") and whether it worked, plus messages about errors and events, which can include a link's address or an account's ID. They're used to fix problems.</li>
+<li><b>Server logs:</b> one line per request, with what was asked for (for example, "mark link 12 seen") and whether it worked, plus messages about errors and events, which can include a link's address or an account's ID. They're used to fix problems.</li>
 <li><b>Server health:</b> the server computer's CPU, memory, disk and network use, once a minute. It's about the server, not about you.</li>
 <li><b>Backups:</b> a copy of the server's database, made every day.</li>
 </ul>
@@ -154,9 +154,9 @@ function privacyPage(email: string, sessionDays: number): string {
 
 <h2>Who else sees it</h2>
 <ul>
-<li><b>The people in your chats</b> see your name and photo. People only lists people you share a chat with. Each link and its note, comments, watched marks and reactions are only shared with members of that link's chat. Your name and photo can still appear on links in a chat you've left, or under Blocked People for someone who blocked you. Reports and blocks are private: only the person who runs the server reads reports.</li>
+<li><b>The people in your chats</b> see your name and photo. People only lists people you share a chat with. Each link and its note, comments, seen marks and reactions are only shared with members of that link's chat. Your name and photo can still appear on links in a chat you've left, or under Blocked People for someone who blocked you. Reports and blocks are private: only the person who runs the server reads reports.</li>
 <li><b>WorkOS</b> runs sign-in. It keeps your email, your sign-in details and the sign-ins you make, and gets the app's name and version and your iOS version when you sign in, plus, like any website, your IP address and browser details while you sign in. See the <a href="https://workos.com/legal/privacy">WorkOS privacy policy</a>.</li>
-<li><b>Apple</b> delivers push notifications. For each one, the server sends Apple your device's push token and what the notification shows: who sent a link or reacted, the chat's name, the link's title and note (shortened if long), the reaction, and how many links are in your To Watch, along with Links' own numbers for the link, its sender and its chat. See the <a href="https://www.apple.com/legal/privacy/">Apple privacy policy</a>.</li>
+<li><b>Apple</b> delivers push notifications. For each one, the server sends Apple your device's push token and what the notification shows: who sent a link or reacted, the chat's name, the link's title and note (shortened if long), the reaction, and how many links are in your Queue tab, along with Links' own numbers for the link, its sender and its chat. See the <a href="https://www.apple.com/legal/privacy/">Apple privacy policy</a>.</li>
 <li><b>Grafana Cloud</b> (Grafana Labs) keeps a copy of the server logs, the web server's and the daily backup's own messages, and the server health figures, so problems can be spotted and fixed. See the <a href="https://grafana.com/legal/privacy-policy/">Grafana Labs privacy policy</a>.</li>
 <li><b>The company that hosts this server</b> stores it on its computers.</li>
 </ul>
@@ -174,7 +174,7 @@ function privacyPage(email: string, sessionDays: number): string {
 <h2>Your choices</h2>
 <ul>
 <li>Change your display name in the app's account menu. Delete a link you sent, or change its note, from the link's long-press menu.</li>
-<li>To delete your account, open the account menu in the app and choose <b>Delete Account</b>. That deletes your account, your sign-ins on every device, the links you sent with their notes and thumbnails (for your friends too), your comments, watched marks and reactions, and your WorkOS account.</li>
+<li>To delete your account, open the account menu in the app and choose <b>Delete Account</b>. That deletes your account, your sign-ins on every device, the links you sent with their notes and thumbnails (for your friends too), your comments, seen marks and reactions, and your WorkOS account.</li>
 <li>You can also email ${contact} to ask what Links keeps about you, to correct it, or to delete it.</li>
 </ul>
 
@@ -785,24 +785,24 @@ export function createApp(config: Config, opts: AppOptions = {}) {
       headers: { "Content-Type": "image/png", "Cache-Control": "public, max-age=86400" },
     }),
 
-    // Report a link or a person. It's hidden for the reporter at once; the owner reads reports
-    // with `links-server reports` (and in the log).
+    // Report a link, comment or person. Links and comments are hidden for the reporter at once.
+    // The owner reads reports with `links-server reports` (and in the log).
     "/api/reports": {
       POST: route(async (req, me) => {
         const data = await readJson(req);
         if (!REPORT_REASONS.includes(data.reason)) throw new BadRequest("Pick a reason for the report.");
         const details = clipText(data.details, 1000);
-        const { id, label } = asUser(me, () => {
+        const { id, label, linkId } = asUser(me, () => {
           const target = reportTarget(data, me);
           const { changes, lastInsertRowid } = db.run(
             "INSERT OR IGNORE INTO reports (reporter, link_id, comment_id, user_id, reason, details, snapshot, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
             [me, target.link_id, target.comment_id, target.user_id, data.reason, details, JSON.stringify(target.snapshot), now()],
           );
-          return { id: changes ? Number(lastInsertRowid) : null, label: target.label };
+          return { id: changes ? Number(lastInsertRowid) : null, label: target.label, linkId: target.link_id };
         });
         if (id !== null) {
           console.log(`report ${id}: ${data.reason}, ${label}, by ${me}`);
-          push.badges([me]); // a reported link leaves To Watch
+          if (linkId !== null) push.badges([me]); // a reported link leaves To Watch
         }
         return json({ ok: true }, 201);
       }),
