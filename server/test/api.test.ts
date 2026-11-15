@@ -1212,6 +1212,10 @@ describe("universal links", () => {
       expect(page).toContain("Watch on TikTok");
       expect(page).not.toContain("Private Sender");
       expect(page).not.toContain("apps.apple.com");
+      for (const [platform, title] of [["instagram", "An Instagram shared on Links"], ["x", "An X shared on Links"], ["youtube", "A YouTube shared on Links"]]) {
+        app.db.run("UPDATE links SET platform = ?, title = NULL WHERE id = ?", [platform, link.id]);
+        expect(await (await fetch(server.url.origin + `/l/${link.token}`)).text()).toContain(`<title>${title}</title>`);
+      }
     } finally {
       server.stop(true);
       rmSync(dir, { recursive: true, force: true });
