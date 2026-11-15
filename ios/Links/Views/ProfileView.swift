@@ -43,6 +43,9 @@ struct ProfileSheet: View {
     @State private var nameDraft = ""
     @State private var confirmingDelete = false
     @State private var showingAbout = false
+    @State private var failure: String?
+    /// A rename that failed: its alert comes back with what was typed once the error is closed.
+    @State private var retryingRename = false
 
     /// Spells out what goes and what stays, since none of it can come back.
     private var deleteWarning: String {
@@ -159,7 +162,11 @@ struct ProfileSheet: View {
                 doneButton
             }
             .alert("Delete Your Account?", isPresented: $confirmingDelete) {
-                Button("Delete Account", role: .destructive) { Task { await model.deleteAccount() } }
+                Button("Delete Account", role: .destructive) {
+                    Task {
+                        do { try await model.deleteAccount() } catch { failure = error.localizedDescription }
+                    }
+                }
                 Button("Cancel", role: .cancel) {}
             } message: {
                 Text(deleteWarning)
@@ -172,10 +179,25 @@ struct ProfileSheet: View {
             .alert("Display Name", isPresented: $renaming) {
                 TextField("Name", text: $nameDraft)
                     .textInputAutocapitalization(.words)
-                Button("Save") { Task { await model.rename(to: nameDraft) } }
+                Button("Save") {
+                    Task {
+                        do {
+                            try await model.rename(to: nameDraft)
+                        } catch {
+                            retryingRename = true
+                            failure = error.localizedDescription
+                        }
+                    }
+                }
                 Button("Cancel", role: .cancel) {}
             } message: {
                 Text("This is what your friends see next to the links you send.")
+            }
+            .failureAlert($failure)
+            .onChange(of: failure) { _, message in
+                guard message == nil, retryingRename else { return }
+                retryingRename = false
+                renaming = true
             }
         }
         // RootView's toast is under this sheet, so "Copied" and "Unblocked" show here instead.

@@ -186,14 +186,18 @@ final class AppModel {
         }
     }
 
-    func rename(to name: String) async {
+    /// Throws so the profile can say what went wrong over itself: RootView's alert would close it.
+    func rename(to name: String) async throws {
         let name = name.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !name.isEmpty else { return }
-        await perform {
-            let me = try await self.client.rename(to: name)
-            self.setAccount(me.user)
-            await self.refresh()
+        do {
+            let me = try await client.rename(to: name)
+            setAccount(me.user)
+        } catch APIError.signedOut {
+            endSession()
+            return
         }
+        await refresh()
     }
 
     // MARK: Invites
@@ -225,7 +229,8 @@ final class AppModel {
 
     /// Deletes the account on the server (and the links it sent, for everyone), then
     /// forgets everything on this device: what signing out does, plus this app's settings.
-    func deleteAccount() async {
+    /// Throws, like `rename`, for the profile to show.
+    func deleteAccount() async throws {
         isDeletingAccount = true
         defer { isDeletingAccount = false }
         do {
@@ -233,9 +238,6 @@ final class AppModel {
         } catch APIError.signedOut {
             endSession()
             errorMessage = "You were signed out, so your account wasn't deleted. Sign in, then try again."
-            return
-        } catch {
-            errorMessage = error.localizedDescription
             return
         }
         endSession()
