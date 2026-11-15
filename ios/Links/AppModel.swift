@@ -20,6 +20,7 @@ final class AppModel {
     private var savedNotifications: NotificationSettings?
     /// The latest save: each waits for the one before, so they reach the server in tap order.
     private var notificationSave: Task<MeResponse, Error>?
+    private let chatMuteSaves = ChatMuteSaveQueue()
     private(set) var isOffline = false
     private(set) var isSigningIn = false
     private(set) var isDeletingAccount = false
@@ -567,7 +568,16 @@ final class AppModel {
     }
 
     func setChatMuted(_ group: LinkGroup, muted: Bool, until: Date? = nil) async throws {
-        try await chatChange { try await self.client.setGroupMuted(group.id, muted: muted, until: until) }
+        let session = sessionID
+        let client = client
+        let save = chatMuteSaves.enqueue(group.id) {
+            guard session == self.sessionID else { throw CancellationError() }
+            // Apply the response inside the queue too, so an older response cannot replace a newer one.
+            return try await self.chatChange {
+                try await client.setGroupMuted(group.id, muted: muted, until: until)
+            }
+        }
+        _ = try await save.value
     }
 
     func addPeople(_ members: [String], to group: LinkGroup) async throws {
@@ -596,14 +606,16 @@ final class AppModel {
     /// Applies the server's copy of a chat at once (picker, lists, widgets), then refreshes.
     @discardableResult
     private func chatChange(_ save: @escaping () async throws -> LinkGroup) async throws -> LinkGroup {
+        let session = sessionID
         do {
             let group = try await save()
+            guard session == sessionID else { throw CancellationError() }
             applyLocally { $0.updating(group) }
             ShareSuggestions.seedIfNeeded(in: inbox)
             Task { await refresh() }
             return group
         } catch APIError.signedOut {
-            endSession()
+            if session == sessionID { endSession() }
             throw APIError.signedOut
         }
     }

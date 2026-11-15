@@ -22,3 +22,25 @@ public enum ChatMuteDuration: CaseIterable, Sendable {
         }
     }
 }
+
+/// Shared by every mute entry point: a later choice must reach the server after the earlier one.
+@MainActor
+public final class ChatMuteSaveQueue {
+    private var pending: [Int: (id: UUID, task: Task<LinkGroup, Error>)] = [:]
+
+    public init() {}
+
+    /// Enqueue synchronously so tap order is established before either caller suspends.
+    public func enqueue(_ groupID: Int, save: @escaping @MainActor () async throws -> LinkGroup) -> Task<LinkGroup, Error> {
+        let previous = pending[groupID]?.task
+        let id = UUID()
+        let task = Task { @MainActor in
+            defer { if pending[groupID]?.id == id { pending[groupID] = nil } }
+            // A failed choice must not prevent the next one from being saved.
+            _ = try? await previous?.value
+            return try await save()
+        }
+        pending[groupID] = (id, task)
+        return task
+    }
+}

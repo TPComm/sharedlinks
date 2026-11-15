@@ -72,4 +72,65 @@ struct ChatMuteTests {
             try await server.client().setGroupMuted(5, muted: true)
         }
     }
+
+    @Test @MainActor func overlappingChoicesSaveAndApplyInTapOrderWithoutBlockingOtherChats() async throws {
+        let queue = ChatMuteSaveQueue()
+        let gate = MuteSaveGate()
+        var applied = LinkGroup(id: 5, muted: true)
+        var choices: [Bool] = []
+        let unmute = queue.enqueue(5) {
+            await gate.wait()
+            choices.append(false)
+            applied.muted = false
+            return applied
+        }
+        await gate.entered()
+        let muteAgain = queue.enqueue(5) {
+            choices.append(true)
+            applied.muted = true
+            return applied
+        }
+        let other = queue.enqueue(6) { LinkGroup(id: 6, muted: true) }
+        #expect(try await other.value.id == 6)
+        #expect(choices.isEmpty, "A later save overtook the in-flight unmute")
+        gate.open()
+        #expect(try await unmute.value.muted == false)
+        #expect(try await muteAgain.value.muted == true)
+        #expect(choices == [false, true])
+        #expect(applied.muted == true)
+    }
+
+    @Test @MainActor func aFailedSaveDoesNotPreventTheNextChoiceFromSaving() async throws {
+        let queue = ChatMuteSaveQueue()
+        let gate = MuteSaveGate()
+        let failed = queue.enqueue(5) {
+            await gate.wait()
+            throw APIError.server("Offline")
+        }
+        await gate.entered()
+        let next = queue.enqueue(5) { LinkGroup(id: 5, muted: true) }
+        gate.open()
+        await #expect(throws: APIError.self) { try await failed.value }
+        #expect(try await next.value.muted == true)
+        let later = queue.enqueue(5) { LinkGroup(id: 5, muted: false) }
+        #expect(try await later.value.muted == false)
+    }
+}
+
+/// Hold one request in flight without sleeps or a real network.
+@MainActor
+private final class MuteSaveGate {
+    private var request: CheckedContinuation<Void, Never>?
+    private var observer: CheckedContinuation<Void, Never>?
+
+    func wait() async {
+        await withCheckedContinuation { request = $0; observer?.resume(); observer = nil }
+    }
+
+    func entered() async {
+        if request != nil { return }
+        await withCheckedContinuation { observer = $0 }
+    }
+
+    func open() { request?.resume(); request = nil }
 }
