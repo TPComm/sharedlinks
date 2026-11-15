@@ -28,6 +28,9 @@ has seen it, and mark it watched when you're back. Coming back from TikTok lands
 even if iOS closed the app meanwhile. Long-press **Open in TikTok** still goes straight there and
 marks it watched in one go.
 
+The **Throwback** card in Watched resurfaces links from at least a week ago that you and a friend
+loved, with a different starting pick each day.
+
 New people get a short **welcome tour** after their first sign-in (Profile → Show Tour Again).
 It walks through putting Links at the front of the share sheet, with a practice share that ticks
 itself off, and TipKit tips then point out the gestures once each.

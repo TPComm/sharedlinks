@@ -14,6 +14,29 @@ final class LinksUITests: XCTestCase {
 
     // MARK: Inbox
 
+    func testThrowbackOpensThePageWithoutChangingWatchedStatus() throws {
+        let meID = try server.state(as: server.me).me
+        let name = "Throwback \(shortID())"
+        let chat = try server.startChat(name: name, members: [meID], as: server.friend)
+        leaveAfterwards(chat.id)
+        let link = try server.add(uniqueURL(), to: chat.id, as: server.friend)
+        deleteAfterwards(link.id)
+        try server.setSeen(link.id, true, as: server.me)
+        try server.react(link.id, emoji: "❤️", as: server.me)
+        try server.react(link.id, emoji: "❤️", as: server.friend)
+
+        launch(environment: ["LINKS_THROWBACK_MIN_AGE": "0"])
+        pickChat(name)
+        app.tabBars.buttons["Watched"].tap()
+        waitForRow(link, in: "watched")
+        XCTAssert(app.otherElements["throwback.card"].waitForExistence(timeout: 5))
+        XCTAssertFalse(app.buttons["throwback.another"].exists)
+        app.buttons["throwback.open"].tap()
+        XCTAssert(page(link).waitForExistence(timeout: 5))
+        let state = try server.state(as: server.me)
+        XCTAssertNotNil(state.link(link.id)?.seen[meID], "opening the throwback changed watched status")
+    }
+
     func testSignedInLaunchShowsTheInbox() throws {
         launch()
         XCTAssert(app.navigationBars["To Watch"].exists)
@@ -722,7 +745,7 @@ final class LinksUITests: XCTestCase {
     }
 
     /// Launches signed in (DEBUG builds take a session token from LINKS_DEV_TOKEN), on the inbox.
-    private func launch(as token: String? = nil) {
+    private func launch(as token: String? = nil, environment: [String: String] = [:]) {
         app.launchEnvironment = [
             "LINKS_SERVER_URL": server.url.absoluteString,
             "LINKS_DEV_TOKEN": token ?? server.me,
@@ -730,6 +753,7 @@ final class LinksUITests: XCTestCase {
             // from an earlier test (RootView.restoreNavigation).
             "LINKS_UI_TESTS": "1",
         ]
+        app.launchEnvironment.merge(environment) { _, value in value }
         app.launch()
         XCTAssert(app.tabBars.buttons["To Watch"].waitForExistence(timeout: 20), "no inbox")
     }
