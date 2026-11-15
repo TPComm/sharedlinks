@@ -32,6 +32,32 @@ final class LinksUITests: XCTestCase {
         XCTAssert(firstRow.buttons["link.\(link.id)"].exists, "an empty row precedes the seen link")
     }
 
+    func testThrowbackAppearsWhenTheFirstFavoriteBecomesOldEnough() throws {
+        let meID = try server.state(as: server.me).me
+        let name = "Throwback \(shortID())"
+        let chat = try server.startChat(name: name, members: [meID], as: server.friend)
+        leaveAfterwards(chat.id)
+        let seededAt = Date()
+        let link = try server.add(uniqueURL(), to: chat.id, as: server.friend)
+        deleteAfterwards(link.id)
+        try server.setSeen(link.id, true, as: server.me)
+        try server.react(link.id, emoji: "❤️", as: server.me)
+        try server.react(link.id, emoji: "❤️", as: server.friend)
+
+        launch(environment: ["LINKS_THROWBACK_MIN_AGE": "60"])
+        pickChat(name)
+        app.tabBars.buttons["Seen"].tap()
+        waitForRow(link, in: "watched")
+        XCTAssertLessThan(Date().timeIntervalSince(seededAt), 55, "setup must finish before the link is eligible")
+        let card = app.otherElements["throwback.card"]
+        XCTAssertFalse(card.exists, "the link should initially be too recent")
+
+        // No reactions, refresh gesture or tab switch: only the passage of time makes it eligible.
+        // Allow a full minute after the age cutoff for the timeline's next tick.
+        XCTAssert(card.waitForExistence(timeout: 125), "the first Throwback never appeared as it aged")
+        XCTAssert(card.buttons["throwback.open"].label.contains("Friend"))
+    }
+
     func testThrowbackOpensThePageWithoutChangingSeenStatus() throws {
         let meID = try server.state(as: server.me).me
         let name = "Throwback \(shortID())"
