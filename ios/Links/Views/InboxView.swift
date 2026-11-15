@@ -97,7 +97,7 @@ struct LinkList: View {
         if filter == .watched && query.isEmpty {
             // Eligibility can change with time even when the inbox is unchanged and no card exists yet.
             TimelineView(.everyMinute) { _ in
-                list(on: .now)
+                list(on: ThrowbackCard.now)
             }
         } else {
             list(on: .now)

@@ -1,11 +1,36 @@
 import LinksKit
 import SwiftUI
+#if DEBUG
+import Darwin
+#endif
 
 struct ThrowbackCard: View {
     @Environment(AppModel.self) private var model
     @Environment(\.dynamicTypeSize) private var typeSize
     @State private var advances = 0
     let date: Date
+
+    static var now: Date {
+        #if DEBUG
+        if let token = testClockToken {
+            var milliseconds: UInt64 = 0
+            precondition(notify_get_state(token, &milliseconds) == 0)
+            return Date(timeIntervalSince1970: Double(milliseconds) / 1_000)
+        }
+        #endif
+        return .now
+    }
+
+    #if DEBUG
+    // Read, don't observe: advancing the test clock must still wait for the real TimelineView tick.
+    private static let testClockToken: Int32? = {
+        let env = ProcessInfo.processInfo.environment
+        guard env["LINKS_UI_TESTS"] == "1", let name = env["LINKS_THROWBACK_TEST_CLOCK"] else { return nil }
+        var token: Int32 = 0
+        precondition(notify_register_check(name, &token) == 0)
+        return token
+    }()
+    #endif
 
     static var minimumAge: TimeInterval {
         let env = ProcessInfo.processInfo.environment

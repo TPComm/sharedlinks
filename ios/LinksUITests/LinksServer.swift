@@ -31,6 +31,7 @@ struct LinksServer: Sendable {
         let url: String
         let note: String
         let addedBy: String
+        let addedAt: Double
         let groupID: Int
         let seen: [String: Double]
         let reactions: [String: String]
@@ -46,6 +47,7 @@ struct LinksServer: Sendable {
         enum CodingKeys: String, CodingKey {
             case id, url, note, seen, reactions
             case addedBy = "added_by"
+            case addedAt = "added_at"
             case groupID = "group_id"
             case commentCount = "comment_count"
             case lastComment = "last_comment"
