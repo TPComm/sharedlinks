@@ -250,6 +250,7 @@ private struct TourPageLayout<Art: View, Details: View>: View {
     @ViewBuilder var art: Art
     @ViewBuilder var details: Details
     @Environment(\.dynamicTypeSize) private var typeSize
+    private static let artGap: CGFloat = 24
 
     var body: some View {
         GeometryReader { proxy in
@@ -257,9 +258,9 @@ private struct TourPageLayout<Art: View, Details: View>: View {
                 VStack(spacing: 0) {
                     if !typeSize.isAccessibilitySize {
                         art
-                            .shrunkToFit(height: min(220, proxy.size.height * 0.34))
+                            .shrunkToFit(height: min(220, proxy.size.height * 0.34), spill: Self.artGap)
                             .frame(maxWidth: .infinity)
-                            .padding(.bottom, 24)
+                            .padding(.bottom, Self.artGap)
                             .accessibilityHidden(true)
                     }
                     Text(title)
@@ -649,24 +650,27 @@ private struct Bubble: View {
     }
 }
 
-/// Shrinks a picture taller than its slot to fit, rather than letting it spill over the title
-/// below (short or wide windows, like an unfolded iPhone Duo, leave little height for it).
+/// Shrinks a picture that would spill over the title below it (short or wide windows, like an
+/// unfolded iPhone Duo, leave little height for it). A picture centred in its slot may run up to
+/// `spill` past each edge, into the gap above the title, before it's shrunk.
 private struct ShrunkToFitHeight: ViewModifier {
     let height: CGFloat
+    let spill: CGFloat
     @State private var natural: CGFloat = 0
 
     func body(content: Content) -> some View {
+        let room = height + 2 * spill
         content
             .fixedSize(horizontal: false, vertical: true)
             .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { natural = $0 }
-            .scaleEffect(natural > height ? height / natural : 1)
+            .scaleEffect(natural > room ? room / natural : 1)
             .frame(height: height)
     }
 }
 
 private extension View {
-    func shrunkToFit(height: CGFloat) -> some View {
-        modifier(ShrunkToFitHeight(height: height))
+    func shrunkToFit(height: CGFloat, spill: CGFloat) -> some View {
+        modifier(ShrunkToFitHeight(height: height, spill: spill))
     }
 
     func miniCard() -> some View {
