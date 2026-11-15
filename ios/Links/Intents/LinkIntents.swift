@@ -62,7 +62,7 @@ struct SaveLinkIntent: AppIntent {
 
 /// "How many links do I have to see?"
 struct ToWatchCountIntent: AppIntent {
-    static let title: LocalizedStringResource = "New Links"
+    static let title: LocalizedStringResource = "Links in Queue"
     static let description = IntentDescription("Tells you how many links you haven't seen yet.")
 
     func perform() async throws -> some IntentResult & ProvidesDialog & ReturnsValue<Int> {
@@ -113,7 +113,7 @@ struct LinksShortcuts: AppShortcutsProvider {
         AppShortcut(intent: ToWatchCountIntent(), phrases: [
             "What's in \(.applicationName)",
             "How many \(.applicationName) do I have to see",
-        ], shortTitle: "New Links", systemImageName: "play.rectangle.on.rectangle")
+        ], shortTitle: "Links in Queue", systemImageName: "tray.full")
         AppShortcut(intent: NewLinkIntent(), phrases: [
             "New \(.applicationName)",
         ], shortTitle: "New Link", systemImageName: "plus")

@@ -207,9 +207,9 @@ private struct TabsPage: View {
             MiniTabs()
         } details: {
             VStack(alignment: .leading, spacing: 18) {
-                Feature(symbol: "play.rectangle.on.rectangle", title: "To Watch",
+                Feature(symbol: "tray.full", title: "Queue",
                         text: "What friends sent that you haven't seen yet. The badge counts them.")
-                Feature(symbol: "checkmark.circle", title: "Watched",
+                Feature(symbol: "checkmark.circle", title: "Seen",
                         text: "Everything you've seen, to find again.")
                 Feature(symbol: "paperplane", title: "Sent",
                         text: "What you've shared, and who's seen it.")
@@ -485,8 +485,8 @@ private struct MiniTabs: View {
                 .padding(.vertical, 4)
                 .miniCard()
             HStack(spacing: 2) {
-                MiniTab(title: "To Watch", symbol: "play.rectangle.on.rectangle", badge: 2, selected: true)
-                MiniTab(title: "Watched", symbol: "checkmark.circle")
+                MiniTab(title: "Queue", symbol: "tray.full", badge: 2, selected: true)
+                MiniTab(title: "Seen", symbol: "checkmark.circle")
                 MiniTab(title: "Sent", symbol: "paperplane")
             }
             .padding(5)
@@ -504,7 +504,7 @@ private struct MiniHomeScreen: View {
                 HStack(alignment: .firstTextBaseline) {
                     Text("2").font(.system(size: 34, weight: .bold, design: .rounded))
                     Spacer()
-                    Image(systemName: "play.fill").font(.subheadline.weight(.semibold))
+                    Image(systemName: "tray.full").font(.subheadline.weight(.semibold))
                 }
                 Text("to see").font(.footnote.weight(.semibold)).opacity(0.85)
                 Spacer(minLength: 0)

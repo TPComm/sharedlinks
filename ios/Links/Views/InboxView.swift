@@ -22,12 +22,12 @@ struct InboxView: View {
     var body: some View {
         @Bindable var model = model
         TabView(selection: $model.tab) {
-            Tab("To Watch", systemImage: "play.rectangle.on.rectangle", value: .toWatch) {
+            Tab("Queue", systemImage: "tray.full", value: .toWatch) {
                 LinkListScreen(filter: .toWatch)
             }
             .badge(model.inbox.toWatch.count)
 
-            Tab("Watched", systemImage: "checkmark.circle", value: .watched) {
+            Tab("Seen", systemImage: "checkmark.circle", value: .watched) {
                 LinkListScreen(filter: .watched)
             }
 

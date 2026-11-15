@@ -2,7 +2,7 @@
 
 A tiny shared inbox for the articles, videos, recipes, gift ideas and other links you send each
 other. Each person sees what's still
-**To Watch**, what they've **Watched**, and whether the stuff they **Sent** has been seen, like
+**Queue**, what they've **Seen**, and whether the stuff they **Sent** has been seen, like
 iMessage read receipts.
 
 - **`ios/`**: native SwiftUI app for iOS 18+, with a Share Extension, widgets and App Intents
@@ -21,9 +21,9 @@ Sign-in is [WorkOS AuthKit](https://workos.com/docs/authkit).
 | **In the app** | **+** opens a sheet with the system Paste button (no "Allow Paste" prompt). Drag a link from Safari onto the list (iPad, iPhone). |
 | **Sharing out** | Long-press or swipe a row: Share… uses the system share sheet with the thumbnail as the preview. |
 
-Plus: a **Home Screen / Lock Screen widget** (To Watch or Sent receipts, small/medium/large and
+Plus: a **Home Screen / Lock Screen widget** (Queue or Sent receipts, small/medium/large and
 lock screen sizes) whose ✓ buttons mark things seen without opening the app, an **app icon
-badge** with the To Watch count, reactions, notes, search and swipe actions. Tapping a row (or a
+badge** with the Queue count, reactions, notes, search and swipe actions. Tapping a row (or a
 widget row) opens the link's page: **Open in TikTok** (or Instagram, YouTube…), react, see who
 has seen it, and mark it seen when you're back. Coming back from TikTok lands on that page,
 even if iOS closed the app meanwhile. Long-press **Open in TikTok** still goes straight there and

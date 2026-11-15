@@ -11,7 +11,7 @@ enum WidgetFeed: String, AppEnum {
 
     static let typeDisplayRepresentation: TypeDisplayRepresentation = "Feed"
     static let caseDisplayRepresentations: [WidgetFeed: DisplayRepresentation] = [
-        .toWatch: DisplayRepresentation(title: "To Watch", subtitle: "Links you haven't seen yet"),
+        .toWatch: DisplayRepresentation(title: "Queue", subtitle: "Links you haven't seen yet"),
         .sent: DisplayRepresentation(title: "Sent", subtitle: "What you sent, and who's seen it"),
     ]
 }

@@ -357,8 +357,8 @@ public enum InboxFilter: String, CaseIterable, Sendable, Identifiable {
 
     public var title: String {
         switch self {
-        case .toWatch: "To Watch"
-        case .watched: "Watched"
+        case .toWatch: "Queue"
+        case .watched: "Seen"
         case .sent: "Sent"
         case .all: "All Links"
         }
