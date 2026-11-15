@@ -8,6 +8,7 @@ public struct Onboarding: Sendable {
 
     static let tourKey = "links.onboarding.tourCompleted"
     static let shareExtensionKey = "links.onboarding.shareExtensionOpened"
+    static let holdPracticeConfirmationKey = "links.onboarding.holdPracticeConfirmation"
 
     public init(defaults: UserDefaults) {
         self.defaults = defaults
@@ -36,6 +37,13 @@ public struct Onboarding: Sendable {
     public func reset() {
         defaults.removeObject(forKey: Self.tourKey)
         defaults.removeObject(forKey: Self.shareExtensionKey)
+    }
+
+    /// Debug builds, for the tour's UI test: practice Send's "That's It" stays up until it's tapped,
+    /// instead of closing after a moment that a slow test runner can miss. Set by the app at launch.
+    public var holdsPracticeConfirmation: Bool {
+        get { defaults.bool(forKey: Self.holdPracticeConfirmationKey) }
+        nonmutating set { defaults.set(newValue, forKey: Self.holdPracticeConfirmationKey) }
     }
 
     /// What the tour's "Try It Now" shares. The Share Extension recognises it and says it's ready,
