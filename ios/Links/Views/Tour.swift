@@ -250,7 +250,7 @@ private struct TourPageLayout<Art: View, Details: View>: View {
     @ViewBuilder var art: Art
     @ViewBuilder var details: Details
     @Environment(\.dynamicTypeSize) private var typeSize
-    private static let artGap: CGFloat = 24
+    private static var artGap: CGFloat { 24 }
 
     var body: some View {
         GeometryReader { proxy in
