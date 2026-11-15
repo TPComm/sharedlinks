@@ -153,7 +153,7 @@ A build that doesn't come up healthy is rolled back automatically; the last good
 `links-server.prev`. Re-running `setup.sh` only changes the settings you pass. The OS and Caddy patch themselves; Bun's
 runtime is inside the binary, so run `bun upgrade && deploy/deploy.sh …` about once a month.
 
-**Push notifications** (new links, reactions, and the app badge while Links is closed). Without
+**Push notifications** (new links, when someone watches or reacts to a link you sent, and the app badge while Links is closed). Without
 them the app still works, polling while it's open. To turn them on:
 
 1. In [Certificates, Identifiers & Profiles](https://developer.apple.com/account/resources/identifiers/list),
@@ -277,7 +277,7 @@ All endpoints except sign-in need `Authorization: Bearer <session token>`.
 | POST | `/api/auth/logout` | ends this session (and removes its device tokens) |
 | POST | `/api/devices` | `{token, env}`: this session's APNs device token (hex), `env` is `sandbox` or `production` → `{ok, push}` (`push`: whether the server sends any). Registering a token again moves it to this session |
 | DELETE | `/api/devices/:token` | forget one of your device tokens |
-| GET/PATCH/DELETE | `/api/me` | `{user, claimable}`; PATCH `{name}`; DELETE deletes the account, its sessions, watched marks and reactions, and the links it sent (with their notes and thumbnails, for everyone). Also the WorkOS user, given `WORKOS_API_KEY` |
+| GET/PATCH/DELETE | `/api/me` | `{user, claimable, notifications}`; PATCH `{name}` and/or `{notifications: {watched?, reactions?}}` (booleans, both on to start: whether I get a push when someone watches or reacts to a link I sent; a watch and a reaction from one person within a minute go out as one); DELETE deletes the account, its sessions, watched marks and reactions, and the links it sent (with their notes and thumbnails, for everyone). Also the WorkOS user, given `WORKOS_API_KEY` |
 | POST | `/api/me/claim` | `{id}` of a legacy person in my `claimable` (one `links-server claim` approved for my account) |
 | GET | `/api/state` | `{me, users, groups, links, blocked}`: `users` is only people I share a chat with, plus anyone named on a link in my chats and people I blocked; the chats I'm in (`{id, name, created_by, created_at, default, members}`) and their links (each with its `group_id`), without links I reported or that people I blocked sent, and without blocked people's watched marks and reactions; `?group_id=` for one chat's links |
 | POST | `/api/links` | `{url, note?, group_id?}`; `url` may be any text containing a link; without `group_id` (apps from before chats) it goes to the default chat, or my only chat if I left that → `{link, duplicate}` (a duplicate only within the same chat) |

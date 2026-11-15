@@ -43,6 +43,10 @@ export interface UserRow {
   member: number;
   /** On a legacy person: the account `links-server claim` let claim them (see migrateToV10). */
   claimable_by: string | null;
+  /** 1 (the default) to get a push when someone watches a link they sent (see migrateToV11). */
+  push_watched: number;
+  /** 1 (the default) to get a push when someone reacts to a link they sent. */
+  push_reactions: number;
 }
 
 export interface GroupRow {
@@ -171,6 +175,7 @@ export function openDatabase(dataDir: string, legacyAllowedEmails: string[] = []
   migrateToV8(db);
   migrateToV9(db);
   migrateToV10(db);
+  migrateToV11(db);
   return db;
 }
 
@@ -434,6 +439,18 @@ function migrateToV10(db: Database) {
       db.run("ALTER TABLE users ADD COLUMN claimable_by TEXT REFERENCES users(id) ON DELETE SET NULL");
     }
     db.run("PRAGMA user_version = 10");
+  })();
+}
+
+/** v11: each person's notification settings for activity on the links they sent, both on to start. */
+function migrateToV11(db: Database) {
+  const { user_version } = db.query("PRAGMA user_version").get() as { user_version: number };
+  if (user_version >= 11) return;
+  db.transaction(() => {
+    const have = (db.query("PRAGMA table_info(users)").all() as { name: string }[]).map((c) => c.name);
+    if (!have.includes("push_watched")) db.run("ALTER TABLE users ADD COLUMN push_watched INTEGER NOT NULL DEFAULT 1");
+    if (!have.includes("push_reactions")) db.run("ALTER TABLE users ADD COLUMN push_reactions INTEGER NOT NULL DEFAULT 1");
+    db.run("PRAGMA user_version = 11");
   })();
 }
 
