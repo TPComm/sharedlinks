@@ -28,6 +28,8 @@ final class AppModel {
     var addPrefill = ""
     var showClaimSheet = false
     var showTour = false
+    /// Set by ProfileButton while the profile sheet is up.
+    var isProfileOpen = false
     /// The page the tour opens on: the first, or the share-sheet page from "How to Share to Links".
     private(set) var tourStart: TourPage = .welcome
     private(set) var tourCompleted = Onboarding.shared.hasCompletedTour
@@ -355,7 +357,7 @@ final class AppModel {
     // MARK: Tour
 
     /// Gesture tips wait until nothing covers the inbox, so a popover never lands under a sheet.
-    var canShowTips: Bool { tourCompleted && !showTour && !showClaimSheet && !showAddSheet }
+    var canShowTips: Bool { tourCompleted && !showTour && !showClaimSheet && !showAddSheet && !isProfileOpen }
 
     /// Shows the tour once, after sign-in and after the claim sheet (if any) has closed.
     func showTourIfNeeded() {

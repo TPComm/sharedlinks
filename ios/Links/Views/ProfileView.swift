@@ -23,6 +23,7 @@ struct ProfileButton: View {
         }
         .disabled(model.isDeletingAccount)
         .accessibilityIdentifier("account")
+        .onChange(of: showing) { _, open in model.isProfileOpen = open }
         .sheet(isPresented: $showing, onDismiss: {
             afterClose?()
             afterClose = nil
@@ -86,13 +87,13 @@ struct ProfileSheet: View {
                 }
                 Section {
                     NavigationLink {
-                        PeopleList()
+                        PeopleList().toolbar { doneButton }
                     } label: {
                         Label("People", systemImage: "person.2")
                     }
                     .accessibilityIdentifier("people")
                     NavigationLink {
-                        BlockedPeopleList()
+                        BlockedPeopleList().toolbar { doneButton }
                     } label: {
                         Label("Blocked People", systemImage: "hand.raised")
                     }
@@ -155,7 +156,7 @@ struct ProfileSheet: View {
             .navigationTitle("Profile")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } }
+                doneButton
             }
             .alert("Delete Your Account?", isPresented: $confirmingDelete) {
                 Button("Delete Account", role: .destructive) { Task { await model.deleteAccount() } }
@@ -177,6 +178,14 @@ struct ProfileSheet: View {
                 Text("This is what your friends see next to the links you send.")
             }
         }
+        // RootView's toast is under this sheet, so "Copied" and "Unblocked" show here instead.
+        .overlay(alignment: .bottom) { ToastView() }
+    }
+
+    /// On People and Blocked People too, so the profile closes from wherever it is. This view's
+    /// dismiss closes the sheet; one read inside a pushed page would only go back.
+    private var doneButton: some ToolbarContent {
+        ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } }
     }
 
     private var header: some View {
