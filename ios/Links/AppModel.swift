@@ -78,6 +78,10 @@ final class AppModel {
             tourCompleted = false
         }
         #if DEBUG
+        // LINKS_HOLD_PRACTICE_CONFIRMATION=1: the Share Extension keeps practice Send's confirmation up
+        // until it's tapped (the tour's UI test). Written every launch, so it never outlives the test.
+        Onboarding.shared.holdsPracticeConfirmation =
+            ProcessInfo.processInfo.environment["LINKS_HOLD_PRACTICE_CONFIRMATION"] == "1"
         // Simulator/dev shortcut: launch with LINKS_DEV_TOKEN=<token from `server mint-session`>.
         if let devToken = ProcessInfo.processInfo.environment["LINKS_DEV_TOKEN"], !devToken.isEmpty,
            devToken != token {

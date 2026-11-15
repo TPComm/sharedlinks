@@ -52,6 +52,16 @@ struct OnboardingTests {
         }
     }
 
+    @Test func theAppTellsTheShareExtensionToHoldThePracticeConfirmation() {
+        withDefaults { defaults in
+            #expect(!Onboarding(defaults: defaults).holdsPracticeConfirmation)
+            Onboarding(defaults: defaults).holdsPracticeConfirmation = true
+            #expect(Onboarding(defaults: defaults).holdsPracticeConfirmation)
+            Onboarding(defaults: defaults).holdsPracticeConfirmation = false
+            #expect(!Onboarding(defaults: defaults).holdsPracticeConfirmation)
+        }
+    }
+
     @Test(arguments: [
         "https://example.com/links-share-sheet-practice",
         "https://EXAMPLE.com/links-share-sheet-practice",

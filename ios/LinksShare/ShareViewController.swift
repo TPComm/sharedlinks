@@ -40,6 +40,7 @@ final class ShareModel {
     var image: UIImage?
     var note = ""
     var recipients: [String] = []
+    private var practiceFinished = false
 
     init(context: NSExtensionContext?) {
         self.context = context
@@ -111,8 +112,11 @@ final class ShareModel {
     func send() async {
         if phase == .practice {
             phase = .practiceSent
+            #if DEBUG
+            if Onboarding.shared.holdsPracticeConfirmation { return }
+            #endif
             try? await Task.sleep(for: .seconds(1.8))
-            context?.completeRequest(returningItems: nil)
+            finishPractice()
             return
         }
         guard let url else { return }
@@ -138,6 +142,13 @@ final class ShareModel {
         } catch {
             phase = .failed(error.localizedDescription)
         }
+    }
+
+    /// Closes the sheet after practice Send: on its own after a moment, or sooner with a tap on "That's It".
+    func finishPractice() {
+        guard phase == .practiceSent, !practiceFinished else { return }
+        practiceFinished = true
+        context?.completeRequest(returningItems: nil)
     }
 
     func cancel() {

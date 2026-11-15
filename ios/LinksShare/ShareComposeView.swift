@@ -112,6 +112,7 @@ struct ShareComposeView: View {
         case .practiceSent:
             ResultBadge(symbol: "checkmark.circle.fill", title: "That's It",
                         subtitle: "A real link and its note would be in your friends' To Watch now.")
+                .onTapGesture { model.finishPractice() }
         case .duplicate(let message):
             ResultBadge(symbol: "checkmark.circle", title: "Already in Links", subtitle: message)
         default:
