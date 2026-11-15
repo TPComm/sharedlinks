@@ -254,6 +254,29 @@ final class LinksUITests: XCTestCase {
         waitFor(readRow, labelContaining: "2 comments · New")
     }
 
+    func testCommentThreadRefreshesEditsWithoutActivityChanges() throws {
+        let link = try seed(by: server.friend)
+        let first = try server.addComment(link.id, body: "Original earlier comment", as: server.friend)
+        let prefix = String(repeating: "Same prefix ", count: 10)
+        let latest = try server.addComment(link.id, body: prefix + "original ending", as: server.friend)
+        let before = try XCTUnwrap(server.state(as: server.me).link(link.id))
+        launch()
+        waitForRow(link, in: "toWatch").tap()
+        let page = page(link)
+        XCTAssert(page.waitForExistence(timeout: 5))
+        for _ in 0..<3 where !app.staticTexts[first.body].isHittable { page.swipeUp() }
+        XCTAssert(app.staticTexts[first.body].waitForExistence(timeout: 10))
+
+        try server.editComment(first.id, body: "Updated earlier comment", as: server.friend)
+        XCTAssert(app.staticTexts["Updated earlier comment"].waitForExistence(timeout: 30))
+        try server.editComment(latest.id, body: prefix + "revised ending", as: server.friend)
+        let edited = app.staticTexts.matching(NSPredicate(format: "label == %@", prefix + "revised ending")).firstMatch
+        XCTAssert(edited.waitForExistence(timeout: 30))
+        let after = try XCTUnwrap(server.state(as: server.me).link(link.id))
+        XCTAssertEqual(after.commentCount, before.commentCount)
+        XCTAssertEqual(after.lastComment, before.lastComment)
+    }
+
     func testCommentThreadRefreshesAfterForegrounding() throws {
         let link = try seed(by: server.friend)
         launch()

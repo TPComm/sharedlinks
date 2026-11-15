@@ -1,11 +1,6 @@
 import LinksKit
 import SwiftUI
 
-struct CommentThreadVersion: Equatable {
-    let count: Int
-    let last: CommentActivity?
-}
-
 @MainActor @Observable
 final class LinkThread {
     private(set) var comments: [LinkComment] = []

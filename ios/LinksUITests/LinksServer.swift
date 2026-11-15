@@ -35,12 +35,20 @@ struct LinksServer: Sendable {
         let seen: [String: Double]
         let reactions: [String: String]
         let commentCount: Int?
+        let lastComment: CommentActivity?
+
+        struct CommentActivity: Decodable, Equatable {
+            let person: String
+            let snippet: String
+            let at: Double
+        }
 
         enum CodingKeys: String, CodingKey {
             case id, url, note, seen, reactions
             case addedBy = "added_by"
             case groupID = "group_id"
             case commentCount = "comment_count"
+            case lastComment = "last_comment"
         }
     }
 
@@ -94,6 +102,10 @@ struct LinksServer: Sendable {
     func addComment(_ linkID: Int, body: String, as token: String) throws -> Comment {
         struct Envelope: Decodable { let comment: Comment }
         return try JSONDecoder().decode(Envelope.self, from: send("POST", "api/links/\(linkID)/comments", json: ["body": body], as: token)).comment
+    }
+
+    func editComment(_ id: Int, body: String, as token: String) throws {
+        _ = try send("PATCH", "api/comments/\(id)", json: ["body": body], as: token)
     }
 
     /// `groupID` nil sends it to the default chat, as the app did before chats.

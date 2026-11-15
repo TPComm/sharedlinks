@@ -10,6 +10,8 @@ import WidgetKit
 final class AppModel {
     private(set) var token: String? = SessionStore.token
     private(set) var inbox: InboxState = InboxSnapshot.load() ?? .empty
+    /// A successful poll can carry comment edits without changing the inbox's activity summary.
+    private(set) var inboxRefresh = 0
     private(set) var claimable: [LinkUser] = []
     /// My push settings for links I sent, as the switches show them; nil until the server says,
     /// or on a server too old to have them.
@@ -348,6 +350,7 @@ final class AppModel {
             guard session == sessionID, edits == localEdits else { return }
             isOffline = false
             if state != inbox { setInbox(state) }
+            inboxRefresh += 1
         } catch is CancellationError {
             // The scene went inactive; not an outage.
         } catch let error as URLError where error.code == .cancelled {

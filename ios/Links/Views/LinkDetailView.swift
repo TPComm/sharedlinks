@@ -66,7 +66,7 @@ private struct LinkPage: View {
         .safeAreaInset(edge: .bottom) { CommentComposer(thread: thread, linkID: link.id) }
         .scrollDismissesKeyboard(.interactively)
         .task { await thread.load(link.id, model: model) }
-        .onChange(of: CommentThreadVersion(count: link.commentCount, last: link.lastComment)) { _, _ in
+        .onChange(of: model.inboxRefresh) { _, _ in
             Task { await thread.load(link.id, model: model) }
         }
         .refreshable {
