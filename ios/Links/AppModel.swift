@@ -609,7 +609,16 @@ final class AppModel {
                 errorMessage = nil
             }
         case .group(let id):
-            if let group = Int(id).flatMap(inbox.group) { showChat(group.id) }
+            guard let id = Int(id) else { break }
+            if inbox.group(id) != nil {
+                showChat(id)
+            } else {
+                // A chat I've just been added to, newer than this (backgrounded) app's inbox.
+                Task {
+                    await refresh()
+                    if inbox.group(id) != nil { showChat(id) }
+                }
+            }
         // The server's universal links, handled once link pages ship.
         case .inbox, .link, nil:
             break
