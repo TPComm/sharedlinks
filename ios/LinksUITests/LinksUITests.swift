@@ -586,6 +586,38 @@ final class LinksUITests: XCTestCase {
         XCTAssertNotNil(try server.state(as: server.friend).link(mine.id))
     }
 
+    /// The Share Extension's "To:" row. Its Send can't reach this test server (the extension
+    /// doesn't get the app's LINKS_SERVER_URL), so APIClientTests cover the `group_id` it sends.
+    func testTheShareSheetsToRowPicksAChat() throws {
+        let meID = try server.state(as: server.me).me
+        let name = "Shared \(shortID())"
+        let chat = try server.startChat(name: name, members: [meID], as: server.friend)
+        leaveAfterwards(chat.id)
+        let everyone = try seed(by: server.friend)
+
+        launch()
+        waitForRow(everyone, in: "toWatch").tap()
+        XCTAssert(page(everyone).waitForExistence(timeout: 5), "no page for the link")
+        app.navigationBars.buttons["Share…"].firstMatch.tap()
+        let sheet = app.collectionViews["activityCollectionView"]
+        XCTAssert(sheet.waitForExistence(timeout: 30), "no share sheet")
+        if !sheet.cells["Links"].waitForExistence(timeout: 10) {
+            sheet.cells["More"].tap()
+        }
+        app.cells["Links"].firstMatch.tap()
+
+        // It starts on Everyone, and says who the picked chat's link goes to.
+        let to = app.buttons["share.chat"]
+        XCTAssert(to.waitForExistence(timeout: 30), "no To row in the Share Extension")
+        XCTAssert(to.label.contains("Everyone"), to.label)
+        to.tap()
+        app.buttons[name].firstMatch.tap()
+        XCTAssert(to.label.contains(name), to.label)
+        XCTAssert(app.staticTexts["Goes to Friend."].waitForExistence(timeout: 5), "the footer doesn't follow the chat")
+        app.buttons["Cancel"].firstMatch.tap()
+        XCTAssert(to.waitForNonExistence(timeout: 10), "the Share Extension stayed open")
+    }
+
     // MARK: Helpers
 
     private func openChatPicker() {
