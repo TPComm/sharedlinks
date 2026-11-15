@@ -1,0 +1,208 @@
+{
+  "apiVersion": 1,
+  "groups": [
+    {
+      "folder": "Links",
+      "interval": "1m",
+      "name": "links-prod",
+      "orgId": 1,
+      "rules": [
+        {
+          "annotations": {
+            "description": "Fires when links.service or caddy.service on links.tpcomm.co is not active, or missing from the metrics, for 3m (so also when the host stops reporting). Scoped to instance=links.tpcomm.co, so test hosts never fire it.",
+            "runbook_url": "https://wittypine1276.grafana.net/d/links-overview",
+            "summary": "Links (links.tpcomm.co) is down: {{ $labels.name }} not active, or the host stopped reporting."
+          },
+          "condition": "B",
+          "data": [
+            {
+              "datasourceUid": "grafanacloud-prom",
+              "model": {
+                "expr": "(1 - max by (name) (node_systemd_unit_state{job=\"links\", instance=\"links.tpcomm.co\", name=~\"links.service|caddy.service\", state=\"active\"})) or label_replace(absent(node_systemd_unit_state{job=\"links\", instance=\"links.tpcomm.co\", name=\"links.service\", state=\"active\"}), \"name\", \"links.service\", \"\", \"\") or label_replace(absent(node_systemd_unit_state{job=\"links\", instance=\"links.tpcomm.co\", name=\"caddy.service\", state=\"active\"}), \"name\", \"caddy.service\", \"\", \"\")",
+                "instant": true,
+                "intervalMs": 1000,
+                "maxDataPoints": 43200,
+                "range": false,
+                "refId": "A"
+              },
+              "refId": "A",
+              "relativeTimeRange": {
+                "from": 600,
+                "to": 0
+              }
+            },
+            {
+              "datasourceUid": "__expr__",
+              "model": {
+                "conditions": [
+                  {
+                    "evaluator": {
+                      "params": [
+                        0
+                      ],
+                      "type": "gt"
+                    }
+                  }
+                ],
+                "expression": "A",
+                "intervalMs": 1000,
+                "maxDataPoints": 43200,
+                "refId": "B",
+                "type": "threshold"
+              },
+              "refId": "B",
+              "relativeTimeRange": {
+                "from": 0,
+                "to": 0
+              }
+            }
+          ],
+          "execErrState": "Error",
+          "for": "3m",
+          "isPaused": false,
+          "labels": {
+            "severity": "critical",
+            "team": "links"
+          },
+          "noDataState": "Alerting",
+          "notification_settings": {
+            "receiver": "Links \u2192 Sherlog (Devin webhook)",
+            "repeat_interval": "4h"
+          },
+          "title": "Links site down",
+          "uid": "links-site-down"
+        },
+        {
+          "annotations": {
+            "description": "Counts request log lines ending in a 5xx status from links.service on host links.tpcomm.co; fires at 5 or more in 5m. Test hosts don't ship logs with this host label.",
+            "runbook_url": "https://wittypine1276.grafana.net/d/links-overview",
+            "summary": "Links (links.tpcomm.co) returned {{ $values.A }} HTTP 5xx responses in the last 5 minutes."
+          },
+          "condition": "B",
+          "data": [
+            {
+              "datasourceUid": "grafanacloud-logs",
+              "model": {
+                "expr": "sum(count_over_time({job=\"links\", host=\"links.tpcomm.co\", systemd_unit=\"links.service\"} |~ \" 5[0-9][0-9]$\" [5m]))",
+                "intervalMs": 1000,
+                "maxDataPoints": 43200,
+                "queryType": "instant",
+                "refId": "A"
+              },
+              "queryType": "instant",
+              "refId": "A",
+              "relativeTimeRange": {
+                "from": 300,
+                "to": 0
+              }
+            },
+            {
+              "datasourceUid": "__expr__",
+              "model": {
+                "conditions": [
+                  {
+                    "evaluator": {
+                      "params": [
+                        4
+                      ],
+                      "type": "gt"
+                    }
+                  }
+                ],
+                "expression": "A",
+                "intervalMs": 1000,
+                "maxDataPoints": 43200,
+                "refId": "B",
+                "type": "threshold"
+              },
+              "refId": "B",
+              "relativeTimeRange": {
+                "from": 0,
+                "to": 0
+              }
+            }
+          ],
+          "execErrState": "Error",
+          "for": "1m",
+          "isPaused": false,
+          "labels": {
+            "severity": "warning",
+            "team": "links"
+          },
+          "noDataState": "OK",
+          "notification_settings": {
+            "receiver": "Links \u2192 Sherlog (Devin webhook)",
+            "repeat_interval": "4h"
+          },
+          "title": "Links 5xx spike",
+          "uid": "links-5xx-spike"
+        },
+        {
+          "annotations": {
+            "description": "Fires when / on instance links.tpcomm.co has under 15% free space for 10m. Scoped to the prod instance so test hosts never fire it.",
+            "runbook_url": "https://wittypine1276.grafana.net/d/links-overview",
+            "summary": "Links (links.tpcomm.co) root disk has only {{ printf \"%.1f\" $values.A.Value }}% free."
+          },
+          "condition": "B",
+          "data": [
+            {
+              "datasourceUid": "grafanacloud-prom",
+              "model": {
+                "expr": "100 * node_filesystem_avail_bytes{job=\"links\", instance=\"links.tpcomm.co\", mountpoint=\"/\"} / node_filesystem_size_bytes{job=\"links\", instance=\"links.tpcomm.co\", mountpoint=\"/\"}",
+                "instant": true,
+                "intervalMs": 1000,
+                "maxDataPoints": 43200,
+                "range": false,
+                "refId": "A"
+              },
+              "refId": "A",
+              "relativeTimeRange": {
+                "from": 600,
+                "to": 0
+              }
+            },
+            {
+              "datasourceUid": "__expr__",
+              "model": {
+                "conditions": [
+                  {
+                    "evaluator": {
+                      "params": [
+                        15
+                      ],
+                      "type": "lt"
+                    }
+                  }
+                ],
+                "expression": "A",
+                "intervalMs": 1000,
+                "maxDataPoints": 43200,
+                "refId": "B",
+                "type": "threshold"
+              },
+              "refId": "B",
+              "relativeTimeRange": {
+                "from": 0,
+                "to": 0
+              }
+            }
+          ],
+          "execErrState": "Error",
+          "for": "10m",
+          "isPaused": false,
+          "labels": {
+            "severity": "warning",
+            "team": "links"
+          },
+          "noDataState": "OK",
+          "notification_settings": {
+            "receiver": "Links \u2192 Sherlog (Devin webhook)",
+            "repeat_interval": "4h"
+          },
+          "title": "Links disk filling up",
+          "uid": "links-disk-filling"
+        }
+      ]
+    }
+  ]
+}

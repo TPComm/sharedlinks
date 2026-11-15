@@ -118,6 +118,20 @@ struct LinksServer: Sendable {
         _ = try send("PATCH", "api/me", json: ["notifications": ["watched": watched, "reactions": reactions]], as: token)
     }
 
+    /// An invite from whoever's token asks, for `email`; returns its id.
+    func invite(email: String, as token: String) throws -> Int {
+        struct Made: Decodable {
+            struct Invite: Decodable { let id: Int }
+            let invite: Invite
+        }
+        let data = try send("POST", "api/invites", json: ["email": email], as: token)
+        return try JSONDecoder().decode(Made.self, from: data).invite.id
+    }
+
+    func cancelInvite(_ id: Int, as token: String) throws {
+        _ = try send("DELETE", "api/invites/\(id)", as: token)
+    }
+
     func state(as token: String) throws -> State {
         try JSONDecoder().decode(State.self, from: try send("GET", "api/state", as: token))
     }

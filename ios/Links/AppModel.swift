@@ -278,11 +278,20 @@ final class AppModel {
         }
     }
 
-    func revokeInvite(_ invite: Invite) async {
+    /// Throws so People can say what went wrong over itself: the app-wide alert would close the profile.
+    func revokeInvite(_ invite: Invite) async throws {
         let before = invites
         invites.removeAll { $0.id == invite.id }
-        await perform(onFailure: { self.invites = before }) {
-            self.invites = try await self.client.revokeInvite(invite.id)
+        do {
+            invites = try await client.revokeInvite(invite.id)
+        } catch APIError.signedOut {
+            endSession()
+            throw APIError.signedOut
+        } catch {
+            // Refused because it was used or cancelled elsewhere: the server's list drops it.
+            // Offline, it's still pending, so it goes back.
+            invites = (try? await client.invites()) ?? before
+            throw error
         }
     }
 

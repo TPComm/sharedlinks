@@ -330,7 +330,7 @@ describe("links", () => {
     const db = new Database(join(dataDir, "links.db"), { readonly: true });
     const { sql } = db.query("SELECT sql FROM sqlite_master WHERE name = 'links'").get() as { sql: string };
     expect(sql).toContain("AUTOINCREMENT");
-    expect((db.query("PRAGMA user_version").get() as any).user_version).toBe(11);
+    expect((db.query("PRAGMA user_version").get() as any).user_version).toBe(12);
     db.close();
     const { data } = await call("/api/state", { token });
     expect(data.links.map((l: any) => l.url)).toContain("https://de.wikipedia.org/wiki/M%C3%BCnchen");
@@ -671,6 +671,8 @@ describe("reports, blocks and the word list", () => {
     expect(res.data).toContain('<a href="mailto:support@tpcomm.co">support@tpcomm.co</a>');
     expect(res.data).toContain("Delete Account");
     expect(res.data).toContain("newest 14 days");
+    expect(res.data).toContain("Grafana Cloud");
+    expect(res.data).toContain("push token");
   });
 
   test("/version says which commit is running, without signing in", async () => {
