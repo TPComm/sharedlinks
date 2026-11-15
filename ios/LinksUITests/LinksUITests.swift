@@ -334,6 +334,28 @@ final class LinksUITests: XCTestCase {
         app.buttons["Done"].tap()
     }
 
+    func testCancellingAnInviteThatsAlreadyGoneSaysSoAndDropsIt() throws {
+        let id = try server.invite(email: "gone@example.com", as: server.me)
+        launch()
+        app.buttons["account"].tap()
+        app.buttons["People"].tap()
+        let pending = app.staticTexts["gone@example.com"]
+        XCTAssert(pending.waitForExistence(timeout: 5), "not under Invited")
+        // Cancelled on another phone (or used) while this one still lists it.
+        try server.cancelInvite(id, as: server.me)
+        pending.swipeLeft()
+        app.buttons["Cancel Invite"].tap()
+
+        let alert = app.alerts["Couldn't Do That"]
+        XCTAssert(alert.waitForExistence(timeout: 10), "no alert")
+        XCTAssert(alert.staticTexts["That invite was already used or cancelled."].exists)
+        alert.buttons["OK"].tap()
+        XCTAssert(alert.waitForNonExistence(timeout: 5))
+        XCTAssert(app.buttons["inviteFriend"].exists, "People closed")
+        XCTAssert(pending.waitForNonExistence(timeout: 5), "put back under Invited")
+        app.buttons["Done"].tap()
+    }
+
     func testReactingFromTheFeed() throws {
         let link = try seed(by: server.friend)
         launch()

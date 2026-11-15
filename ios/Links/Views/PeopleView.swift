@@ -6,6 +6,7 @@ import SwiftUI
 struct PeopleList: View {
     @Environment(AppModel.self) private var model
     @State private var inviting = false
+    @State private var failure: String?
 
     private var people: [LinkUser] { [model.me].compactMap { $0 } + model.inbox.otherPeople }
 
@@ -42,7 +43,13 @@ struct PeopleList: View {
                         }
                         .swipeActions {
                             Button("Cancel Invite", role: .destructive) {
-                                Task { await model.revokeInvite(invite) }
+                                Task {
+                                    do {
+                                        try await model.revokeInvite(invite)
+                                    } catch {
+                                        failure = error.localizedDescription
+                                    }
+                                }
                             }
                         }
                     }
@@ -63,6 +70,7 @@ struct PeopleList: View {
         .sheet(isPresented: $inviting) {
             InviteSheet().environment(model)
         }
+        .failureAlert($failure)
     }
 }
 
