@@ -171,6 +171,7 @@ export function openDatabase(dataDir: string, legacyAllowedEmails: string[] = []
   migrateToV8(db);
   migrateToV9(db);
   migrateToV10(db);
+  migrateToV11(db);
   return db;
 }
 
@@ -434,6 +435,19 @@ function migrateToV10(db: Database) {
       db.run("ALTER TABLE users ADD COLUMN claimable_by TEXT REFERENCES users(id) ON DELETE SET NULL");
     }
     db.run("PRAGMA user_version = 10");
+  })();
+}
+
+/**
+ * v11: v8 put every user in the default chat, including accounts v7 left out (not members), so
+ * they showed in it as people links went to. Only members and legacy people belong in chats.
+ */
+function migrateToV11(db: Database) {
+  const { user_version } = db.query("PRAGMA user_version").get() as { user_version: number };
+  if (user_version >= 11) return;
+  db.transaction(() => {
+    db.run(`DELETE FROM group_members WHERE user_id IN (SELECT id FROM users WHERE member = 0 AND id NOT LIKE ? || '%')`, [LEGACY]);
+    db.run("PRAGMA user_version = 11");
   })();
 }
 
