@@ -378,6 +378,8 @@ describe("links", () => {
     expect(image.status).toBe(200);
     expect(image.headers.get("content-type")).toBe("image/png");
     expect(image.headers.get("cache-control")).toContain("public");
+    expect(image.headers.get("content-security-policy")).toBe("default-src 'none'; style-src 'unsafe-inline'; sandbox");
+    expect(image.headers.get("x-content-type-options")).toBe("nosniff");
     expect(new Uint8Array(await image.arrayBuffer())).toEqual(PNG);
     for (const bad of ["unknown", "a.b", "a".repeat(65)]) {
       const missing = await fetch(`${api}/l/${bad}`);
@@ -429,6 +431,8 @@ describe("links", () => {
     const thumb = await fetch(api + link.thumb, { headers: { Authorization: `Bearer ${token}` } });
     expect(thumb.status).toBe(200);
     expect(thumb.headers.get("content-type")).toBe("image/png");
+    expect(thumb.headers.get("content-security-policy")).toBe("default-src 'none'; style-src 'unsafe-inline'; sandbox");
+    expect(thumb.headers.get("x-content-type-options")).toBe("nosniff");
     expect(new Uint8Array(await thumb.arrayBuffer())).toEqual(PNG);
     expect((await fetch(api + link.thumb)).status).toBe(401);
     // Apps from before versioned thumbnail URLs still get the image at the plain URL.

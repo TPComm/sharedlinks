@@ -709,7 +709,8 @@ export function createApp(config: Config, opts: AppOptions = {}) {
         if (!link?.thumb_type) throw new NotFound("Not found");
         const file = Bun.file(join(config.dataDir, "thumbs", String(link.id)));
         if (!await file.exists()) throw new NotFound("Not found");
-        return new Response(file, { headers: { "Content-Type": link.thumb_type, "Cache-Control": "public, max-age=300" } });
+        return new Response(file, { headers: { "Content-Type": link.thumb_type, "Cache-Control": "public, max-age=300",
+          "Content-Security-Policy": "default-src 'none'; style-src 'unsafe-inline'; sandbox", "X-Content-Type-Options": "nosniff" } });
       }, pub),
     },
     "/support": new Response(supportPage(config.supportEmail), { headers: { "Content-Type": "text/html; charset=utf-8" } }),
@@ -1006,7 +1007,8 @@ export function createApp(config: Config, opts: AppOptions = {}) {
     if (!row.thumb_type) throw new NotFound("Not found");
     return file.exists().then((exists) => {
       if (!exists) throw new NotFound("Not found");
-      return new Response(file, { headers: { "Content-Type": row.thumb_type!, "Cache-Control": "private, max-age=2592000" } });
+      return new Response(file, { headers: { "Content-Type": row.thumb_type!, "Cache-Control": "private, max-age=2592000",
+        "Content-Security-Policy": "default-src 'none'; style-src 'unsafe-inline'; sandbox", "X-Content-Type-Options": "nosniff" } });
     });
   }
 
