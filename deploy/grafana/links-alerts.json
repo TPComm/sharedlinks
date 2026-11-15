@@ -201,6 +201,71 @@
           },
           "title": "Links disk filling up",
           "uid": "links-disk-filling"
+        },
+        {
+          "annotations": {
+            "description": "Counts the \"backed up to\" lines links-backup.service on host links.tpcomm.co logs after each successful snapshot; fires when there are none in the last 26h (the timer runs daily with up to 1h random delay), so the job stopped running, kept failing, or the host stopped shipping logs. Scoped to host=links.tpcomm.co, so test hosts never fire it.",
+            "runbook_url": "https://wittypine1276.grafana.net/d/links-overview",
+            "summary": "Links (links.tpcomm.co) has had no successful database backup in over 26 hours."
+          },
+          "condition": "B",
+          "data": [
+            {
+              "datasourceUid": "grafanacloud-logs",
+              "model": {
+                "expr": "sum(count_over_time({job=\"links\", host=\"links.tpcomm.co\", systemd_unit=\"links-backup.service\"} |= \"backed up to\" [26h])) or vector(0)",
+                "intervalMs": 1000,
+                "maxDataPoints": 43200,
+                "queryType": "instant",
+                "refId": "A"
+              },
+              "queryType": "instant",
+              "refId": "A",
+              "relativeTimeRange": {
+                "from": 93600,
+                "to": 0
+              }
+            },
+            {
+              "datasourceUid": "__expr__",
+              "model": {
+                "conditions": [
+                  {
+                    "evaluator": {
+                      "params": [
+                        1
+                      ],
+                      "type": "lt"
+                    }
+                  }
+                ],
+                "expression": "A",
+                "intervalMs": 1000,
+                "maxDataPoints": 43200,
+                "refId": "B",
+                "type": "threshold"
+              },
+              "refId": "B",
+              "relativeTimeRange": {
+                "from": 0,
+                "to": 0
+              }
+            }
+          ],
+          "execErrState": "Error",
+          "for": "10m",
+          "isPaused": false,
+          "labels": {
+            "severity": "warning",
+            "team": "links"
+          },
+          "noDataState": "Alerting",
+          "notification_settings": {
+            "receiver": "Links \u2192 Sherlog (Devin webhook)",
+            "repeat_interval": "4h"
+          },
+          "title": "Links backup stalled",
+          "uid": "links-backup-stalled"
         }
       ]
     }
