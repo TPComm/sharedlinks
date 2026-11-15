@@ -97,7 +97,7 @@ final class ShareModel {
                     return url
                 }
                 if provider.hasItemConformingToTypeIdentifier(UTType.plainText.identifier),
-                   let url = LinkText.webURL(fromSharedItem: try? await provider.loadItem(forTypeIdentifier: UTType.plainText.identifier)) {
+                   let url = LinkText.webURL(fromSharedText: try? await provider.loadItem(forTypeIdentifier: UTType.plainText.identifier)) {
                     return url
                 }
             }
