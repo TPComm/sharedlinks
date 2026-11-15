@@ -203,7 +203,7 @@ private struct LinkPage: View {
             VStack(alignment: .leading, spacing: 10) {
                 Text(mine ? "Seen By" : "Also Seen By").font(.headline)
                 if receipts.isEmpty {
-                    Text("No one else has signed in yet.").foregroundStyle(.secondary)
+                    Text("No one else to show in this chat.").foregroundStyle(.secondary)
                 }
                 ForEach(receipts) { receipt in
                     HStack(spacing: 10) {

@@ -16,7 +16,7 @@ struct SaveLinkIntent: AppIntent {
     @Parameter(title: "Note")
     var note: String?
 
-    @Parameter(title: "Chat", description: "The chat it goes to. Without one, it goes to everyone.")
+    @Parameter(title: "Chat", description: "Defaults to Everyone if you're in it, or your only chat. Otherwise, choose a chat.")
     var chat: ChatEntity?
 
     static var parameterSummary: some ParameterSummary {
