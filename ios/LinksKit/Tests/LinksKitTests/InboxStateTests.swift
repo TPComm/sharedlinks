@@ -111,7 +111,7 @@ struct InboxStateTests {
 
     @Test func filterNames() {
         #expect(InboxFilter.allCases == [.toWatch, .watched, .sent, .all])
-        #expect(InboxFilter.allCases.map(\.title) == ["To Watch", "Watched", "Sent", "All Links"])
+        #expect(InboxFilter.allCases.map(\.title) == ["Queue", "Seen", "Sent", "All Links"])
         #expect(InboxFilter.allCases.allSatisfy { $0.id == $0 })
     }
 

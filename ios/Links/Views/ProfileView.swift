@@ -55,7 +55,7 @@ struct ProfileSheet: View {
         case 1: ", the link you sent and its note (your friends lose it too)"
         default: ", the \(sent) links you sent and their notes (your friends lose them too)"
         }
-        return "This permanently deletes your Links account\(links), your watched marks and your reactions. "
+        return "This permanently deletes your Links account\(links), your seen marks and your reactions. "
             + "This can't be undone."
     }
 
@@ -108,7 +108,7 @@ struct ProfileSheet: View {
                 }
                 if let settings = model.notifications {
                     Section {
-                        notificationToggle("When someone watches my link", systemImage: "eye",
+                        notificationToggle("When someone sees my link", systemImage: "eye",
                                            isOn: settings.watched, id: "notify.watched") {
                             try await model.setNotifications(watched: $0)
                         }
@@ -119,7 +119,7 @@ struct ProfileSheet: View {
                     } header: {
                         Text("Notify Me")
                     } footer: {
-                        Text("If someone watches and reacts within a minute, you get one notification for both.")
+                        Text("If someone sees a link and reacts within a minute, you get one notification for both.")
                     }
                 }
                 Section("Settings") {

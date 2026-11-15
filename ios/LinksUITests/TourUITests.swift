@@ -21,6 +21,7 @@ final class TourUITests: XCTestCase {
         launch(firstRun: true)
 
         XCTAssert(waitForPage("Welcome to Links", timeout: 20), "no tour on the first launch")
+        XCTAssert(app.staticTexts["One shared inbox for articles, videos, recipes, gift ideas and more. Share any link, react, and see who's seen it."].exists)
         XCTAssert(app.descendants(matching: .any)["trademarkNotice"].exists, "no trademark notice in the tour")
         app.buttons["tour.continue"].tap()
 
@@ -60,8 +61,8 @@ final class TourUITests: XCTestCase {
         allowNotificationsIfAsked()
 
         // The inbox, with the gesture tips on the friend's link, one after another.
-        XCTAssert(app.tabBars.buttons["To Watch"].waitForExistence(timeout: 20))
-        for tip in ["React to a Link", "Swipe Right to Mark Watched", "Touch and Hold for More"] {
+        XCTAssert(app.tabBars.buttons["Queue"].waitForExistence(timeout: 20))
+        for tip in ["React to a Link", "Swipe Right to Mark Seen", "Touch and Hold for More"] {
             XCTAssert(app.staticTexts[tip].waitForExistence(timeout: 20), "no \"\(tip)\" tip")
             closeTip()
             XCTAssert(app.staticTexts[tip].waitForNonExistence(timeout: 20), "\"\(tip)\" stayed")
@@ -70,7 +71,7 @@ final class TourUITests: XCTestCase {
         // Once is enough: neither the tour nor the tips come back on the next launch.
         app.terminate()
         launch(firstRun: false)
-        XCTAssert(app.tabBars.buttons["To Watch"].waitForExistence(timeout: 20), "no inbox")
+        XCTAssert(app.tabBars.buttons["Queue"].waitForExistence(timeout: 20), "no inbox")
         XCTAssertFalse(app.staticTexts["Welcome to Links"].waitForExistence(timeout: 3), "the tour came back")
         XCTAssertFalse(app.staticTexts["React to a Link"].exists, "a tip came back")
 

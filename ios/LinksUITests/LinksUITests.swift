@@ -16,8 +16,8 @@ final class LinksUITests: XCTestCase {
 
     func testSignedInLaunchShowsTheInbox() throws {
         launch()
-        XCTAssert(app.navigationBars["To Watch"].exists)
-        for tab in ["To Watch", "Watched", "Sent", "Search"] {
+        XCTAssert(app.navigationBars["Queue"].exists)
+        for tab in ["Queue", "Seen", "Sent", "Search"] {
             XCTAssert(app.tabBars.buttons[tab].exists, "no \(tab) tab")
         }
         XCTAssert(app.buttons["newLink"].exists)
@@ -32,7 +32,7 @@ final class LinksUITests: XCTestCase {
         let row = waitForRow(link, in: "toWatch")
         XCTAssert(row.label.contains(note), row.label)
         XCTAssert(row.label.contains("Friend"), row.label)
-        XCTAssert(row.label.contains("Not watched"), row.label)
+        XCTAssert(row.label.contains("Unseen"), row.label)
     }
 
     func testLongPressOpenStillMarksItWatched() throws {
@@ -48,7 +48,7 @@ final class LinksUITests: XCTestCase {
         // Back in the app it has left To Watch, and Watched has it (not an empty list: #7).
         app.activate()
         XCTAssert(row.waitForNonExistence(timeout: 10), "still in To Watch")
-        app.tabBars.buttons["Watched"].tap()
+        app.tabBars.buttons["Seen"].tap()
         XCTAssert(self.row(link, in: "watched").waitForExistence(timeout: 5), "not in Watched")
     }
 
@@ -57,13 +57,13 @@ final class LinksUITests: XCTestCase {
         launch()
         let row = waitForRow(link, in: "toWatch")
         row.swipeRight()
-        app.collectionViews["links.toWatch"].buttons["Watched"].tap()
+        app.collectionViews["links.toWatch"].buttons["Seen"].tap()
         XCTAssert(row.waitForNonExistence(timeout: 5), "still in To Watch")
 
-        app.tabBars.buttons["Watched"].tap()
+        app.tabBars.buttons["Seen"].tap()
         let watched = self.row(link, in: "watched")
         XCTAssert(watched.waitForExistence(timeout: 5))
-        XCTAssertFalse(watched.label.contains("Not watched"), watched.label)
+        XCTAssertFalse(watched.label.contains("Unseen"), watched.label)
 
         let me = try server.state(as: server.me).me
         try server.eventually("seen by me") { try server.state(as: server.friend).link(link.id)?.seen[me] }
@@ -105,7 +105,7 @@ final class LinksUITests: XCTestCase {
         app.tabBars.buttons["Sent"].tap() // the page opens on the tab whose list has the link
         app.open(URL(string: "sharedlinks://open/\(link.id)")!)
         XCTAssert(page(link).waitForExistence(timeout: 10), "no page for the link")
-        XCTAssert(app.tabBars.buttons["To Watch"].isSelected)
+        XCTAssert(app.tabBars.buttons["Queue"].isSelected)
         // It stays in the app, and doesn't count as watched.
         XCTAssertEqual(app.state, .runningForeground)
         let me = try server.state(as: server.me).me
@@ -133,6 +133,7 @@ final class LinksUITests: XCTestCase {
         XCTAssert(page.staticTexts.matching(NSPredicate(format: "label BEGINSWITH %@", "From Friend")).firstMatch.exists,
                   "no sender")
         XCTAssertEqual(app.buttons["linkPage.watch"].label, "Open in Browser")
+        XCTAssertEqual(app.buttons["linkPage.markWatched"].label, "Mark as Seen")
         let me = try server.state(as: server.me).me
         XCTAssertNil(try server.state(as: server.friend).link(link.id)?.seen[me], "showing the page marked it watched")
 
@@ -848,7 +849,7 @@ final class LinksUITests: XCTestCase {
             "LINKS_UI_TESTS": "1",
         ]
         app.launch()
-        XCTAssert(app.tabBars.buttons["To Watch"].waitForExistence(timeout: 20), "no inbox")
+        XCTAssert(app.tabBars.buttons["Queue"].waitForExistence(timeout: 20), "no inbox")
     }
 
     /// The profile's list makes rows only as they scroll in, so the bottom ones need a swipe.

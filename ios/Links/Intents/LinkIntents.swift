@@ -6,7 +6,7 @@ import WidgetKit
 /// the app, using the same session as the app.
 struct SaveLinkIntent: AppIntent {
     static let title: LocalizedStringResource = "Send Link"
-    static let description = IntentDescription("Sends a TikTok, reel or any link to your friends in Links.")
+    static let description = IntentDescription("Sends any link to your friends in Links: articles, videos, posts and more.")
 
     @Parameter(title: "Link", description: "A link, or text that contains one.",
                inputOptions: String.IntentInputOptions(keyboardType: .URL, capitalizationType: .none,
@@ -60,10 +60,10 @@ struct SaveLinkIntent: AppIntent {
     }
 }
 
-/// "How many links do I have to watch?"
+/// "How many links do I have to see?"
 struct ToWatchCountIntent: AppIntent {
-    static let title: LocalizedStringResource = "Links to Watch"
-    static let description = IntentDescription("Tells you how many links you haven't watched yet.")
+    static let title: LocalizedStringResource = "Links in Queue"
+    static let description = IntentDescription("Tells you how many links you haven't seen yet.")
 
     func perform() async throws -> some IntentResult & ProvidesDialog & ReturnsValue<Int> {
         guard SessionStore.isSignedIn else { throw IntentError.message("Open Links and sign in first.") }
@@ -71,8 +71,8 @@ struct ToWatchCountIntent: AppIntent {
         let count = state.toWatch.count
         let dialog: IntentDialog = switch count {
         case 0: "You're all caught up."
-        case 1: "You have 1 link to watch, from \(state.name(of: state.toWatch[0].addedBy))."
-        default: "You have \(count) links to watch."
+        case 1: "You have 1 link to see, from \(state.name(of: state.toWatch[0].addedBy))."
+        default: "You have \(count) links to see."
         }
         return .result(value: count, dialog: dialog)
     }
@@ -112,8 +112,8 @@ struct LinksShortcuts: AppShortcutsProvider {
         ], shortTitle: "Send Link", systemImageName: "paperplane")
         AppShortcut(intent: ToWatchCountIntent(), phrases: [
             "What's in \(.applicationName)",
-            "How many \(.applicationName) do I have to watch",
-        ], shortTitle: "Links to Watch", systemImageName: "play.rectangle.on.rectangle")
+            "How many \(.applicationName) do I have to see",
+        ], shortTitle: "Links in Queue", systemImageName: "tray.full")
         AppShortcut(intent: NewLinkIntent(), phrases: [
             "New \(.applicationName)",
         ], shortTitle: "New Link", systemImageName: "plus")

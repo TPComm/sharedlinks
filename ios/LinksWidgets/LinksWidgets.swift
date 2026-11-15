@@ -16,7 +16,7 @@ struct LinksWidget: Widget {
             LinksWidgetView(entry: entry)
         }
         .configurationDisplayName("Links")
-        .description("What's waiting for you to watch, or who's seen what you sent.")
+        .description("What's waiting for you to see, or who's seen what you sent.")
         .supportedFamilies([.systemSmall, .systemMedium, .systemLarge,
                             .accessoryCircular, .accessoryRectangular, .accessoryInline])
         .contentMarginsDisabled()
@@ -58,11 +58,11 @@ private struct SmallView: View {
                     .font(.system(size: feed == .toWatch ? 40 : 22, weight: .bold, design: .rounded))
                     .contentTransition(.identity)
                 Spacer()
-                Image(systemName: feed == .toWatch ? "play.fill" : "paperplane.fill")
+                Image(systemName: feed == .toWatch ? "tray.full" : "paperplane.fill")
                     .font(.subheadline.weight(.semibold))
             }
             if feed == .toWatch {
-                Text("to watch").font(.subheadline.weight(.semibold)).opacity(0.85)
+                Text("to see").font(.subheadline.weight(.semibold)).opacity(0.85)
             }
             Spacer(minLength: 0)
             if let item {
@@ -105,7 +105,7 @@ private struct ListView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack {
-                Label(feed == .toWatch ? "To Watch" : "Sent", systemImage: feed == .toWatch ? "play.rectangle.on.rectangle" : "paperplane")
+                Label(feed == .toWatch ? "Queue" : "Sent", systemImage: feed == .toWatch ? "tray.full" : "paperplane")
                     .font(.subheadline.weight(.semibold))
                     .foregroundStyle(Color.linksAccent)
                 if let chat {
@@ -200,7 +200,7 @@ private struct Row: View {
                         .foregroundStyle(.secondary)
                 }
                 .buttonStyle(.plain)
-                .accessibilityLabel("Mark as Watched")
+                .accessibilityLabel("Mark as Seen")
             }
         }
     }
@@ -216,7 +216,7 @@ private struct CircularView: View {
         ZStack {
             AccessoryWidgetBackground()
             VStack(spacing: 0) {
-                Image(systemName: feed == .toWatch ? "play.fill" : "paperplane.fill")
+                Image(systemName: feed == .toWatch ? "tray.full" : "paperplane.fill")
                     .font(.caption)
                 Text("\(count)")
                     .font(.system(.title2, design: .rounded).weight(.bold))
@@ -225,7 +225,7 @@ private struct CircularView: View {
         }
         .widgetURL(DeepLink.inbox.url)
         .containerBackground(.clear, for: .widget)
-        .accessibilityLabel(feed == .toWatch ? "\(count) links to watch" : "\(count) links sent")
+        .accessibilityLabel(feed == .toWatch ? "\(count) links to see" : "\(count) links sent")
     }
 }
 
@@ -236,7 +236,7 @@ private struct RectangularView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 1) {
-            Label(feed == .toWatch ? "\(count) to watch" : "Sent", systemImage: feed == .toWatch ? "play.fill" : "paperplane.fill")
+            Label(feed == .toWatch ? "\(count) to see" : "Sent", systemImage: feed == .toWatch ? "tray.full" : "paperplane.fill")
                 .font(.headline)
                 .widgetAccentable()
             if let item = items.first {
@@ -257,8 +257,8 @@ private struct InlineView: View {
     let feed: WidgetFeed
 
     var body: some View {
-        Label(feed == .toWatch ? (count == 0 ? "All caught up" : "\(count) to watch") : "Links sent",
-              systemImage: feed == .toWatch ? "play.rectangle.on.rectangle" : "paperplane")
+        Label(feed == .toWatch ? (count == 0 ? "All caught up" : "\(count) to see") : "Links sent",
+              systemImage: feed == .toWatch ? "tray.full" : "paperplane")
             .containerBackground(.clear, for: .widget)
     }
 }
@@ -268,7 +268,7 @@ private struct InlineView: View {
 private struct SignedOutView: View {
     var body: some View {
         VStack(spacing: 6) {
-            Image(systemName: "play.fill").font(.title2)
+            Image(systemName: "tray.full").font(.title2)
             Text("Open Links to sign in").font(.footnote.weight(.semibold)).multilineTextAlignment(.center)
         }
         .foregroundStyle(.white)

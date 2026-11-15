@@ -14,7 +14,7 @@ import { clip, clipText } from "./links.ts";
 
 /** Same nouns as `Platform.noun` in ios/LinksKit/Sources/LinksKit/Models.swift, mid-sentence. */
 const NOUNS: Record<string, string> = {
-  tiktok: "TikTok", instagram: "Instagram post", youtube: "YouTube video", x: "post on X",
+  tiktok: "TikTok", instagram: "Instagram post", youtube: "YouTube link", x: "post on X",
   reddit: "Reddit post", facebook: "Facebook post", web: "link",
 };
 const article = (noun: string) => (/^[aeiou]/i.test(noun) ? "an" : "a");
@@ -183,8 +183,8 @@ export class Pusher {
     const name = (this.db.query("SELECT name FROM users WHERE id = ?").get(actor) as { name: string } | null)?.name;
     if (!name) return;
     const noun = nounOf(link.platform);
-    const lead = watched && emoji ? `watched and reacted ${emoji} to your ${noun}`
-      : emoji ? `reacted ${emoji} to your ${noun}` : `watched your ${noun}`;
+    const lead = watched && emoji ? `saw and reacted ${emoji} to your ${noun}`
+      : emoji ? `reacted ${emoji} to your ${noun}` : `saw your ${noun}`;
     await this.toPerson(link.added_by, "alert", (badge) => this.fit({
       aps: {
         alert: { title: name, body: [lead, link.title, ""] as const },
