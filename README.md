@@ -259,10 +259,11 @@ chown -R links:links /var/lib/links && systemctl start links
 ```
 
 On start the server upgrades the database in place. People from before sign-in become "legacy"
-entries: on first sign-in the app asks "Were you one of these?" and moves that person's links,
-watched marks and reactions to your account. `claimable` lists only legacy people with your name
-or first name (any case), and only for members of the default chat; rename yourself to find one
-under another name.
+entries. Anyone can type a name, so the admin decides who is who: `links-server claim` lists them,
+and `links-server claim you@x.com Sam` lets that account (a member of the default chat) claim Sam.
+The app then asks "Were you one of these?" (or offers Claim Earlier Links… in the account menu)
+and moves that person's links, watched marks and reactions to the account. `claimable` lists only
+the legacy people approved for your account.
 
 ## API
 
@@ -277,7 +278,7 @@ All endpoints except sign-in need `Authorization: Bearer <session token>`.
 | POST | `/api/devices` | `{token, env}`: this session's APNs device token (hex), `env` is `sandbox` or `production` → `{ok, push}` (`push`: whether the server sends any). Registering a token again moves it to this session |
 | DELETE | `/api/devices/:token` | forget one of your device tokens |
 | GET/PATCH/DELETE | `/api/me` | `{user, claimable}`; PATCH `{name}`; DELETE deletes the account, its sessions, watched marks and reactions, and the links it sent (with their notes and thumbnails, for everyone). Also the WorkOS user, given `WORKOS_API_KEY` |
-| POST | `/api/me/claim` | `{id}` of a legacy person |
+| POST | `/api/me/claim` | `{id}` of a legacy person in my `claimable` (one `links-server claim` approved for my account) |
 | GET | `/api/state` | `{me, users, groups, links, blocked}`: `users` is only people I share a chat with, plus anyone named on a link in my chats and people I blocked; the chats I'm in (`{id, name, created_by, created_at, default, members}`) and their links (each with its `group_id`), without links I reported or that people I blocked sent, and without blocked people's watched marks and reactions; `?group_id=` for one chat's links |
 | POST | `/api/links` | `{url, note?, group_id?}`; `url` may be any text containing a link; without `group_id` (apps from before chats) it goes to the default chat, or my only chat if I left that → `{link, duplicate}` (a duplicate only within the same chat) |
 | POST | `/api/groups` | `{name?, members?}` (user ids; I'm added) → 201 `{group}`. An empty name means the app names it after its members; up to 50 people |
@@ -301,6 +302,7 @@ All endpoints except sign-in need `Authorization: Bearer <session token>`.
 | GET | `/version` | public: `{commit}`, the git commit the server was built from (`dev` unless built by `deploy/deploy.sh`) |
 
 Admin: `links-server mint-session <email> [name]`, `links-server delete-user <email>` (what the app's Delete Account does),
+`links-server claim [<email> <legacy name>]` (list legacy people, or let that account claim one),
 `links-server reports`, `links-server reports resolve <id> [--remove]`, `links-server backup [dir]` and
 `links-server version` (the commit it was built from).
 

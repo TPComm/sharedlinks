@@ -41,6 +41,8 @@ export interface UserRow {
   created_at: number;
   /** 1 once they're in: an invite let them in, or they'd signed up before invites (see migrateToV7). */
   member: number;
+  /** On a legacy person: the account `links-server claim` let claim them (see migrateToV10). */
+  claimable_by: string | null;
 }
 
 export interface GroupRow {
@@ -168,6 +170,7 @@ export function openDatabase(dataDir: string, legacyAllowedEmails: string[] = []
   migrateToV7(db, legacyAllowedEmails);
   migrateToV8(db);
   migrateToV9(db);
+  migrateToV10(db);
   return db;
 }
 
@@ -415,6 +418,22 @@ function migrateToV9(db: Database) {
         [id, inviter, at, id, user, at]);
     }
     db.run("PRAGMA user_version = 9");
+  })();
+}
+
+/**
+ * v10: a legacy person names the one account an admin let claim them. By account, not email, since
+ * an email can move to someone else; deleting that account withdraws it.
+ */
+function migrateToV10(db: Database) {
+  const { user_version } = db.query("PRAGMA user_version").get() as { user_version: number };
+  if (user_version >= 10) return;
+  db.transaction(() => {
+    const have = (db.query("PRAGMA table_info(users)").all() as { name: string }[]).map((c) => c.name);
+    if (!have.includes("claimable_by")) {
+      db.run("ALTER TABLE users ADD COLUMN claimable_by TEXT REFERENCES users(id) ON DELETE SET NULL");
+    }
+    db.run("PRAGMA user_version = 10");
   })();
 }
 

@@ -6,6 +6,7 @@
  *   links-server mint-session you@example.com [Name]   print a session token (admin / Simulator)
  *   links-server invite [friend@example.com]         print an invite link (the first one on a new server)
  *   links-server delete-user you@example.com         delete an account and the links it sent
+ *   links-server claim [you@example.com Name]        list legacy people, or let that account claim one
  *   links-server backup [dir]                        snapshot the database (keeps the newest 14)
  *   links-server reports                             list open reports (what was reported, by whom)
  *   links-server reports resolve <id> [--remove]     mark one handled; --remove deletes the link for everyone
@@ -88,6 +89,32 @@ if (command === "mint-session") {
   if (!users.length) {
     console.error(`no account with the email ${email}`);
     process.exit(1);
+  }
+} else if (command === "claim") {
+  // A pre-sign-in person's links go only to the account an admin names, never to whoever types the name.
+  const [email, ...name] = rest;
+  if (email && !name.length) {
+    console.error("usage: links-server claim [<email> <legacy name>]");
+    process.exit(1);
+  }
+  const db = openDatabase(config.dataDir, config.legacyAllowedEmails);
+  const accounts = new Accounts(db, config);
+  try {
+    if (!email) {
+      const people = accounts.legacyPeople();
+      console.log(people.length
+        ? people.map((p) => `${p.name}: ${p.links} link${p.links === 1 ? "" : "s"}${p.claimer ? `; ${p.claimer} may claim` : ""}`).join("\n")
+        : "no unclaimed legacy people");
+    } else {
+      const { user, legacy } = accounts.approveClaim(email, name.join(" "));
+      console.log(`${user.name} (${user.email}) may now claim ${legacy.name}: in the app, Claim Earlier Links… in the account menu`);
+    }
+  } catch (e) {
+    if (!(e instanceof BadRequest)) throw e;
+    console.error(e.message);
+    process.exit(1);
+  } finally {
+    db.close();
   }
 } else if (command === "backup") {
   // A consistent copy even while the server is running (VACUUM INTO reads a snapshot).

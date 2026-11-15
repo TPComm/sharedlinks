@@ -20,6 +20,7 @@ let origin: string;
 let stop: () => void;
 let idle: () => Promise<void>;
 let mint: (email: string, name: string) => string;
+let approveClaim: (email: string, name: string) => void;
 let baseConfig: ReturnType<typeof configFromEnv>;
 let flakyUp = false;
 const workosRequests: Record<string, any>[] = [];
@@ -120,6 +121,7 @@ beforeAll(() => {
   origin = fakeOrigin.url.origin;
   idle = app.idle;
   mint = (email, name) => app.accounts.mintSession(email, name);
+  approveClaim = (email, name) => app.accounts.approveClaim(email, name);
   stop = () => server.stop(true);
 });
 
@@ -191,7 +193,7 @@ describe("auth", () => {
     expect(ok.status).toBe(200);
     expect(ok.data.token).toMatch(/^[A-Za-z0-9_-]{43}$/);
     expect(ok.data.user).toEqual({ id: "user_01FRIEND", name: "Riley", avatar: "https://example.com/r.png", email: "friend@example.com" });
-    expect(ok.data.claimable).toEqual([]); // only legacy people with your name
+    expect(ok.data.claimable).toEqual([]); // only legacy people an admin let you claim
     expect(workosRequests.at(-1)).toMatchObject({ client_id: "client_TEST", grant_type: "authorization_code", code: "good" });
     expect(workosRequests.at(-1)!.client_secret).toBeUndefined();
 
@@ -328,7 +330,7 @@ describe("links", () => {
     const db = new Database(join(dataDir, "links.db"), { readonly: true });
     const { sql } = db.query("SELECT sql FROM sqlite_master WHERE name = 'links'").get() as { sql: string };
     expect(sql).toContain("AUTOINCREMENT");
-    expect((db.query("PRAGMA user_version").get() as any).user_version).toBe(9);
+    expect((db.query("PRAGMA user_version").get() as any).user_version).toBe(10);
     db.close();
     const { data } = await call("/api/state", { token });
     expect(data.links.map((l: any) => l.url)).toContain("https://de.wikipedia.org/wiki/M%C3%BCnchen");
@@ -444,6 +446,10 @@ describe("links", () => {
     expect((await call("/api/me/claim", { token, body: { id: "legacy:Sam" } })).status).toBe(400); // Riley isn't Sam
     const asSam = await call("/api/me", { method: "PATCH", token, body: { name: "sam" } });
     expect(asSam.status).toBe(200);
+    // Anyone can type a name, so only the admin's `links-server claim` makes Sam claimable.
+    expect((await call("/api/me", { token })).data.claimable).toEqual([]);
+    expect((await call("/api/me/claim", { token, body: { id: "legacy:Sam" } })).status).toBe(400);
+    approveClaim("friend@example.com", "Sam");
     expect((await call("/api/me", { token })).data.claimable.map((u: any) => u.id)).toEqual(["legacy:Sam"]);
     expect((await call("/api/me/claim", { token, body: { id: "legacy:Alex" } })).status).toBe(400);
     const r = await call("/api/me/claim", { token, body: { id: "legacy:Sam" } });

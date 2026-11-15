@@ -121,16 +121,37 @@ export class Accounts {
   }
 
   /**
-   * The legacy people this account may be: those with its name, or its first name, in any case
-   * (renaming yourself finds one under another name). Their history is in the default chat, so
-   * only its members get any.
+   * The legacy people this account may be: those an admin let it claim (`links-server claim`). A
+   * typed name proves nothing, since anyone can rename themselves to it. Their history is in the
+   * default chat, so only its members get any.
    */
   private claimable(user: UserRow): UserRow[] {
     if (!this.inDefault(user.id)) return [];
-    const name = user.name.trim().toLowerCase();
-    const names = new Set([name, name.split(/\s+/)[0]]);
-    return (this.db.query("SELECT * FROM users WHERE id LIKE ? ORDER BY created_at").all(`${LEGACY}%`) as UserRow[])
-      .filter((p) => names.has(p.name.trim().toLowerCase()));
+    return this.db.query("SELECT * FROM users WHERE id LIKE ? AND claimable_by = ? ORDER BY created_at")
+      .all(`${LEGACY}%`, user.id) as UserRow[];
+  }
+
+  /** Unclaimed legacy people, with how many links each sent and the email of whoever may claim them. */
+  legacyPeople(): (UserRow & { links: number; claimer: string | null })[] {
+    return this.db.query(`SELECT u.*, (SELECT COUNT(*) FROM links l WHERE l.added_by = u.id) AS links,
+          (SELECT c.email FROM users c WHERE c.id = u.claimable_by) AS claimer
+        FROM users u WHERE u.id LIKE ? ORDER BY u.created_at`).all(`${LEGACY}%`) as (UserRow & { links: number; claimer: string | null })[];
+  }
+
+  /**
+   * Let the account with this email claim the legacy person with this name (any case), replacing any
+   * earlier approval; the app then offers "Claim Earlier Links…". For the admin, who checks first.
+   */
+  approveClaim(email: string, name: string): { user: UserRow; legacy: UserRow } {
+    const users = this.usersWithEmail(email);
+    if (users.length !== 1) throw new BadRequest(users.length ? `more than one account has the email ${email}` : `no account with the email ${email}`);
+    const user = users[0]!;
+    if (!this.inDefault(user.id)) throw new BadRequest(`${user.name} isn't in the default chat, where legacy history is`);
+    const matches = this.legacyPeople().filter((p) => p.name.trim().toLowerCase() === name.trim().toLowerCase());
+    const legacy = matches.find((p) => p.name === name.trim()) ?? (matches.length === 1 ? matches[0] : undefined);
+    if (!legacy) throw new BadRequest(matches.length ? `more than one legacy person is called ${name}; give the exact name` : `no unclaimed legacy person called ${name}`);
+    this.db.run("UPDATE users SET claimable_by = ? WHERE id = ?", [user.id, legacy.id]);
+    return { user, legacy: { ...legacy, claimable_by: user.id } };
   }
 
   /** Create the account on first sign-in. Afterwards, keep the name they chose. */
