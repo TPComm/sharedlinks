@@ -14,6 +14,51 @@ final class LinksUITests: XCTestCase {
 
     // MARK: Inbox
 
+    func testSeenStartsWithTheLinkWhenNoThrowbackIsEligible() throws {
+        let meID = try server.state(as: server.me).me
+        let name = "Throwback \(shortID())"
+        let chat = try server.startChat(name: name, members: [meID], as: server.friend)
+        leaveAfterwards(chat.id)
+        let link = try server.add(uniqueURL(), to: chat.id, as: server.friend)
+        deleteAfterwards(link.id)
+        try server.setSeen(link.id, true, as: server.me)
+
+        launch(environment: ["LINKS_THROWBACK_MIN_AGE": "0"])
+        pickChat(name)
+        app.tabBars.buttons["Seen"].tap()
+        waitForRow(link, in: "watched")
+        XCTAssertFalse(app.otherElements["throwback.card"].exists)
+        let firstRow = app.collectionViews["links.watched"].cells.firstMatch
+        XCTAssert(firstRow.buttons["link.\(link.id)"].exists, "an empty row precedes the seen link")
+    }
+
+    func testThrowbackOpensThePageWithoutChangingSeenStatus() throws {
+        let meID = try server.state(as: server.me).me
+        let name = "Throwback \(shortID())"
+        let chat = try server.startChat(name: name, members: [meID], as: server.friend)
+        leaveAfterwards(chat.id)
+        let link = try server.add(uniqueURL(), to: chat.id, as: server.friend)
+        deleteAfterwards(link.id)
+        try server.setSeen(link.id, true, as: server.me)
+        try server.react(link.id, emoji: "❤️", as: server.me)
+        try server.react(link.id, emoji: "❤️", as: server.friend)
+
+        launch(environment: ["LINKS_THROWBACK_MIN_AGE": "0"])
+        pickChat(name)
+        app.tabBars.buttons["Seen"].tap()
+        waitForRow(link, in: "watched")
+        let card = app.otherElements["throwback.card"]
+        XCTAssert(card.waitForExistence(timeout: 5))
+        let heading = card.staticTexts["THROWBACK"]
+        XCTAssert(heading.exists, "the Throwback heading is missing")
+        XCTAssertGreaterThan(heading.frame.width, 40, "the Throwback heading has no visible width")
+        XCTAssertFalse(app.buttons["throwback.another"].exists)
+        app.buttons["throwback.open"].tap()
+        XCTAssert(page(link).waitForExistence(timeout: 5))
+        let state = try server.state(as: server.me)
+        XCTAssertNotNil(state.link(link.id)?.seen[meID], "opening the throwback changed seen status")
+    }
+
     func testSignedInLaunchShowsTheInbox() throws {
         launch()
         XCTAssert(app.navigationBars["Queue"].exists)
@@ -840,7 +885,7 @@ final class LinksUITests: XCTestCase {
     }
 
     /// Launches signed in (DEBUG builds take a session token from LINKS_DEV_TOKEN), on the inbox.
-    private func launch(as token: String? = nil) {
+    private func launch(as token: String? = nil, environment: [String: String] = [:]) {
         app.launchEnvironment = [
             "LINKS_SERVER_URL": server.url.absoluteString,
             "LINKS_DEV_TOKEN": token ?? server.me,
@@ -848,6 +893,7 @@ final class LinksUITests: XCTestCase {
             // from an earlier test (RootView.restoreNavigation).
             "LINKS_UI_TESTS": "1",
         ]
+        app.launchEnvironment.merge(environment) { _, value in value }
         app.launch()
         XCTAssert(app.tabBars.buttons["Queue"].waitForExistence(timeout: 20), "no inbox")
     }

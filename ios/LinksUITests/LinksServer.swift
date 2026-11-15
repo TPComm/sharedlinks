@@ -142,6 +142,10 @@ struct LinksServer: Sendable {
         _ = try send("POST", "api/links/\(id)/seen", json: ["seen": seen], as: token)
     }
 
+    func react(_ id: Int, emoji: String, as token: String) throws {
+        _ = try send("POST", "api/links/\(id)/react", json: ["emoji": emoji], as: token)
+    }
+
     func delete(_ id: Int, as token: String) throws {
         _ = try send("DELETE", "api/links/\(id)", as: token)
     }
