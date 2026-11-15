@@ -28,6 +28,11 @@ has seen it, and mark it watched when you're back. Coming back from TikTok lands
 even if iOS closed the app meanwhile. Long-press **Open in TikTok** still goes straight there and
 marks it watched in one go.
 
+Each link's page also has a comment thread: read and reply below the reactions and receipts,
+edit or delete your own comments, or report someone else's. The list shows comment counts and
+highlights new replies; read positions stay on this device, separate for each account. The
+sender's original note stays separate from the conversation.
+
 New people get a short **welcome tour** after their first sign-in (Profile → Show Tour Again).
 It walks through putting Links at the front of the share sheet, with a practice share that ticks
 itself off, and TipKit tips then point out the gestures once each.

@@ -158,11 +158,40 @@ public struct APIClient: Sendable {
         let _: [String: Bool] = try await send("DELETE", "api/links/\(linkID)")
     }
 
+    // MARK: Comments
+
+    public func comments(_ linkID: Int) async throws -> [LinkComment] {
+        struct Envelope: Decodable { let comments: [LinkComment] }
+        let result: Envelope = try await send("GET", "api/links/\(linkID)/comments")
+        return result.comments
+    }
+
+    public func addComment(_ linkID: Int, body: String) async throws -> LinkComment {
+        struct Envelope: Decodable { let comment: LinkComment }
+        let result: Envelope = try await send("POST", "api/links/\(linkID)/comments", json: ["body": body])
+        return result.comment
+    }
+
+    public func editComment(_ id: Int, body: String) async throws -> LinkComment {
+        struct Envelope: Decodable { let comment: LinkComment }
+        let result: Envelope = try await send("PATCH", "api/comments/\(id)", json: ["body": body])
+        return result.comment
+    }
+
+    public func deleteComment(_ id: Int) async throws {
+        let _: [String: Bool] = try await send("DELETE", "api/comments/\(id)")
+    }
+
     // MARK: Reports and blocks
 
     /// Reports a link to whoever runs the server; it's hidden for me from then on.
     public func report(link linkID: Int, reason: ReportReason) async throws {
         let _: [String: Bool] = try await send("POST", "api/reports", json: ["link_id": linkID, "reason": reason.rawValue])
+    }
+
+    /// Hides a comment for me and sends its snapshot to moderation.
+    public func report(comment commentID: Int, reason: ReportReason) async throws {
+        let _: [String: Bool] = try await send("POST", "api/reports", json: ["comment_id": commentID, "reason": reason.rawValue])
     }
 
     /// Reports a person (their name or photo).
