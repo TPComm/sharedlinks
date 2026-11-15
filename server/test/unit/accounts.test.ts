@@ -380,6 +380,18 @@ describe("deleteUser", () => {
     expect(a.mePayload("user_A").claimable).toEqual([]);
   });
 
+  test("withdraws the legacy people an admin let the account claim", async () => {
+    const a = setup();
+    addUser("legacy:Kim", null, "Kim", 0);
+    db.run("UPDATE users SET claimable_by = 'user_A' WHERE id = 'legacy:Kim'");
+    await a.deleteUser("user_A");
+    expect(rows("SELECT claimable_by FROM users WHERE id = 'legacy:Kim'")).toEqual([{ claimable_by: null }]);
+    // A new account with the same email gets nothing.
+    addUser("user_N", "a@x.com", "New", 9);
+    db.run("INSERT OR IGNORE INTO group_members (group_id, user_id, joined_at) VALUES (1, 'user_N', 9)");
+    expect(a.mePayload("user_N").claimable).toEqual([]);
+  });
+
   test("deleting everyone leaves nothing behind", async () => {
     const a = setup();
     await a.deleteUser("user_A");
