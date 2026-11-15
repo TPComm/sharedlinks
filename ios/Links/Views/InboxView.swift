@@ -61,6 +61,7 @@ struct LinkListScreen: View {
     @Environment(AppModel.self) private var model
     let filter: InboxFilter
     var query: String = ""
+    @State private var pickingForMe = false
 
     var body: some View {
         let tab = InboxTab(filter)
@@ -74,6 +75,13 @@ struct LinkListScreen: View {
                     if !model.inbox.groups.isEmpty {
                         ToolbarItem(placement: .topBarTrailing) { ChatPicker() }
                     }
+                    // Only once there's something to choose between.
+                    if filter == .toWatch, model.inbox.links(for: .toWatch, in: model.chat).count > 1 {
+                        ToolbarItem(placement: .topBarTrailing) {
+                            Button("Pick for Me", systemImage: "dice") { pickingForMe = true }
+                                .accessibilityIdentifier("pickForMe")
+                        }
+                    }
                     ToolbarItem(placement: .topBarTrailing) {
                         Button {
                             model.addPrefill = ""
@@ -84,6 +92,7 @@ struct LinkListScreen: View {
                         .accessibilityIdentifier("newLink")
                     }
                 }
+                .sheet(isPresented: $pickingForMe) { PickForMeSheet() }
         }
     }
 }

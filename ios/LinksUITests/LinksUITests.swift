@@ -393,6 +393,31 @@ final class LinksUITests: XCTestCase {
         XCTAssertEqual(react.label, "React")
     }
 
+    func testPickForMeLandsOnALinkAndWatchingItMarksItWatched() throws {
+        let links = try [seed(by: server.friend), seed(by: server.friend)]
+        launch()
+        waitForRow(links[0], in: "toWatch")
+        waitForRow(links[1], in: "toWatch")
+        let me = try server.state(as: server.me).me
+
+        app.buttons["pickForMe"].tap()
+        let watch = app.buttons["pickForMe.watch"]
+        XCTAssert(watch.waitForExistence(timeout: 15), "the reel didn't land")
+        let again = app.buttons["pickForMe.again"]
+        XCTAssert(again.exists, "no Spin Again with two to choose from")
+        again.tap()
+        XCTAssert(watch.waitForNonExistence(timeout: 5), "Spin Again didn't spin")
+        XCTAssert(watch.waitForExistence(timeout: 15), "the second spin didn't land")
+
+        // Whichever it landed on, Watch opens it (Safari, for these .invalid URLs) and marks it watched.
+        watch.tap()
+        XCTAssert(safari.wait(for: .runningForeground, timeout: safariLaunch), "the link didn't open")
+        try server.eventually(timeout: 20, "one of them seen by me") {
+            let state = try server.state(as: server.friend)
+            return links.first { state.link($0.id)?.seen[me] != nil }
+        }
+    }
+
     func testDeletingALinkRemovesItForEveryone() throws {
         let link = try seed(by: server.me)
         launch()
