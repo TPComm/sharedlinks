@@ -469,13 +469,16 @@ describe("a day with Links", () => {
       snapshot.close();
     }
 
-    // Without a folder: DATA_DIR/backups. The newest labelled copy stays however old, so a rollback has one.
+    // Without a folder: DATA_DIR/backups. The newest labelled copy stays however old, so a rollback has one;
+    // names with an impossible or future date are left alone and don't take its place.
     mkdirSync(join(dataDir, "backups"));
-    for (const name of ["links-2000-01-01-pre-a.db", "links-2000-01-02-pre-b.db"]) writeFileSync(join(dataDir, "backups", name), "old");
+    const odd = ["links-2000-13-40-x.db", "links-2999-01-01-future.db"];
+    for (const name of ["links-2000-01-01-pre-a.db", "links-2000-01-02-pre-b.db", ...odd]) writeFileSync(join(dataDir, "backups", name), "old");
     const fallback = await cli(dataDir, "backup");
     expect(fallback.code, fallback.logs()).toBe(0);
-    expect(readdirSync(join(dataDir, "backups")).sort())
-      .toEqual(["links-2000-01-02-pre-b.db", expect.stringMatching(/^links-\d{4}-\d{2}-\d{2}\.db$/)]);
+    const kept = readdirSync(join(dataDir, "backups"));
+    expect(kept.filter((f) => /^links-\d{4}-\d{2}-\d{2}\.db$/.test(f))).toHaveLength(1);
+    expect(kept.filter((f) => !/^links-\d{4}-\d{2}-\d{2}\.db$/.test(f)).sort()).toEqual(["links-2000-01-02-pre-b.db", ...odd].sort());
   });
 
   e2e("exits 0 promptly on SIGTERM, and keeps everything across a restart", async () => {

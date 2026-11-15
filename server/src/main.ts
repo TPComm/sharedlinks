@@ -128,9 +128,14 @@ if (command === "mint-session") {
   const names = readdirSync(dir);
   const old = names.filter((f) => /^links-\d{4}-\d{2}-\d{2}\.db$/.test(f)).sort().slice(0, -14);
   // Labelled copies (links-YYYY-MM-DD-pre-deploy.db) go after 14 days too, as the privacy page promises,
-  // except the newest one, so a rollback always has the last pre-deploy snapshot.
+  // except the newest one, so a rollback always has the last pre-deploy snapshot. A name with an impossible or
+  // future date is left alone, so it can't take that place.
+  const today = new Date().toISOString().slice(0, 10);
   const cutoff = new Date(Date.now() - 14 * 86_400_000).toISOString().slice(0, 10);
-  const labelled = names.filter((f) => /^links-\d{4}-\d{2}-\d{2}-.+\.db$/.test(f)).sort();
+  const realDate = (d: string) => !Number.isNaN(Date.parse(d)) && new Date(d).toISOString().slice(0, 10) === d;
+  const labelled = names
+    .filter((f) => /^links-\d{4}-\d{2}-\d{2}-.+\.db$/.test(f) && realDate(f.slice(6, 16)) && f.slice(6, 16) <= today)
+    .sort();
   old.push(...labelled.slice(0, -1).filter((f) => f.slice(6, 16) <= cutoff));
   for (const f of old) rmSync(join(dir, f));
   console.log(`backed up to ${file}`);
