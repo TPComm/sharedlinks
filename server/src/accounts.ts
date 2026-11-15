@@ -73,18 +73,16 @@ export class Accounts {
     const row = this.db.query(`INSERT INTO invites (token_hash, email, invited_by, created_at, expires_at, group_id)
         VALUES (?, ?, ?, ?, ?, ?) RETURNING *`)
       .get(sha256(token), bound, userId, t, t + INVITE_DAYS * 86400, groupId) as InviteRow;
-    if (bound && groupId !== null) {
-      const recipient = this.db.query(`SELECT u.id FROM users u JOIN group_members m ON m.user_id = u.id
-          WHERE u.email = ? COLLATE NOCASE AND u.email_verified = 1 AND u.member = 1 AND m.group_id = ?`)
-        .get(bound, groupId) as { id: string } | null;
-      if (recipient && recipient.id !== userId) this.useUp(row, recipient.id, groupId);
-    }
     return { invite: publicInvite(row), token };
   }
 
-  /** Mine that nobody has used yet and that still work, newest first. */
+  /** Mine that still need someone to join, newest first. */
   pendingInvites(userId: string) {
-    return (this.db.query("SELECT * FROM invites WHERE invited_by = ? AND used_at IS NULL AND expires_at > ? ORDER BY created_at DESC, id DESC")
+    return (this.db.query(`SELECT i.* FROM invites i WHERE i.invited_by = ? AND i.used_at IS NULL AND i.expires_at > ?
+        AND NOT EXISTS (SELECT 1 FROM users u JOIN group_members m ON m.user_id = u.id
+          WHERE u.email = i.email COLLATE NOCASE AND u.email_verified = 1 AND u.member = 1
+            AND m.group_id = i.group_id AND u.id != i.invited_by)
+        ORDER BY i.created_at DESC, i.id DESC`)
       .all(userId, now()) as InviteRow[]).map(publicInvite);
   }
 

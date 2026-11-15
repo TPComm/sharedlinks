@@ -924,6 +924,10 @@ describe("group chats", () => {
     const chat = (await call("/api/groups", { token: ann, body: { members: [boId] } })).data.group;
     const made = await call("/api/invites", { token: ann, body: { email: "bo@groups.test", group_id: chat.id } });
     const token = made.data.invite.url.split("/invite/")[1];
+    expect((await call("/api/invites", { token: ann })).data.invites.map((i: any) => i.id)).not.toContain(made.data.invite.id);
+    const page = await fetch(`${api}/invite/${token}`);
+    expect(page.status).toBe(200);
+    expect(await page.text()).toContain('>Open in Links</a>');
     const accepted = await call("/api/invites/accept", { token: bo, body: { token } });
     expect(accepted.status).toBe(200);
     expect(accepted.data.group.id).toBe(chat.id);
