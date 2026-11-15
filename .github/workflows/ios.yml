@@ -120,6 +120,24 @@ jobs:
           LINKS_UI_TEST_SHARD: ${{ matrix.shard }}/${{ strategy.job-total }}
         run: ios/scripts/ui-tests.sh
 
+      - name: Collect UI test diagnostics
+        if: failure()
+        run: |
+          mkdir -p ios/diagnostics
+          cp -R ~/Library/Logs/DiagnosticReports ios/diagnostics/host-crashes || true
+          find ~/Library/Developer/CoreSimulator/Devices -type d -name CrashReporter -exec cp -R {} ios/diagnostics/ \; || true
+          xcrun simctl diagnose -b --output=ios/diagnostics || true
+
+      - name: Upload UI test diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-ui-test-diagnostics-${{ matrix.shard }}
+          retention-days: 5
+          path: |
+            ios/build/Logs/Test/*.xcresult
+            ios/diagnostics/
+
   check:
     # The name main's ruleset requires: rename it there too if it changes.
     name: LinksKit tests, app build and UI tests

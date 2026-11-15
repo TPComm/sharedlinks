@@ -1,6 +1,7 @@
 import AppIntents
 import LinksKit
 import SwiftUI
+import UIKit
 
 @main
 struct LinksApp: App {
@@ -8,6 +9,11 @@ struct LinksApp: App {
     @State private var model: AppModel
 
     init() {
+        #if DEBUG
+        if ProcessInfo.processInfo.environment["LINKS_UI_TESTS"] == "1" {
+            UIView.setAnimationsEnabled(false)
+        }
+        #endif
         let model = AppModel()
         _model = State(initialValue: model)
         // Lets App Intents (e.g. "New Link") act on the running app.
