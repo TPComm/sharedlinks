@@ -1193,6 +1193,13 @@ describe("universal links", () => {
       });
       const { link } = await added.json() as any;
       await app.idle();
+      for (const platform of ["web", "unknown"]) {
+        app.db.run("UPDATE links SET platform = ?, title = NULL WHERE id = ?", [platform, link.id]);
+        const webPage = await (await fetch(server.url.origin + `/l/${link.token}`)).text();
+        expect(webPage).toContain("A link shared on Links");
+        expect(webPage).toContain(">Open the link</a>");
+        expect(webPage).not.toContain("Watch on");
+      }
       app.db.run("UPDATE links SET platform = 'tiktok', title = NULL WHERE id = ?", [link.id]);
       const page = await (await fetch(server.url.origin + `/l/${link.token}`)).text();
       expect(page).toContain(`app-id=6700000000, app-argument=${link.share_url}`);

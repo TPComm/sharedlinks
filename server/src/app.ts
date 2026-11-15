@@ -128,8 +128,9 @@ function invitePage(config: Config, token: string, invite: { inviter: string | n
 }
 
 function linkPage(config: Config, link: LinkRow | null): string {
-  const platform = link ? ({ tiktok: "TikTok", instagram: "Instagram", youtube: "YouTube", x: "X", reddit: "Reddit", facebook: "Facebook" }[link.platform] ?? "Website") : "";
-  const title = link ? link.title || `A ${platform} shared on Links` : "This link isn't available";
+  const platform = link ? ({ tiktok: "TikTok", instagram: "Instagram", youtube: "YouTube", x: "X", reddit: "Reddit", facebook: "Facebook" }[link.platform] ?? "") : "";
+  const title = link ? link.title || (platform ? `A ${platform} shared on Links` : "A link shared on Links") : "This link isn't available";
+  const button = platform ? `Watch on ${platform}` : "Open the link";
   const url = link ? `${config.publicUrl}/l/${link.share_token}` : "";
   const image = `${config.publicUrl}${link?.thumb_type ? `/l/${link.share_token}/image` : "/icon.png"}`;
   const banner = link && config.appStoreId ? `<meta name="apple-itunes-app" content="app-id=${escapeHtml(config.appStoreId)}, app-argument=${escapeHtml(url)}">` : "";
@@ -139,7 +140,7 @@ ${link.thumb_type ? `<meta name="twitter:card" content="summary_large_image">${l
   return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="robots" content="noindex"><title>${escapeHtml(title)}</title>${banner}${og}
 <style>body{font:17px/1.5 -apple-system,system-ui,sans-serif;max-width:30em;margin:3em auto;padding:0 1em}img{max-width:100%;border-radius:16px}a{display:inline-block;background:#1f9d55;color:#fff;padding:.6em 1.4em;border-radius:2em;text-decoration:none;font-weight:600}</style></head>
-<body><h1>${escapeHtml(title)}</h1>${link?.thumb_type ? `<img src="${escapeHtml(image)}" alt="">` : ""}${link ? `<p><a href="${escapeHtml(link.url)}">Watch on ${escapeHtml(platform)}</a></p>` : ""}</body></html>`;
+<body><h1>${escapeHtml(title)}</h1>${link?.thumb_type ? `<img src="${escapeHtml(image)}" alt="">` : ""}${link ? `<p><a href="${escapeHtml(link.url)}">${escapeHtml(button)}</a></p>` : ""}</body></html>`;
 }
 
 /**
