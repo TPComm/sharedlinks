@@ -99,7 +99,7 @@ beforeAll(async () => {
     port: 0, hostname: "127.0.0.1", dataDir, workosClientId: "client_TEST", workosApi: fakeWorkOS.url.origin,
     allowPrivateNetwork: true, logRequests: false, previewBackfillMs: 0,
   };
-  const started = startServer(config, { badgeDelayMs: 50, retryDelayMs: 10, previewWaitMs: 1000 });
+  const started = startServer(config, { badgeDelayMs: 50, activityDelayMs: 300, retryDelayMs: 10, previewWaitMs: 1000 });
   app = started.app;
   api = started.server.url.origin;
   stop = () => { app.push.close(); started.server.stop(true); };
@@ -243,6 +243,87 @@ describe("pushes", () => {
     expect(sent[0]!.body.aps.sound).toBeUndefined();
   });
 
+  const toSam = () => sent.filter((s) => s.token === SAM && s.body.aps.alert); // not Sam's own badge updates
+  const samsLink = async (n: string) => {
+    const { data } = await call("/api/links", { token: sam, body: { url: `${fakeOrigin.url.origin}/video?n=${n}` } });
+    await settle();
+    sent = [];
+    return data.link.id as number;
+  };
+  const watch = (id: number, token: string, seen = true) => call(`/api/links/${id}/seen`, { token, body: { seen } });
+  const react = (id: number, token: string, emoji: string | null) => call(`/api/links/${id}/react`, { token, body: { emoji } });
+  const setNotifications = (token: string, notifications: object) => call("/api/me", { method: "PATCH", token, body: { notifications } });
+
+  test("watching a link is a passive alert for its sender, once; watching your own sends nothing", async () => {
+    const id = await samsLink("watch");
+    await watch(id, alex);
+    await watch(id, alex); // already watched: no second push
+    await watch(id, sam);
+    await settle();
+    expect(toSam().length).toBe(1);
+    expect(toSam()[0]!.body.aps).toMatchObject({ alert: { title: "Alex", body: "watched your link: Cats & Dogs" }, "interruption-level": "passive" });
+    expect(toSam()[0]!.body.aps.sound).toBeUndefined();
+  });
+
+  test("watching and reacting in quick succession, in either order, is one push saying both", async () => {
+    for (const [first, second] of [[watch, react], [react, watch]] as const) {
+      const id = await samsLink(`both-${first === watch ? "w" : "r"}`);
+      await (first === watch ? watch(id, alex) : react(id, alex, "🔥"));
+      await (second === watch ? watch(id, alex) : react(id, alex, "🔥"));
+      await settle();
+      expect(toSam().map((s) => s.body.aps.alert.body)).toEqual(["watched and reacted 🔥 to your link: Cats & Dogs"]);
+    }
+  });
+
+  test("a reaction to a link they'd watched before goes out at once", async () => {
+    const id = await samsLink("rewatch");
+    await watch(id, alex);
+    await settle();
+    sent = [];
+    await react(id, alex, "😂");
+    await settle();
+    expect(toSam().map((s) => s.body.aps.alert.body)).toEqual(["reacted 😂 to your link: Cats & Dogs"]);
+  });
+
+  test("unwatching or taking the reaction back before it goes out drops that part", async () => {
+    const id = await samsLink("undo");
+    await watch(id, alex);
+    await watch(id, alex, false);
+    await settle();
+    expect(toSam()).toEqual([]);
+    await react(id, alex, "😂");
+    await react(id, alex, null);
+    await settle();
+    expect(toSam()).toEqual([]);
+  });
+
+  test("each kind can be turned off, and the other then goes out without waiting", async () => {
+    expect((await setNotifications(sam, { watched: false })).data.notifications).toEqual({ watched: false, reactions: true });
+    let id = await samsLink("no-watched");
+    await watch(id, alex);
+    await settle();
+    expect(toSam()).toEqual([]);
+    await react(id, alex, "🔥");
+    await settle();
+    expect(toSam().map((s) => s.body.aps.alert.body)).toEqual(["reacted 🔥 to your link: Cats & Dogs"]);
+
+    expect((await setNotifications(sam, { watched: true, reactions: false })).data.notifications).toEqual({ watched: true, reactions: false });
+    id = await samsLink("no-reactions");
+    await react(id, alex, "🔥");
+    await watch(id, alex);
+    await settle();
+    expect(toSam().map((s) => s.body.aps.alert.body)).toEqual(["watched your link: Cats & Dogs"]);
+
+    // Turned off while one waits: it doesn't go out.
+    await setNotifications(sam, { reactions: true });
+    id = await samsLink("off-while-waiting");
+    await watch(id, alex);
+    await setNotifications(sam, { watched: false });
+    await settle();
+    expect(toSam()).toEqual([]);
+    await setNotifications(sam, { watched: true });
+  });
+
   test("watching and unwatching sends one coalesced badge-only push to your devices", async () => {
     const state = (await call("/api/state", { token: kim })).data;
     const unwatched = state.links.filter((l: any) => !l.seen["user_01KIM"] && l.added_by !== "user_01KIM");
@@ -250,6 +331,7 @@ describe("pushes", () => {
     await call(`/api/links/${unwatched[0].id}/seen`, { token: kim, body: { seen: true } });
     await call(`/api/links/${unwatched[1].id}/seen`, { token: kim, body: { seen: true } });
     await settle();
+    sent = sent.filter((s) => s.token === KIM); // their senders hear Kim watched them
     expect(sent.length).toBe(1);
     expect(sent[0]!.token).toBe(KIM);
     expect(sent[0]!.headers["apns-priority"]).toBe("5");

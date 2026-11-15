@@ -576,9 +576,10 @@ export function createApp(config: Config, opts: AppOptions = {}) {
     "/api/me": {
       GET: route((_req, me) => json(accounts.mePayload(me))),
       PATCH: route(async (req, me) => {
-        const { name } = await readJson(req);
+        const { name, notifications } = await readJson(req);
         return json(asUser(me, () => {
-          accounts.rename(me, name);
+          if (name !== undefined || notifications === undefined) accounts.rename(me, name);
+          if (notifications !== undefined) accounts.setNotifications(me, notifications);
           return accounts.mePayload(me);
         }));
       }),
@@ -804,15 +805,16 @@ export function createApp(config: Config, opts: AppOptions = {}) {
       POST: route<WithId>(async (req, me) => {
         const id = linkId(req, me);
         const seen = (await readJson(req)).seen ?? true;
-        asUser(me, () => {
+        const watched = asUser(me, () => {
           stillSees(id, me);
           if (seen) {
-            db.run("INSERT OR IGNORE INTO seen (link_id, person, seen_at) VALUES (?, ?, ?)", [id, me, now()]);
-          } else {
-            db.run("DELETE FROM seen WHERE link_id = ? AND person = ?", [id, me]);
+            return db.run("INSERT OR IGNORE INTO seen (link_id, person, seen_at) VALUES (?, ?, ?)", [id, me, now()]).changes > 0;
           }
+          db.run("DELETE FROM seen WHERE link_id = ? AND person = ?", [id, me]);
+          return false;
         });
         push.badges([me]);
+        if (watched) push.activity(id, me, "watched");
         return json({ link: getLink(id, me) });
       }),
     },
@@ -830,7 +832,7 @@ export function createApp(config: Config, opts: AppOptions = {}) {
           db.run("DELETE FROM reactions WHERE link_id = ? AND person = ?", [id, me]);
           return false;
         });
-        if (changed && push.enabled) track(push.reaction(id, me, emoji));
+        if (changed) push.activity(id, me, "reacted");
         return json({ link: getLink(id, me) });
       }),
     },

@@ -36,11 +36,19 @@ const REQUEST_TIMEOUT_MS = 15_000;
 
 export type PushType = "alert" | "badge";
 
+/** What someone did to a link that its sender can get a push about. */
+export type Activity = "watched" | "reacted";
+interface PendingActivity { linkId: number; actor: string; kinds: Set<Activity>; timer: Timer; done: () => void }
+const wants = (sender: { push_watched: number; push_reactions: number }, kind: Activity) =>
+  !!(kind === "watched" ? sender.push_watched : sender.push_reactions);
+
 export interface Device { token: string; env: ApnsEnv; updated_at: number; user_id: string }
 
 export interface PushOptions {
   /** How long badge updates for one person wait for more changes before one push goes out. */
   badgeDelayMs?: number;
+  /** How long someone's watched mark or reaction waits for the other, to go out as one push. */
+  activityDelayMs?: number;
   /** Wait before retrying a 429. */
   retryDelayMs?: number;
 }
@@ -64,7 +72,9 @@ export class Pusher {
   private jwt: { jwt: string; iat: number } | null = null;
   private conns = new Map<string, { session: http2.ClientHttp2Session; lastUsed: number; timer: Timer }>();
   private badgeTimers = new Map<string, { timer: Timer; done: () => void }>();
+  private pendingActivity = new Map<string, PendingActivity>();
   private badgeDelayMs: number;
+  private activityDelayMs: number;
   private retryDelayMs: number;
 
   constructor(
@@ -76,6 +86,7 @@ export class Pusher {
   ) {
     this.enabled = pushEnabled(config);
     this.badgeDelayMs = opts.badgeDelayMs ?? 2000;
+    this.activityDelayMs = opts.activityDelayMs ?? 60_000;
     this.retryDelayMs = opts.retryDelayMs ?? 1000;
   }
 
@@ -108,23 +119,78 @@ export class Pusher {
     }))));
   }
 
-  /** Someone reacted: a passive alert (no sound, screen stays off) for the link's sender. */
-  async reaction(linkId: number, reactor: string, emoji: string) {
+  /**
+   * Someone watched or reacted to a link: a passive alert (no sound, screen stays off) for its
+   * sender, if they want that kind. Both from one person within `activityDelayMs` go out as one
+   * push ("watched and reacted 😂 to your TikTok"): the first waits for the other unless it can't
+   * come (they'd watched it before, already reacted, or the sender turned that kind off).
+   */
+  activity(linkId: number, actor: string, kind: Activity) {
+    if (!this.enabled) return;
+    const target = this.activityTarget(linkId, actor);
+    if (!target || !wants(target, kind)) return;
+    const key = `${linkId}:${actor}`;
+    let pending = this.pendingActivity.get(key);
+    if (!pending) {
+      let done!: () => void;
+      const task = new Promise<void>((resolve) => { done = resolve; });
+      const timer = setTimeout(() => this.flushActivity(key), this.activityDelayMs);
+      pending = { linkId, actor, kinds: new Set(), timer, done };
+      this.pendingActivity.set(key, pending);
+      this.track(task);
+    }
+    pending.kinds.add(kind);
+    const other: Activity = kind === "watched" ? "reacted" : "watched";
+    if (pending.kinds.has(other) || !wants(target, other) || this.did(linkId, actor, other)) this.flushActivity(key);
+  }
+
+  /** The link's sender and their settings, if they're still in its chat and `actor` is someone they haven't blocked. */
+  private activityTarget(linkId: number, actor: string) {
     const link = this.db.query(
-      `SELECT l.title, l.platform, l.added_by, l.group_id, g.is_default FROM links l JOIN groups g ON g.id = l.group_id
+      `SELECT l.title, l.platform, l.added_by, l.group_id, g.is_default, u.push_watched, u.push_reactions
+         FROM links l JOIN groups g ON g.id = l.group_id JOIN users u ON u.id = l.added_by
          WHERE l.id = ?1 AND ${IN_CHAT("l.added_by", "l")}`,
-    ).get(linkId) as { title: string | null; platform: string; added_by: string; group_id: number; is_default: number } | null;
-    if (!link || link.added_by === reactor) return; // also once the sender has left the chat
-    if (this.db.query("SELECT 1 FROM blocks WHERE blocker = ? AND blocked = ?").get(link.added_by, reactor)) return;
-    const name = (this.db.query("SELECT name FROM users WHERE id = ?").get(reactor) as { name: string } | null)?.name;
+    ).get(linkId) as { title: string | null; platform: string; added_by: string; group_id: number; is_default: number;
+                       push_watched: number; push_reactions: number } | null;
+    if (!link || link.added_by === actor) return null; // also once the sender has left the chat
+    if (this.db.query("SELECT 1 FROM blocks WHERE blocker = ? AND blocked = ?").get(link.added_by, actor)) return null;
+    return link;
+  }
+
+  private did(linkId: number, actor: string, kind: Activity) {
+    return !!this.db.query(kind === "watched"
+      ? "SELECT 1 FROM seen WHERE link_id = ? AND person = ?"
+      : "SELECT 1 FROM reactions WHERE link_id = ? AND person = ?").get(linkId, actor);
+  }
+
+  /** Send what's still true of a person's pending activity on a link: unwatching or unreacting since drops that part. */
+  private flushActivity(key: string) {
+    const pending = this.pendingActivity.get(key);
+    if (!pending) return;
+    clearTimeout(pending.timer);
+    this.pendingActivity.delete(key);
+    this.sendActivity(pending).catch((e) => console.error(`push: ${e}`)).finally(pending.done);
+  }
+
+  private async sendActivity({ linkId, actor, kinds }: PendingActivity) {
+    const link = this.activityTarget(linkId, actor);
+    if (!link) return;
+    const watched = kinds.has("watched") && wants(link, "watched") && this.did(linkId, actor, "watched");
+    const emoji = kinds.has("reacted") && wants(link, "reacted")
+      ? (this.db.query("SELECT emoji FROM reactions WHERE link_id = ? AND person = ?").get(linkId, actor) as { emoji: string } | null)?.emoji
+      : undefined;
+    if (!watched && !emoji) return;
+    const name = (this.db.query("SELECT name FROM users WHERE id = ?").get(actor) as { name: string } | null)?.name;
     if (!name) return;
     const noun = nounOf(link.platform);
+    const lead = watched && emoji ? `watched and reacted ${emoji} to your ${noun}`
+      : emoji ? `reacted ${emoji} to your ${noun}` : `watched your ${noun}`;
     await this.toPerson(link.added_by, "alert", (badge) => this.fit({
       aps: {
-        alert: { title: name, body: [`reacted ${emoji} to your ${noun}`, link.title, ""] as const },
+        alert: { title: name, body: [lead, link.title, ""] as const },
         badge, "thread-id": threadId(link.group_id, link.is_default), "interruption-level": "passive",
       },
-      link_id: linkId, sender_id: reactor, group_id: link.group_id,
+      link_id: linkId, sender_id: actor, group_id: link.group_id,
     }));
   }
 
@@ -351,6 +417,8 @@ export class Pusher {
   close() {
     for (const { timer, done } of this.badgeTimers.values()) { clearTimeout(timer); done(); }
     this.badgeTimers.clear();
+    for (const { timer, done } of this.pendingActivity.values()) { clearTimeout(timer); done(); }
+    this.pendingActivity.clear();
     for (const { session, timer } of this.conns.values()) { clearInterval(timer); session.close(); }
     this.conns.clear();
   }
