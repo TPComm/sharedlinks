@@ -66,16 +66,10 @@ final class ShareModel {
 
     func load() async {
         snapshot = InboxSnapshot.load()
-        groupID = snapshot?.preferredGroup?.id
         // Picked a chat from the share sheet's suggestions row: that one, as donated by ShareSuggestions.
-        if let intent = context?.intent as? INSendMessageIntent {
-            if let groups = snapshot?.groups, !groups.isEmpty {
-                // A suggestion for a chat I've since left (e.g. on another device): ask, rather than send elsewhere.
-                groupID = snapshot?.group(conversationID: intent.conversationIdentifier)?.id
-                    ?? (groups.count == 1 ? groups[0].id : nil)
-            }
-            suggestedRecipients = intent.recipients?.compactMap(\.displayName) ?? []
-        }
+        let intent = context?.intent as? INSendMessageIntent
+        groupID = snapshot?.shareGroup(fromSuggestion: intent != nil, conversationID: intent?.conversationIdentifier)?.id
+        suggestedRecipients = intent?.recipients?.compactMap(\.displayName) ?? []
         url = await sharedURL()
         if Onboarding.isPractice(url) {
             phase = .practice

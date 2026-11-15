@@ -140,4 +140,22 @@ struct GroupsTests {
         #expect(state.group(conversationID: "links-group-99") == nil)
         #expect(state.group(conversationID: nil) == nil)
     }
+
+    @Test func theShareExtensionStartsOnTheSuggestedChat() throws {
+        #expect(state.shareGroup(fromSuggestion: false)?.id == 1)
+        #expect(state.shareGroup(fromSuggestion: true, conversationID: "links-inbox")?.id == 1)
+        #expect(state.shareGroup(fromSuggestion: true, conversationID: "links-group-2")?.id == 2)
+        // Left, or never mine: pick one rather than send it to another chat.
+        #expect(state.shareGroup(fromSuggestion: true, conversationID: "links-group-99") == nil)
+        #expect(state.shareGroup(fromSuggestion: true, conversationID: nil) == nil)
+
+        var one = state
+        one.groups = [try #require(state.group(2))]
+        #expect(one.shareGroup(fromSuggestion: true, conversationID: "links-group-99")?.id == 2)
+        #expect(one.shareGroup(fromSuggestion: false)?.id == 2)
+
+        var none = state
+        none.groups = []
+        #expect(none.shareGroup(fromSuggestion: true, conversationID: "links-inbox") == nil)
+    }
 }

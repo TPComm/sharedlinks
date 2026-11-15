@@ -434,6 +434,14 @@ public extension InboxState {
     /// The chat a new link goes to unless I pick another: the default one, else my first.
     var preferredGroup: LinkGroup? { defaultGroup ?? groups.first }
 
+    /// The chat the Share Extension starts on. Without a share-sheet suggestion, `preferredGroup`.
+    /// From one (`conversationID`, as ShareSuggestions donated it), that chat; if I've since left it
+    /// (e.g. on another device), my only chat, else `nil`, so I pick rather than send it elsewhere.
+    func shareGroup(fromSuggestion: Bool, conversationID: String? = nil) -> LinkGroup? {
+        guard fromSuggestion, !groups.isEmpty else { return preferredGroup }
+        return group(conversationID: conversationID) ?? (groups.count == 1 ? groups[0] : nil)
+    }
+
     /// People I know who aren't in this chat yet and whom I haven't blocked, to add.
     func addable(to group: LinkGroup) -> [LinkUser] {
         otherPeople.filter { !group.members.contains($0.id) && !isBlocked($0.id) }
