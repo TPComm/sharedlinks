@@ -146,8 +146,12 @@ if [[ -n "${LINKS_UI_TEST_SHARD:-}" ]]; then
   echo "UI test slice $LINKS_UI_TEST_SHARD: $mine of the $i tests found, plus any the scan missed in the last slice"
   if (( ${#shard_args[@]} )); then printf '  %s\n' "${shard_args[@]}"; fi
 fi
-bash "$ios/scripts/ui-test-selection.sh" "$@" <"$tmp/selected-tests" >"$tmp/narrowed-tests"
-mv "$tmp/narrowed-tests" "$tmp/selected-tests"
+# A shard's -only-testing args add to the caller's rather than narrowing them, so only an unsharded
+# run narrows its list to the tests the caller picked.
+if [[ -z "${LINKS_UI_TEST_SHARD:-}" ]]; then
+  bash "$ios/scripts/ui-test-selection.sh" "$@" <"$tmp/selected-tests" >"$tmp/narrowed-tests"
+  mv "$tmp/narrowed-tests" "$tmp/selected-tests"
+fi
 
 # xcodebuild hands TEST_RUNNER_<NAME> to the test runner as <NAME>. The tests pass the URL and
 # token on to the app (DEBUG builds read LINKS_SERVER_URL and LINKS_DEV_TOKEN).
