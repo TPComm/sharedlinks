@@ -110,7 +110,9 @@ export class Pusher {
     const lead = `sent ${article(noun)} ${noun}`;
     // A named chat other than the default one says where it was sent, as Messages does.
     const title = !link.is_default && link.chat ? `${link.name} in ${link.chat}` : link.name;
-    await Promise.all(recipients.map(({ user_id }) => this.toPerson(user_id, "alert", (badge) => this.fit({
+    const muted = recipients.filter(({ user_id }) => this.isMuted(link.group_id, user_id));
+    this.badges(muted.map(({ user_id }) => user_id));
+    await Promise.all(recipients.filter(({ user_id }) => !this.isMuted(link.group_id, user_id)).map(({ user_id }) => this.toPerson(user_id, "alert", (badge) => this.fit({
       aps: {
         alert: { title, body: [lead, link.title, link.note] as const },
         badge, sound: "default", "thread-id": threadId(link.group_id, link.is_default), category: "NEW_LINK", "mutable-content": 1,
@@ -144,6 +146,11 @@ export class Pusher {
     if (pending.kinds.has(other) || !wants(target, other) || this.did(linkId, actor, other)) this.flushActivity(key);
   }
 
+  private isMuted(groupId: number, user: string): boolean {
+    return !!this.db.query(`SELECT 1 FROM group_members WHERE group_id = ? AND user_id = ?
+      AND muted = 1 AND (muted_until IS NULL OR muted_until > ?)`).get(groupId, user, now());
+  }
+
   /** The link's sender and their settings, if they're still in its chat and `actor` is someone they haven't blocked. */
   private activityTarget(linkId: number, actor: string) {
     const link = this.db.query(
@@ -153,6 +160,7 @@ export class Pusher {
     ).get(linkId) as { title: string | null; platform: string; added_by: string; group_id: number; is_default: number;
                        push_watched: number; push_reactions: number } | null;
     if (!link || link.added_by === actor) return null; // also once the sender has left the chat
+    if (this.isMuted(link.group_id, link.added_by)) return null;
     if (this.db.query("SELECT 1 FROM blocks WHERE blocker = ? AND blocked = ?").get(link.added_by, actor)) return null;
     return link;
   }

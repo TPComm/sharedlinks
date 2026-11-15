@@ -195,6 +195,23 @@ describe("pushes", () => {
     await settle();
   });
 
+  test("muted chat members get badges, not alerts; expired mutes resume alerts", async () => {
+    const chat = (await call("/api/groups", { token: sam, body: { members: ["user_01ALEX", "user_01KIM"] } })).data.group;
+    await call(`/api/groups/${chat.id}`, { method: "PATCH", token: alex, body: { muted: true } });
+    const before = app.push.toWatch("user_01ALEX");
+    await call("/api/links", { token: sam, body: { url: `${fakeOrigin.url.origin}/video?n=muted`, group_id: chat.id } });
+    await settle();
+    expect(sent.filter((s) => s.token === ALEX).map((s) => s.body)).toEqual([{ aps: { badge: before + 1 } }]);
+    expect(sent.filter((s) => s.token === KIM).every((s) => !!s.body.aps.alert)).toBe(true);
+    expect(sent.filter((s) => s.token === KIM)).toHaveLength(1);
+    app.db.run("UPDATE group_members SET muted_until = 1 WHERE group_id = ? AND user_id = ?", [chat.id, "user_01ALEX"]);
+    sent = [];
+    await call("/api/links", { token: sam, body: { url: `${fakeOrigin.url.origin}/video?n=expired-mute`, group_id: chat.id } });
+    await settle();
+    expect(sent.filter((s) => s.token === ALEX)).toHaveLength(1);
+    expect(sent.find((s) => s.token === ALEX)!.body.aps.alert).toBeDefined();
+  });
+
   test("without a preview in time, the platform noun; nothing for a link deleted before it goes", async () => {
     await call("/api/links", { token: alex, body: { url: `${fakeOrigin.url.origin}/slow?n=1` } });
     await settle();
@@ -322,6 +339,25 @@ describe("pushes", () => {
     await settle();
     expect(toSam()).toEqual([]);
     await setNotifications(sam, { watched: true });
+  });
+
+  test("muting suppresses watched and reacted alerts, including activity already waiting", async () => {
+    const id = await samsLink("muted-activity");
+    const groupId = (app.db.query("SELECT group_id FROM links WHERE id = ?").get(id) as { group_id: number }).group_id;
+    const mute = (muted: boolean) => call(`/api/groups/${groupId}`, { method: "PATCH", token: sam, body: { muted } });
+    await watch(id, alex);
+    await mute(true);
+    await settle();
+    expect(toSam()).toEqual([]);
+    await react(id, alex, "🔥");
+    await watch(id, kim);
+    await settle();
+    expect(toSam()).toEqual([]);
+    app.db.run("UPDATE group_members SET muted_until = 1 WHERE group_id = ? AND user_id = ?", [groupId, "user_01SAM"]);
+    await react(id, kim, "🔥");
+    await settle();
+    expect(toSam().map((s) => s.body.aps.alert.body)).toEqual(["reacted 🔥 to your link: Cats & Dogs"]);
+    await mute(false);
   });
 
   test("shutting down sends the pushes still waiting instead of dropping them", async () => {
