@@ -448,7 +448,7 @@ describe("a day with Links", () => {
   });
 
   e2e("reports and removes a comment by name in the CLI, without deleting its link", async () => {
-    const made = await call(`/api/links/${shared}/comments`, { token: bob.token, body: { body: "Reported reply" } });
+    const made = await call(`/api/links/${tiktok}/comments`, { token: bob.token, body: { body: "Reported reply" } });
     expect(made.status, made.text).toBe(201);
     const id = made.data.comment.id;
     expect((await call("/api/reports", { token: alice.token, body: { comment_id: id, reason: "spam" } })).status).toBe(201);
@@ -459,8 +459,8 @@ describe("a day with Links", () => {
     const removed = await cli(dataDir, "reports", "resolve", reportId!, "--remove");
     expect(removed.code, removed.logs()).toBe(0);
     expect(removed.stdout).toBe(`report #${reportId} resolved: removed (comment ${id} deleted)\n`);
-    expect(linkIn((await call("/api/state", { token: bob.token })).data, shared)).toMatchObject({ comment_count: 0, last_comment: null });
-    expect((await call(`/api/links/${shared}/comments`, { token: bob.token })).data.comments).toEqual([]);
+    expect(linkIn((await call("/api/state", { token: bob.token })).data, tiktok)).toMatchObject({ comment_count: 0, last_comment: null });
+    expect((await call(`/api/links/${tiktok}/comments`, { token: bob.token })).data.comments).toEqual([]);
   });
 
   e2e("exits 1 with a message for mint-session without an email, or an unknown command", async () => {
