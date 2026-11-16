@@ -28,6 +28,8 @@ two macOS runners (`LINKS_UI_TEST_SHARD` in `ios/scripts/ui-tests.sh`). Slice 1 
 and builds before booting; slice 2 waits for its compiled test products before booting. Duration
 weights give slice 1 fewer test-seconds to allow for its build, without a separate build job that
 could queue behind artifact-waiting slices under the org's five-job macOS cap.
+Both jobs first remove unused runtime images best-effort, preserving iOS 27.2 and all device sets,
+and log host resources at startup and after boot.
 
 - Still build and test iOS changes on a Mac before pushing: a red CI run costs you that wait.
 - The org runs at most 5 macOS jobs at once, so a second iOS run queues behind the first.
