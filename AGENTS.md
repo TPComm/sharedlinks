@@ -25,7 +25,7 @@ minted session tokens.
 The repo is public, so GitHub-hosted runners cost nothing, macOS included. On a PR that touches
 `ios/`, `assets/icon/` or `.github/workflows/ios.yml`, the iOS workflow splits the UI tests across
 two macOS runners (`LINKS_UI_TEST_SHARD` in `ios/scripts/ui-tests.sh`). Slice 1 runs LinksKit tests
-and builds before booting; slice 2 boots while waiting for its compiled test products. Duration
+and builds before booting; slice 2 waits for its compiled test products before booting. Duration
 weights give slice 1 fewer test-seconds to allow for its build, without a separate build job that
 could queue behind artifact-waiting slices under the org's five-job macOS cap.
 
