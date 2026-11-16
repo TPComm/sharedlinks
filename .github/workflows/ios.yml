@@ -71,17 +71,11 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - name: Prepare Simulator runtimes and log runner resources
-        continue-on-error: true
-        timeout-minutes: 3
-        run: python3 ios/scripts/ui-test-host.py job-start
-
       - name: UI test recovery classifier tests
         if: matrix.shard == 1
         run: |
           python3 ios/scripts/test-ui-test-recovery.py
           python3 ios/scripts/test-ui-test-planning.py
-          python3 ios/scripts/test-ui-test-host.py
 
       - name: Xcode version and Simulator runtimes
         if: matrix.shard == 1
@@ -185,16 +179,11 @@ jobs:
       - name: Boot UI test Simulator
         run: |
           started=$SECONDS
-          udid=$(xcrun simctl create "Links UI Tests" 'iPhone 17' 'com.apple.CoreSimulator.SimRuntime.iOS-27-2')
+          udid=$(xcrun simctl create "Links UI Tests" 'iPhone 17')
           echo "Created Simulator Links UI Tests ($udid)"
           xcrun simctl boot "$udid"
           xcrun simctl bootstatus "$udid" -b
           echo "Simulator boot and bootstatus completed in $((SECONDS - started))s"
-
-      - name: Log runner resources after boot
-        continue-on-error: true
-        timeout-minutes: 1
-        run: python3 ios/scripts/ui-test-host.py after-boot
 
       # Starts the server from source with an empty database and drives the app in the "Links UI
       # Tests" Simulator through this slice of the tests. A runner crash can mean another boot,
