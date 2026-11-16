@@ -134,7 +134,8 @@ class XctestrunTests(unittest.TestCase):
 
 
 class ScriptTests(unittest.TestCase):
-    def run_script(self, action, artifact=True, recovery=False, booted=True):
+    def run_script(self, action, artifact=True, recovery=False, booted=True,
+                   launch_failures=0, expected_status=0):
         with tempfile.TemporaryDirectory(prefix="links script ") as directory:
             root = pathlib.Path(directory)
             products = root / "build/Build/Products"
@@ -166,7 +167,19 @@ elif command == "xcrun":
         print((root / "failure.json").read_text())
     if args[:3] == ["simctl", "list", "devices"]:
         state = "Booted" if os.environ["MOCK_BOOTED"] == "1" else "Shutdown"
+        if (root / "erased").exists() and not (root / "booted").exists():
+            state = "Shutdown"
         print(f"    Links UI Tests (AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE) ({state})")
+    if args[:2] == ["simctl", "erase"]:
+        (root / "erased").touch()
+    if args[:2] == ["simctl", "boot"]:
+        (root / "booted").touch()
+    if args[:2] == ["simctl", "launch"]:
+        counter = root / "launch-count"
+        value = int(counter.read_text()) + 1 if counter.exists() else 1
+        counter.write_text(str(value))
+        if value <= int(os.environ["MOCK_LAUNCH_FAILURES"]):
+            sys.exit(1)
 elif command == "xcodebuild":
     log = root / "xcodebuild.jsonl"
     attempt = len(log.read_text().splitlines()) if log.exists() else 0
@@ -195,21 +208,55 @@ elif command == "xcodebuild":
     print(f"Test Case '{case}' passed (1 seconds).")
 ''')
             mock.chmod(0o755)
-            for name in ("bun", "curl", "xcrun", "xcodebuild"):
+            for name in ("bun", "curl", "xcrun", "xcodebuild", "sleep"):
                 (commands / name).symlink_to(mock)
             environment = dict(os.environ, HOME=str(root), PATH=str(commands) + os.pathsep + os.environ["PATH"],
                                MOCK_ROOT=str(root), MOCK_BOOTED=str(int(booted)),
+                               MOCK_LAUNCH_FAILURES=str(launch_failures),
                                MOCK_RECOVERY="2" if recovery == "killed" else str(int(recovery)),
                                LINKS_UI_TEST_DERIVED_DATA=str(root / "build"), LINKS_UI_TEST_ACTION=action)
             environment.pop("LINKS_UI_TEST_SHARD", None)
             result = subprocess.run(["bash", str(SCRIPTS / "ui-tests.sh"),
                                      "-only-testing:LinksUITests/LinksUITests/testSignedInLaunchShowsTheInbox"],
                                     env=environment, capture_output=True, text=True, timeout=30)
-            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-            invocations = [json.loads(line) for line in (root / "xcodebuild.jsonl").read_text().splitlines()]
+            self.assertEqual(result.returncode, expected_status, result.stdout + result.stderr)
+            log = root / "xcodebuild.jsonl"
+            invocations = [json.loads(line) for line in log.read_text().splitlines()] if log.exists() else []
             simctl = [json.loads(line) for line in (root / "simctl.jsonl").read_text().splitlines()]
             self.assertEqual(list(products.glob(".links-ui-tests-*.xctestrun")), [])
             return invocations, simctl, result
+
+    def test_healthy_warm_up_does_not_reset(self):
+        invocations, commands, result = self.run_script("test-without-building")
+        self.assertEqual(len(invocations), 1)
+        self.assertIn("Simulator warm-up reset=no", result.stdout)
+        self.assertFalse(any(args[:2] == ["simctl", "erase"] for args in commands))
+        self.assertEqual(sum(args[:2] == ["simctl", "launch"] for args in commands), 1)
+
+    def test_warm_up_recovers_after_one_reset(self):
+        invocations, commands, result = self.run_script("test-without-building", launch_failures=6)
+        self.assertEqual(len(invocations), 1)
+        operations = [args[1] for args in commands if args[0] == "simctl"]
+        reset = operations.index("erase")
+        self.assertEqual(operations[reset - 1:reset + 5],
+                         ["shutdown", "erase", "list", "boot", "bootstatus", "install"])
+        self.assertEqual(operations.count("erase"), 1)
+        self.assertEqual(operations.count("install"), 2)
+        self.assertEqual(operations.count("launch"), 7)
+        self.assertIn("Simulator warm-up reset=yes", result.stdout)
+        self.assertEqual(result.stdout.count("Simulator app launch completed in"), 1)
+        self.assertIn("Simulator reset erase completed in", result.stdout)
+
+    def test_warm_up_failure_after_reset_stops_before_xcode(self):
+        invocations, commands, result = self.run_script(
+            "test-without-building", launch_failures=12, expected_status=1)
+        self.assertEqual(invocations, [])
+        self.assertEqual(sum(args[:2] == ["simctl", "erase"] for args in commands), 1)
+        self.assertEqual(sum(args[:2] == ["simctl", "launch"] for args in commands), 12)
+        self.assertIn("Simulator warm-up reset=yes", result.stdout)
+        self.assertIn("Simulator warm-up failed after reset", result.stderr)
+        self.assertNotIn("Simulator app launch completed", result.stdout)
+        self.assertNotIn("Simulator booted and Links launched once", result.stdout)
 
     def test_xctestrun_recovery_refreshes_environment_and_reuses_boot(self):
         invocations, simctl, result = self.run_script("test-without-building", recovery=True)

@@ -91,32 +91,63 @@ fi
 # launch timeout ("Timed out while launching application via Xcode") or stalling the test runner
 # until it crashes. Later launches take a second, so the app is installed and launched once here,
 # where simctl waits as long as it takes. Only on our own Simulator with an app already built
-# (test-without-building); best effort.
+# (test-without-building).
 derived_data="${LINKS_UI_TEST_DERIVED_DATA:-build}"
 if [[ "$derived_data" != /* ]]; then derived_data="$ios/$derived_data"; fi
 products="$derived_data/Build/Products"
 app="$products/Debug-iphonesimulator/Links.app"
-warm_up() {
-  [[ -n "${udid:-}" && "${LINKS_UI_TEST_ACTION:-test}" == test-without-building && -d "$app" ]] || return 0
-  local started=$SECONDS phase=$SECONDS
+warm_up_once() {
+  local phase=$SECONDS attempt
   if ! xcrun simctl list devices | grep -q "$udid) (Booted)"; then
-    xcrun simctl boot "$udid"
+    if ! xcrun simctl boot "$udid"; then
+      echo "warning: Simulator boot failed after $((SECONDS - phase))s" >&2
+      return 1
+    fi
   fi
-  xcrun simctl bootstatus "$udid" -b
+  if ! xcrun simctl bootstatus "$udid" -b; then
+    echo "warning: Simulator boot/bootstatus failed after $((SECONDS - phase))s" >&2
+    return 1
+  fi
   echo "Simulator boot/bootstatus completed in $((SECONDS - phase))s"
   phase=$SECONDS
   if xcrun simctl install "$udid" "$app"; then
     echo "Simulator app install completed in $((SECONDS - phase))s"
     phase=$SECONDS
     # Right after boot SpringBoard may not take launches yet, so a failed launch gets a few more.
-    for _ in 1 2 3 4 5 6; do
-      SIMCTL_CHILD_LINKS_UI_TESTS=1 xcrun simctl launch "$udid" com.tpcomm.links >/dev/null && break
-      sleep 10
+    for attempt in 1 2 3 4 5 6; do
+      if SIMCTL_CHILD_LINKS_UI_TESTS=1 xcrun simctl launch "$udid" com.tpcomm.links >/dev/null; then
+        echo "Simulator app launch completed in $((SECONDS - phase))s"
+        xcrun simctl terminate "$udid" com.tpcomm.links 2>/dev/null || true
+        return 0
+      fi
+      if (( attempt < 6 )); then sleep 10; fi
     done
-    echo "Simulator app launch completed in $((SECONDS - phase))s"
-    xcrun simctl terminate "$udid" com.tpcomm.links 2>/dev/null || true
+    echo "warning: Simulator app launch failed after $((SECONDS - phase))s (6 attempts)" >&2
   else
     echo "warning: Simulator app install failed after $((SECONDS - phase))s" >&2
+  fi
+  return 1
+}
+warm_up() {
+  [[ -n "${udid:-}" && "${LINKS_UI_TEST_ACTION:-test}" == test-without-building && -d "$app" ]] || return 0
+  local started=$SECONDS phase
+  if warm_up_once; then
+    echo "Simulator warm-up reset=no"
+  else
+    echo "Simulator warm-up reset=yes"
+    phase=$SECONDS
+    xcrun simctl shutdown "$udid" 2>/dev/null || true
+    echo "Simulator reset shutdown completed in $((SECONDS - phase))s"
+    phase=$SECONDS
+    if ! xcrun simctl erase "$udid"; then
+      echo "error: Simulator warm-up reset erase failed after $((SECONDS - phase))s" >&2
+      return 1
+    fi
+    echo "Simulator reset erase completed in $((SECONDS - phase))s"
+    if ! warm_up_once; then
+      echo "error: Simulator warm-up failed after reset in $((SECONDS - started))s; refusing UI tests" >&2
+      return 1
+    fi
   fi
   echo "Simulator booted and Links launched once in $((SECONDS - started))s"
 }
