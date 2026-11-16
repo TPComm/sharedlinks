@@ -183,7 +183,7 @@ struct SharedLinkTests {
     }
 
     @Test(arguments: ["", #""token": null, "share_url": null,"#, #""share_url": "","#, #""share_url": 42,"#,
-                      #""share_url": "sharedlinks://l/abc","#])
+                      #""share_url": "sharedlinks://l/abc","#, #""share_url": "https:/l/abc","#])
     func olderServersShareTheOriginalLink(_ fields: String) throws {
         let link = try Fixture.decode(SharedLink.self, "{\(fields) \(Self.required)}")
         #expect(link.shareURL == nil)

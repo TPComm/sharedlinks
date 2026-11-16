@@ -259,7 +259,7 @@ public struct SharedLink: Codable, Sendable, Hashable, Identifiable {
         token = try? c.decodeIfPresent(String.self, forKey: .token)
         shareURL = (try? c.decodeIfPresent(String.self, forKey: .shareURL))
             .flatMap(URL.webURL)
-            .flatMap { ["http", "https"].contains($0.scheme?.lowercased()) ? $0 : nil }
+            .flatMap { ["http", "https"].contains($0.scheme?.lowercased()) && $0.host?.isEmpty == false ? $0 : nil }
     }
 
     public init(id: Int, groupID: Int? = nil, url: URL, platform: Platform, title: String? = nil, author: String? = nil,
