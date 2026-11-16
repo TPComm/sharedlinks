@@ -32,6 +32,11 @@ marks it seen in one go.
 The **Throwback** card in Seen resurfaces links from at least a week ago that you and a friend
 loved, with a different starting pick each day.
 
+**Chat Info → Taste Match** counts links in that chat that every current member has reacted to
+with ❤️, 😂 or 🔥, and opens the three most recently shared matches on their normal link pages.
+It needs at least two people, uses only links visible to you, and updates as reactions and chat
+membership change. Browsing a match does not mark it seen.
+
 Each link's page also has a comment thread: read and reply below the reactions and receipts,
 edit or delete your own comments, or report someone else's. The list shows comment counts and
 highlights new replies; read positions stay on this device, separate for each account. The

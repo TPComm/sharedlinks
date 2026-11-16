@@ -209,6 +209,7 @@ struct ChatInfoView: View {
                     Text("You’re no longer in this chat.")
                 }
             }
+            .refreshable { await model.refresh() }
         }
         .navigationTitle("Chat Info")
         .navigationBarTitleDisplayMode(.inline)
@@ -241,6 +242,7 @@ private struct TasteMatchSection: View {
                 if matches.isEmpty {
                     Text("No shared loves yet")
                         .font(.title3.weight(.semibold))
+                        .accessibilityAddTraits(.isHeader)
                         .accessibilityIdentifier("tasteMatch.empty")
                     Text(group.members.count < 2
                          ? "Add someone to this chat to find your shared favorites."
@@ -250,6 +252,7 @@ private struct TasteMatchSection: View {
                 } else {
                     Text(model.inbox.tasteMatchSummary(in: group.id, count: matches.count))
                         .font(.title3.weight(.semibold))
+                        .accessibilityAddTraits(.isHeader)
                         .accessibilityIdentifier("tasteMatch.summary")
                     Text("Your latest shared favorites.")
                         .font(.subheadline)
@@ -281,13 +284,15 @@ private struct TasteMatchSection: View {
                     }
                     .padding(.vertical, 4)
                 }
+                .accessibilityHint("Opens the link page without changing seen status")
                 .accessibilityIdentifier("tasteMatch.link.\(link.id)")
             }
         } header: {
             Text("Taste Match")
         } footer: {
             if !matches.isEmpty {
-                Text("❤️, 😂 and 🔥 count as a love. Everyone currently in this chat must react.")
+                Text("❤️, 😂 and 🔥 count as a love. Based on links you can see, with a reaction from everyone currently in this chat.")
+                    .accessibilityLabel("Heart, laughing and fire reactions count as a love. Based on links you can see, with a reaction from everyone currently in this chat.")
             }
         }
     }

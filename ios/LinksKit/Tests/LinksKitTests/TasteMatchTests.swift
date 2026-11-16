@@ -85,3 +85,11 @@ private func tasteInbox(_ links: [SharedLink]) -> InboxState {
     inbox.groups[0].members.append("third")
     #expect(inbox.tasteMatchSummary(in: 1, count: 2) == "All 3 of you loved 2 links")
 }
+
+@Test func tasteMatchesFollowVisibleLinkAndGroupRemoval() {
+    var inbox = tasteInbox([tasteLink(1), tasteLink(2)])
+    inbox.links.removeAll { $0.id == 1 }
+    #expect(inbox.tasteMatches(in: 1).map(\.id) == [2])
+    inbox = inbox.leaving(group: 1)
+    #expect(inbox.tasteMatches(in: 1).isEmpty)
+}
