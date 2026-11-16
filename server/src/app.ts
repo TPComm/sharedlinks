@@ -465,7 +465,7 @@ export function createApp(config: Config, opts: AppOptions = {}) {
     let page: URL;
     try { page = new URL(raw); } catch { throw new BadRequest("That doesn't look like a link."); }
     if (page.origin === new URL(config.publicUrl).origin) {
-      const token = page.pathname.match(/^\/l\/([^/]+)$/)?.[1];
+      const token = page.pathname.match(/^\/l\/([^/]+)\/?$/)?.[1];
       if (token) raw = publicLink(token)?.url ?? raw;
     }
     const cleanNote = clipText(note, 500);
