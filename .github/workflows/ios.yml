@@ -66,8 +66,8 @@ jobs:
     env:
       # The image defaults to Xcode 27.1; use 27.2, the same build as local development.
       DEVELOPER_DIR: /Applications/Xcode_27.2.app/Contents/Developer
-      # Run 43854152996: slice 1 finished 275s later with a 100s planning overhead.
-      LINKS_UI_TEST_FIRST_SHARD_OVERHEAD: 375
+      # Runs 43883495133/43892731734: slice 2 booted 15s/3s later; no material slice-1-only overhead.
+      LINKS_UI_TEST_FIRST_SHARD_OVERHEAD: 0
     steps:
       - uses: actions/checkout@v7
 
