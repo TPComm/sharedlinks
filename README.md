@@ -299,6 +299,7 @@ API endpoints except sign-in need `Authorization: Bearer <session token>`; pages
 | Method | Path | Body / notes |
 | --- | --- | --- |
 | GET | `/` | public browser landing page; opens the iPhone app, explains invites, and links to support and privacy; `APP_STORE_ID` adds an App Store link and Smart App Banner |
+| GET | `/app-preview.png` | public iPhone app screenshot with fictional sample data, embedded in the server binary for the landing page |
 | GET | `/auth/authorize` | `?code_challenge=&state=[&screen_hint=sign-up]` → redirects to AuthKit |
 | GET | `/auth/callback` | AuthKit's redirect; bounces to `sharedlinks://auth/callback?code=…` |
 | POST | `/api/auth/token` | `{code, code_verifier, invite?}` → `{token, user, claimable, group_id}`; `invite` is the token from an invite link, used up here or by `/api/invites/accept`; `group_id` is the chat it took them to (null without one) |
