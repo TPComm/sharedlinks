@@ -757,6 +757,8 @@ final class LinksUITests: XCTestCase {
             scrolledTo(app.buttons["tasteMatch.link.\(link.id)"]).tap()
             XCTAssert(app.scrollViews["linkPage.\(link.id)"].waitForExistence(timeout: 5))
             app.navigationBars.buttons.element(boundBy: 0).tap()
+            openChatPicker()
+            app.buttons["Chat Info"].tap()
         }
         let state = try server.state(as: server.me)
         XCTAssert(matches.allSatisfy { state.link($0.id)?.seen[meID] == nil }, "browsing matches marked links seen")
@@ -776,6 +778,24 @@ final class LinksUITests: XCTestCase {
         XCTAssert(app.staticTexts["tasteMatch.empty"].waitForExistence(timeout: 5))
         XCTAssertFalse(app.staticTexts["tasteMatch.summary"].exists)
         XCTAssertFalse(app.buttons["tasteMatch.link.\(link.id)"].exists)
+    }
+
+    func testChatTasteMatchOpensFromTheChatsList() throws {
+        let meID = try server.state(as: server.me).me
+        let name = "List taste \(shortID())"
+        let chat = try server.startChat(name: name, members: [meID], as: server.friend)
+        leaveAfterwards(chat.id)
+        let link = try server.add(uniqueURL(), to: chat.id, as: server.friend)
+        try server.react(link.id, emoji: "❤️", as: server.me)
+        try server.react(link.id, emoji: "🔥", as: server.friend)
+        launch()
+        openChatPicker()
+        app.buttons["Chats…"].tap()
+        scrolledTo(app.buttons["chat.row.\(chat.id)"]).tap()
+        scrolledTo(app.buttons["tasteMatch.link.\(link.id)"]).tap()
+        XCTAssert(app.scrollViews["linkPage.\(link.id)"].waitForExistence(timeout: 5))
+        XCTAssertFalse(app.navigationBars["Chat Info"].exists)
+        XCTAssertNil(try server.state(as: server.me).link(link.id)?.seen[meID])
     }
 
     func testChatTasteMatchNeedsTheWholeGroupAndRefreshesReactionChanges() throws {
