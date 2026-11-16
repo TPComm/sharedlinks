@@ -11,11 +11,15 @@ struct LinkTextTests {
         ("(https://example.com/x).", "https://example.com/x"),
         ("ftp://files.example.com/x then https://b.example.com/y", "https://b.example.com/y"),
         ("call tel:5551234 or https://x.com/a", "https://x.com/a"),
-        ("see youtu.be/abc", "http://youtu.be/abc"),
         ("HTTPS://EXAMPLE.COM/Path", "HTTPS://EXAMPLE.COM/Path"),
     ])
     func findsTheFirstWebLink(_ text: String, _ url: String) {
         #expect(LinkText.firstURL(in: text)?.absoluteString == url)
+    }
+
+    /// The data detector adds http to a bare host on older OSes, https from macOS 27.2.
+    @Test func findsABareHost() {
+        #expect(["http://youtu.be/abc", "https://youtu.be/abc"].contains(LinkText.firstURL(in: "see youtu.be/abc")?.absoluteString))
     }
 
     @Test(arguments: ["", "no link here", "mail me@example.com", "ftp://files.example.com/x", "tel:5551234"])
