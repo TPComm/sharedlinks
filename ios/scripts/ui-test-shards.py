@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import argparse
+import os
 import pathlib
 import re
 import statistics
@@ -20,9 +21,10 @@ def scan(directory):
     return sorted(set(tests))
 
 
-def assign(tests, weights, count):
+def assign(tests, weights, count, first_shard_overhead=0.0):
     fallback = statistics.median(weights.values()) if weights else 30.0
     loads = [0.0] * count
+    loads[0] = first_shard_overhead
     assignments = {}
     for test in sorted(tests, key=lambda name: (-weights.get(name, fallback), name)):
         shard = min(range(count), key=lambda index: (loads[index], index))
@@ -36,11 +38,15 @@ def main():
     parser.add_argument("--tests", type=pathlib.Path, default=pathlib.Path(__file__).resolve().parents[1] / "LinksUITests")
     parser.add_argument("--durations", type=pathlib.Path, default=pathlib.Path(__file__).with_name("ui-test-durations.tsv"))
     parser.add_argument("--shard", default="1/1")
+    parser.add_argument("--first-shard-overhead", type=float,
+                        default=float(os.environ.get("LINKS_UI_TEST_FIRST_SHARD_OVERHEAD", "0")))
     args = parser.parse_args()
     match = re.fullmatch(r"([1-9]\d*)/([1-9]\d*)", args.shard)
     if not match or int(match[1]) > int(match[2]):
         parser.error("shard must be K/N with 1 <= K <= N")
     shard, count = map(int, match.groups())
+    if not 0 <= args.first_shard_overhead < float("inf"):
+        parser.error("first-shard overhead must be finite and nonnegative")
     weights = {}
     for line in args.durations.read_text().splitlines():
         if not line or line.startswith("#"):
@@ -49,9 +55,11 @@ def main():
         weights[name] = float(seconds)
         if not 0 < weights[name] < float("inf"):
             parser.error(f"invalid duration for {name}")
-    assignments, loads = assign(scan(args.tests), weights, count)
+    assignments, loads = assign(scan(args.tests), weights, count, args.first_shard_overhead)
     for index, load in enumerate(loads, 1):
-        print(f"UI test slice {index}/{count}: planned {load:.1f}s", file=sys.stderr)
+        overhead = args.first_shard_overhead if index == 1 else 0.0
+        print(f"UI test slice {index}/{count}: planned {load:.1f}s "
+              f"({load - overhead:.1f}s tests + {overhead:.1f}s overhead)", file=sys.stderr)
     if shard not in assignments.values():
         parser.error(f"UI test slice {args.shard} has no tests")
     for test, index in sorted(assignments.items()):

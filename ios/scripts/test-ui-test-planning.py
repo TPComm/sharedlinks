@@ -41,6 +41,19 @@ class ShardTests(unittest.TestCase):
         self.assertEqual(SHARDS.assign(["new"], {}, 1), ({"new": 1}, [30]))
         self.assertEqual(SHARDS.assign([], {}, 2), ({}, [0, 0]))
 
+    def test_first_slice_overhead_reduces_its_test_work(self):
+        assignments, loads = SHARDS.assign(["a", "b", "c", "d"],
+                                           {"a": 60, "b": 40, "c": 30, "d": 20}, 2, 30)
+        self.assertEqual(assignments, {"a": 2, "b": 1, "c": 2, "d": 1})
+        self.assertEqual(loads, [90, 90])
+
+    def test_cli_rejects_invalid_overhead(self):
+        for overhead in ("-1", "nan", "inf"):
+            result = subprocess.run([sys.executable, str(SCRIPTS / "ui-test-shards.py"),
+                                     "--first-shard-overhead", overhead], capture_output=True, text=True)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("overhead must be finite and nonnegative", result.stderr)
+
     def test_cli_rejects_invalid_or_empty_slice(self):
         for shard in ("0/3", "4/3", "1/0", "bad", "100/100"):
             result = subprocess.run([sys.executable, str(SCRIPTS / "ui-test-shards.py"), "--shard", shard],
@@ -52,18 +65,19 @@ class ShardTests(unittest.TestCase):
             self.assertNotEqual(result.returncode, 0)
             self.assertIn("has no tests", result.stderr)
 
-    def test_real_three_slices_cover_each_case_once(self):
+    def test_real_two_slices_with_overhead_cover_each_case_once(self):
         tests = SHARDS.scan(SCRIPTS.parent / "LinksUITests")
         plans = []
-        for shard in range(1, 4):
-            result = subprocess.run([sys.executable, str(SCRIPTS / "ui-test-shards.py"), "--shard", f"{shard}/3"],
+        for shard in range(1, 3):
+            result = subprocess.run([sys.executable, str(SCRIPTS / "ui-test-shards.py"), "--shard", f"{shard}/2"],
+                                    env=dict(os.environ, LINKS_UI_TEST_FIRST_SHARD_OVERHEAD="100"),
                                     capture_output=True, text=True, check=True)
             plan = {test: index for index, test in (line.split("\t") for line in result.stdout.splitlines())}
             plans.append(plan)
-            self.assertIn(f"UI test slice {shard}/3: planned", result.stderr)
+            self.assertIn(f"UI test slice {shard}/2: planned", result.stderr)
+            self.assertIn("100.0s overhead", result.stderr)
         self.assertEqual(plans[0], plans[1])
-        self.assertEqual(plans[0], plans[2])
-        selected = [[test for test, index in plans[0].items() if int(index) == shard] for shard in range(1, 4)]
+        selected = [[test for test, index in plans[0].items() if int(index) == shard] for shard in range(1, 3)]
         self.assertEqual(sorted(test for group in selected for test in group), tests)
         self.assertTrue(all(selected))
 

@@ -15,6 +15,7 @@
 #                               deleted at exit)
 #   LINKS_UI_TEST_SHARD         K/N: run the Kth duration-weighted slice across N runners
 #                               (default: all tests); ui-test-durations.tsv steers balance
+#   LINKS_UI_TEST_FIRST_SHARD_OVERHEAD  extra seconds on slice 1 before testing (default: 0)
 set -euo pipefail
 
 ios="$(cd "$(dirname "$0")/.." && pwd)"

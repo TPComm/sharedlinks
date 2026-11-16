@@ -46,36 +46,53 @@ jobs:
             echo relevant=false >>"$GITHUB_OUTPUT"
           fi
 
-  # Booting a Simulator beside compilation on the same runner slowed builds sixfold. Build on
-  # a separate runner while three slices boot: four macOS jobs per run, below the org cap of five.
-  build:
-    name: LinksKit tests and app build
+  # Two macOS jobs per run leave room under the org cap of five for another run's producer.
+  # Slice 1 builds before booting; slice 2 boots while waiting for its compiled test products.
+  ui-tests:
+    name: UI tests (${{ matrix.shard }} of ${{ strategy.job-total }})
     needs: changes
     # Pushes to main skip `changes`; if it failed, run rather than let a skipped check pass.
     if: ${{ !cancelled() && needs.changes.outputs.relevant != 'false' }}
     # The only hosted image with Xcode 27.
     runs-on: xcode-27
-    timeout-minutes: 25
+    timeout-minutes: 50
+    permissions:
+      contents: read
+      actions: read
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2]
     env:
       # The image defaults to Xcode 27.1; use 27.2, the same build as local development.
       DEVELOPER_DIR: /Applications/Xcode_27.2.app/Contents/Developer
+      # Measured 44s LinksKit + 50s build + 3s packaging/upload, rounded to 100s.
+      LINKS_UI_TEST_FIRST_SHARD_OVERHEAD: 100
     steps:
       - uses: actions/checkout@v7
 
       - name: UI test recovery classifier tests
+        if: matrix.shard == 1
         run: |
           python3 ios/scripts/test-ui-test-recovery.py
           python3 ios/scripts/test-ui-test-planning.py
 
       - name: Xcode version and Simulator runtimes
+        if: matrix.shard == 1
         run: |
           xcodebuild -version
           xcrun simctl list runtimes
+
+      - name: LinksKit tests
+        if: matrix.shard == 1
+        working-directory: ios/LinksKit
+        run: swift test
 
       # Compile the app, Share Extension, widgets and UI tests for the Simulator, once: the UI
       # test step runs these products. Signed ad hoc (the Simulator default), since the app needs
       # its App Group entitlement for the keychain. arm64 only, which halves the work.
       - name: Build Links and its UI tests
+        if: matrix.shard == 1
         working-directory: ios
         run: >-
           xcodebuild build-for-testing
@@ -89,6 +106,7 @@ jobs:
       # App Store Connect rejects a bundle that uses a required-reason API (UserDefaults, via
       # LinksKit) without declaring it, so every shipped bundle must carry a valid manifest.
       - name: Privacy manifest in every bundle
+        if: matrix.shard == 1
         working-directory: ios/build/Build/Products/Debug-iphonesimulator
         run: |
           for bundle in Links.app Links.app/PlugIns/LinksShare.appex Links.app/PlugIns/LinksWidgets.appex; do
@@ -97,37 +115,16 @@ jobs:
 
       # tar preserves executable bits and the .xctestrun alongside the bundles.
       - name: Package UI test products
+        if: matrix.shard == 1
         run: tar -czf ios-test-products.tar.gz -C ios/build/Build Products
 
       - uses: actions/upload-artifact@v4
+        if: matrix.shard == 1
         with:
           name: ios-test-products
           path: ios-test-products.tar.gz
           retention-days: 1
           overwrite: true
-
-      - name: LinksKit tests
-        working-directory: ios/LinksKit
-        run: swift test
-
-  ui-tests:
-    name: UI tests (${{ matrix.shard }} of ${{ strategy.job-total }})
-    needs: changes
-    # No build dependency: Simulator boot overlaps compilation on another runner.
-    if: ${{ !cancelled() && needs.changes.outputs.relevant != 'false' }}
-    runs-on: xcode-27
-    timeout-minutes: 50
-    permissions:
-      contents: read
-      actions: read
-    strategy:
-      fail-fast: false
-      matrix:
-        shard: [1, 2, 3]
-    env:
-      DEVELOPER_DIR: /Applications/Xcode_27.2.app/Contents/Developer
-    steps:
-      - uses: actions/checkout@v7
 
       - uses: oven-sh/setup-bun@v2
         with:
@@ -144,6 +141,7 @@ jobs:
           echo "Simulator boot and bootstatus completed in $((SECONDS - started))s"
 
       - name: Wait for UI test products
+        if: matrix.shard == 2
         timeout-minutes: 26
         env:
           GH_TOKEN: ${{ github.token }}
@@ -152,22 +150,22 @@ jobs:
         run: |
           deadline=$((SECONDS + 1500))
           while (( SECONDS < deadline )); do
-            conclusion=$(gh api "repos/$GH_REPO/actions/runs/$RUN_ID/jobs?per_page=100" \
-              --jq '.jobs[] | select(.name == "LinksKit tests and app build") | .conclusion // "pending"')
-            case "$conclusion" in
-              failure|cancelled|timed_out|skipped|action_required|startup_failure)
-                echo "error: build job ended with $conclusion" >&2
-                exit 1
-                ;;
-            esac
             artifact=$(gh api "repos/$GH_REPO/actions/runs/$RUN_ID/artifacts?per_page=100" \
               --jq '.artifacts[] | select(.name == "ios-test-products" and .expired == false) | .id')
             if [[ -n "$artifact" ]]; then
               echo "UI test products ready after $SECONDS seconds"
               exit 0
             fi
+            conclusion=$(gh api "repos/$GH_REPO/actions/runs/$RUN_ID/jobs?per_page=100" \
+              --jq '.jobs[] | select(.name == "UI tests (1 of 2)") | .conclusion // ([.steps[]? | select(.conclusion == "failure" or .conclusion == "cancelled") | .conclusion][0]) // "pending"')
+            case "$conclusion" in
+              failure|cancelled|timed_out|skipped|action_required|startup_failure)
+                echo "error: producer slice ended with $conclusion before publishing UI test products" >&2
+                exit 1
+                ;;
+            esac
             if [[ "$conclusion" == success ]]; then
-              echo 'error: build succeeded without UI test products' >&2
+              echo 'error: producer slice succeeded without UI test products' >&2
               exit 1
             fi
             sleep 10
@@ -176,11 +174,13 @@ jobs:
           exit 1
 
       - uses: actions/download-artifact@v4
+        if: matrix.shard == 2
         with:
           name: ios-test-products
           path: ios-test-products
 
       - name: Restore UI test products
+        if: matrix.shard == 2
         run: |
           mkdir -p ios/build/Build
           tar -xzf ios-test-products/ios-test-products.tar.gz -C ios/build/Build
@@ -216,7 +216,7 @@ jobs:
   check:
     # The name main's ruleset requires: rename it there too if it changes.
     name: LinksKit tests, app build and UI tests
-    needs: [changes, build, ui-tests]
+    needs: [changes, ui-tests]
     # Skipped (which counts as passing) exactly when the jobs above are; otherwise it runs even
     # when one of them failed, so it can fail too.
     if: ${{ !cancelled() && needs.changes.outputs.relevant != 'false' }}
@@ -224,8 +224,7 @@ jobs:
     timeout-minutes: 5
     steps:
       - env:
-          BUILD_RESULT: ${{ needs.build.result }}
           UI_RESULT: ${{ needs.ui-tests.result }}
         run: |
-          echo "LinksKit tests and app build: $BUILD_RESULT; UI tests: $UI_RESULT"
-          [[ $BUILD_RESULT == success && $UI_RESULT == success ]]
+          echo "LinksKit tests, app build and UI tests: $UI_RESULT"
+          [[ $UI_RESULT == success ]]
