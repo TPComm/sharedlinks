@@ -703,12 +703,12 @@ export function createApp(config: Config, opts: AppOptions = {}) {
                             { headers: { "Content-Type": "text/html; charset=utf-8" } });
       }, pub),
     }])),
-    "/l/:token": {
+    ...Object.fromEntries(["/l/:token", "/l/:token/"].map((path) => [path, {
       GET: route<Request & { params: { token: string } }>((req) => {
         const link = publicLink(req.params.token);
         return new Response(linkPage(config, link), { status: link ? 200 : 404, headers: { "Content-Type": "text/html; charset=utf-8" } });
       }, pub),
-    },
+    }])),
     "/l/:token/image": {
       GET: route<Request & { params: { token: string } }>(async (req) => {
         const link = publicLink(req.params.token);

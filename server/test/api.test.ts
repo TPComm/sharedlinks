@@ -434,6 +434,21 @@ describe("links", () => {
     expect((await fetch(`${api}/l/${old.token}/image`)).status).toBe(404);
   });
 
+  test("public link pages accept a single trailing slash", async () => {
+    const add = await call("/api/links", { token, body: { url: `${origin}/video?trailing=1` } });
+    const link = add.data.link;
+    await idle();
+    const page = await fetch(`${api}/l/${link.token}/`);
+    expect(page.status).toBe(200);
+    expect(page.headers.get("content-type")).toContain("text/html");
+    const html = await page.text();
+    expect(html).toContain('property="og:title" content="Cats &#38; Dogs"');
+    expect(html).toBe(await (await fetch(`${api}/l/${link.token}`)).text());
+    for (const path of ["/l/unknown/", `/l/${link.token}//`, "/l/", "/l/x/y"]) {
+      expect((await fetch(`${api}${path}`)).status).toBe(404);
+    }
+  });
+
   test("links iOS couldn't parse are refused", async () => {
     // A local host, so the preview fetch this starts stays offline.
     const braces = await call("/api/links", { token, body: { url: `see {${origin}}` } });
