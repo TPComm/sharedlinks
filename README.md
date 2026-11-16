@@ -320,7 +320,7 @@ API endpoints except sign-in need `Authorization: Bearer <session token>`; pages
 | DELETE | `/api/invites/:id` | cancels a pending invite → `{invites}` |
 | GET | `/invite/:token` | public page for an invite link: who sent it, Open in Links, the Smart App Banner. Loading it never uses the invite up |
 | GET | `/.well-known/apple-app-site-association` | public; which paths open the app (only with `APPLE_APP_IDS`) |
-| GET | `/l/:token` | public link page with only the title, thumbnail and original URL; rich previews and a universal link into the app. Unknown or deleted tokens return 404 |
+| GET | `/l/:token` | public link page (optional trailing slash) with only the title, thumbnail and original URL; rich previews and a universal link into the app. Unknown or deleted tokens return 404 |
 | GET | `/l/:token/image` | public cached thumbnail, accessible only with the link's unguessable token; 404 without a thumbnail or after deletion |
 | GET | `/g/:id` | public "Open this in the Links app" page; universal link into the app |
 | GET | `/privacy` | public privacy policy page, with the same address, for the App Store Privacy Policy URL |
