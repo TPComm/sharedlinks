@@ -168,6 +168,7 @@ struct ChatInfoView: View {
                     Section {
                         Text(model.inbox.title(of: group)).font(.headline)
                     }
+                    TasteMatchSection(group: group)
                     if group.muted != nil {
                         Section {
                             Toggle(isOn: Binding(get: { group.isMuted(at: context.date) }, set: { muted in
@@ -220,6 +221,74 @@ struct ChatInfoView: View {
             do { try await model.setChatMuted(group, muted: muted, until: until) }
             catch { failure = error.localizedDescription }
             saving = false
+        }
+    }
+}
+
+private struct TasteMatchSection: View {
+    @Environment(AppModel.self) private var model
+    @Environment(\.dynamicTypeSize) private var typeSize
+    let group: LinkGroup
+
+    var body: some View {
+        let matches = model.inbox.tasteMatches(in: group.id)
+        Section {
+            VStack(alignment: .leading, spacing: 10) {
+                Image(systemName: matches.isEmpty ? "heart" : "heart.fill")
+                    .font(.title2)
+                    .foregroundStyle(.indigo)
+                    .accessibilityHidden(true)
+                if matches.isEmpty {
+                    Text("No shared loves yet")
+                        .font(.title3.weight(.semibold))
+                        .accessibilityIdentifier("tasteMatch.empty")
+                    Text(group.members.count < 2
+                         ? "Add someone to this chat to find your shared favorites."
+                         : "When everyone reacts with ❤️, 😂 or 🔥 to the same link, you’ll find it here.")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                } else {
+                    Text(model.inbox.tasteMatchSummary(in: group.id, count: matches.count))
+                        .font(.title3.weight(.semibold))
+                        .accessibilityIdentifier("tasteMatch.summary")
+                    Text("Your latest shared favorites.")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .fixedSize(horizontal: false, vertical: true)
+            .padding(.vertical, 8)
+
+            ForEach(matches.prefix(3)) { link in
+                NavigationLink {
+                    LinkDetailView(linkID: link.id)
+                } label: {
+                    HStack(alignment: .top, spacing: 12) {
+                        if !typeSize.isAccessibilitySize {
+                            ThumbnailView(link: link)
+                                .frame(width: 52, height: 64)
+                                .accessibilityHidden(true)
+                        }
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(link.displayTitle)
+                                .font(.headline)
+                                .lineLimit(typeSize.isAccessibilitySize ? nil : 2)
+                            Text(link.sourceName)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                        .fixedSize(horizontal: false, vertical: true)
+                    }
+                    .padding(.vertical, 4)
+                }
+                .accessibilityIdentifier("tasteMatch.link.\(link.id)")
+            }
+        } header: {
+            Text("Taste Match")
+        } footer: {
+            if !matches.isEmpty {
+                Text("❤️, 😂 and 🔥 count as a love. Everyone currently in this chat must react.")
+            }
         }
     }
 }

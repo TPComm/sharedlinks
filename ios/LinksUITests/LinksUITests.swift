@@ -730,6 +730,54 @@ final class LinksUITests: XCTestCase {
 
     // MARK: Chats
 
+    func testChatTasteMatchCountsAllAndOpensTheLatestThreeLinkPages() throws {
+        let meID = try server.state(as: server.me).me
+        let name = "Taste \(shortID())"
+        let chat = try server.startChat(name: name, members: [meID], as: server.friend)
+        leaveAfterwards(chat.id)
+        var matches: [LinksServer.Link] = []
+        for _ in 0..<4 {
+            let link = try server.add(uniqueURL(), to: chat.id, as: server.friend)
+            try server.react(link.id, emoji: "❤️", as: server.me)
+            try server.react(link.id, emoji: "🔥", as: server.friend)
+            matches.append(link)
+        }
+        let oneSided = try server.add(uniqueURL(), to: chat.id, as: server.friend)
+        try server.react(oneSided.id, emoji: "❤️", as: server.me)
+        launch()
+        pickChat(name)
+        openChatPicker()
+        app.buttons["Chat Info"].tap()
+        let summary = app.staticTexts["tasteMatch.summary"]
+        XCTAssert(summary.waitForExistence(timeout: 5))
+        XCTAssertEqual(summary.label, "You and Friend both loved 4 links")
+        XCTAssertFalse(app.buttons["tasteMatch.link.\(matches[0].id)"].exists)
+        XCTAssertFalse(app.buttons["tasteMatch.link.\(oneSided.id)"].exists)
+        for link in matches.suffix(3).reversed() {
+            scrolledTo(app.buttons["tasteMatch.link.\(link.id)"]).tap()
+            XCTAssert(app.scrollViews["linkPage.\(link.id)"].waitForExistence(timeout: 5))
+            app.navigationBars.buttons.element(boundBy: 0).tap()
+        }
+        let state = try server.state(as: server.me)
+        XCTAssert(matches.allSatisfy { state.link($0.id)?.seen[meID] == nil }, "browsing matches marked links seen")
+    }
+
+    func testChatTasteMatchShowsAnEmptyStateForOneSidedLoves() throws {
+        let meID = try server.state(as: server.me).me
+        let name = "New taste \(shortID())"
+        let chat = try server.startChat(name: name, members: [meID], as: server.friend)
+        leaveAfterwards(chat.id)
+        let link = try server.add(uniqueURL(), to: chat.id, as: server.friend)
+        try server.react(link.id, emoji: "❤️", as: server.me)
+        launch()
+        pickChat(name)
+        openChatPicker()
+        app.buttons["Chat Info"].tap()
+        XCTAssert(app.staticTexts["tasteMatch.empty"].waitForExistence(timeout: 5))
+        XCTAssertFalse(app.staticTexts["tasteMatch.summary"].exists)
+        XCTAssertFalse(app.buttons["tasteMatch.link.\(link.id)"].exists)
+    }
+
     func testChatInfoSavesMuteDurationsAndKeepsLinksVisible() throws {
         let meID = try server.state(as: server.me).me
         let name = "Mute \(shortID())"
@@ -741,7 +789,7 @@ final class LinksUITests: XCTestCase {
         pickChat(name)
         openChatPicker()
         app.buttons["Chat Info"].tap()
-        let toggle = app.switches["chat.mute"]
+        let toggle = scrolledTo(app.switches["chat.mute"])
         XCTAssert(toggle.waitForExistence(timeout: 5))
 
         toggle.switches.firstMatch.tap()
