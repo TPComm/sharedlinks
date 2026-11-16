@@ -6,7 +6,7 @@ public extension InboxState {
         let cutoff = now.addingTimeInterval(-minimumAge)
         return links(for: .watched, in: groupID).filter { link in
             link.addedAt <= cutoff && !isBlocked(link.addedBy)
-                && Self.isThrowbackReaction(link.reactions[me])
+                && Self.isPositiveReaction(link.reactions[me])
                 && !throwbackFriends(of: link).isEmpty
         }.sorted {
             $0.addedAt == $1.addedAt ? $0.id < $1.id : $0.addedAt < $1.addedAt
@@ -16,7 +16,7 @@ public extension InboxState {
     func throwbackFriends(of link: SharedLink) -> [LinkUser] {
         users.filter {
             $0.id != me && $0.id != LinkUser.deletedID && !isBlocked($0.id)
-                && Self.isThrowbackReaction(link.reactions[$0.id])
+                && Self.isPositiveReaction(link.reactions[$0.id])
         }.sorted { $0.id < $1.id }
     }
 
@@ -28,7 +28,7 @@ public extension InboxState {
         return ((days % count) + count) % count
     }
 
-    private static func isThrowbackReaction(_ reaction: String?) -> Bool {
+    internal static func isPositiveReaction(_ reaction: String?) -> Bool {
         reaction == "❤️" || reaction == "😂" || reaction == "🔥"
     }
 }
