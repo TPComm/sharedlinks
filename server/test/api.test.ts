@@ -204,6 +204,23 @@ describe("auth", () => {
   });
 });
 
+describe("browser landing page", () => {
+  test("introduces Links without signing in or advertising an unconfigured download", async () => {
+    const res = await call("/");
+    expect(res.status).toBe(200);
+    expect(res.headers.get("content-type")).toBe("text/html; charset=utf-8");
+    expect(res.data).toContain("Good finds.");
+    expect(res.data).toContain("Links is invite-only.");
+    expect(res.data).toContain('href="sharedlinks://inbox"');
+    expect(res.data).toContain('href="/privacy"');
+    expect(res.data).toContain('href="/support"');
+    expect(res.data).toContain('href="/icon.png"');
+    expect(res.data).not.toContain("apps.apple.com");
+    expect(res.data).not.toContain("apple-itunes-app");
+    expect(res.data).not.toContain("<script");
+  });
+});
+
 describe("invites", () => {
   const tokenOf = (url: string) => url.split("/invite/")[1]!;
   let me: string;
