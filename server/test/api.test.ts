@@ -9,6 +9,7 @@ import { canonical, expandShortLink, extractUrl, platformOf } from "../src/links
 import { BlockedAddressError, isPrivateAddress, safeFetch } from "../src/net.ts";
 import { decodeEntities, ogTags, PREVIEW_VERSION, previewFromTags } from "../src/previews.ts";
 import { openDatabase } from "../src/db.ts";
+import { fakeFetch } from "./unit/helpers.ts";
 
 // 1x1 PNG
 const PNG = Uint8Array.from(atob("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="), (c) => c.charCodeAt(0));
@@ -325,6 +326,42 @@ describe("links", () => {
     const res = await signIn("good");
     token = res.data.token;
     friendId = res.data.user.id;
+  });
+
+  test("adding a shared link page resolves the original within and across chats", async () => {
+    const added = await call("/api/links", { token, body: { url: `${origin}/plain?shared=original` } });
+    expect(added.status).toBe(201);
+    const link = added.data.link;
+    const again = await call("/api/links", { token, body: { url: link.share_url } });
+    expect(again.data).toMatchObject({ duplicate: true, link: { id: link.id } });
+    const trailing = await call("/api/links", { token, body: { url: `${link.share_url}/` } });
+    expect(trailing.data).toMatchObject({ duplicate: true, link: { id: link.id } });
+    const chat = await call("/api/groups", { token, body: { name: "Shared pages" } });
+    const forwarded = await call("/api/links", { token, body: { url: link.share_url, group_id: chat.data.group.id } });
+    expect(forwarded.status).toBe(201);
+    expect(forwarded.data).toMatchObject({ duplicate: false, link: { url: link.url, group_id: chat.data.group.id } });
+    expect(forwarded.data.link.id).not.toBe(link.id);
+  });
+
+  test("shared page resolution leaves unknown tokens and other origins alone", async () => {
+    const realFetch = globalThis.fetch;
+    const stub = fakeFetch((url, init) => new URL(url).origin === baseConfig.publicUrl
+      ? new Response("Not found", { status: 404 }) : realFetch(url, init));
+    try {
+      const added = await call("/api/links", { token, body: { url: `${origin}/plain?shared=boundaries` } });
+      for (const url of [
+        `${baseConfig.publicUrl}/l/${"a".repeat(32)}`,
+        `${origin}/l/${added.data.link.token}`,
+        `${baseConfig.publicUrl}/l/${added.data.link.token}/image`,
+      ]) {
+        const result = await call("/api/links", { token, body: { url } });
+        expect(result.status).toBe(201);
+        expect(result.data).toMatchObject({ duplicate: false, link: { url } });
+      }
+    } finally {
+      await idle();
+      stub.restore();
+    }
   });
 
   test("migrations: AUTOINCREMENT ids and today's URL spelling", async () => {
