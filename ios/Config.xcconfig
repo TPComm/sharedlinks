@@ -12,7 +12,7 @@ LINKS_BUNDLE_ID = com.tpcomm.links
 // The version people see, and the build number App Store Connect needs to be higher than the
 // last upload of that version. The app and its extensions must match, so they live here once.
 MARKETING_VERSION = 2.0
-CURRENT_PROJECT_VERSION = 10
+CURRENT_PROJECT_VERSION = 11
 
 // Where server/ runs: Debug builds (the Simulator, UI tests) use a local server, Release builds
 // (archives for TestFlight and the App Store) the production one.
