@@ -52,8 +52,14 @@ ${banner}
   .button svg{width:19px;height:19px}
   .store-link{font-size:13px;font-weight:600}
   .availability{max-width:370px;font-size:12px;line-height:1.8;color:var(--muted);margin:16px 0 0}
-  .preview{width:100%;max-width:290px;justify-self:center}
-  .app-screen{display:block;width:100%;height:auto;border:1px solid #d6dcd2;border-radius:36px;background:white;box-shadow:0 20px 48px #273d2520}
+  .preview{width:100%;max-width:306px;justify-self:center}
+  .iphone{position:relative;padding:8px;border:1px solid #70736e;border-radius:46px;background:linear-gradient(135deg,#545852,#171a18 35%,#343833 75%,#767b73);box-shadow:inset 0 0 0 1px #a2a69c,0 24px 55px #273d2529,0 5px 12px #17231b1a}
+  .iphone::before,.iphone::after{content:"";position:absolute;width:3px;border-radius:2px;background:linear-gradient(90deg,#777c73,#353a34)}
+  .iphone::before{left:-3px;top:22%;height:7%;box-shadow:0 54px 0 #4d534b}
+  .iphone::after{right:-3px;top:29%;height:11%}
+  .phone-display{position:relative;overflow:hidden;border-radius:38px;background:white}
+  .phone-display::after{content:"";position:absolute;top:1.9%;left:36%;width:28%;height:3.3%;border-radius:999px;background:#090a09;pointer-events:none}
+  .app-screen{display:block;width:100%;height:auto}
   figcaption{text-align:center;color:#64705f;font-size:10px;margin-top:20px;letter-spacing:.3px}
   figure{margin:0}
   .how{padding-top:33px;padding-bottom:43px;border-top:1px solid var(--line)}
@@ -69,7 +75,7 @@ ${banner}
   .skip{position:absolute;top:-100px;left:20px;background:white;padding:10px;z-index:2}
   .skip:focus{top:10px}
   @media(max-width:800px){.wrap{padding:0 25px}.hero{gap:35px;padding-top:44px;padding-bottom:60px}h1{font-size:49px;letter-spacing:-2.8px}.intro{font-size:16px}.features{gap:24px}}
-  @media(max-width:600px){header{padding-top:20px}nav{gap:21px;font-size:12px}.hero{grid-template-columns:1fr;gap:45px;padding-top:35px;padding-bottom:55px}h1{font-size:54px;max-width:360px}.intro{max-width:350px}.preview{max-width:310px}.features{grid-template-columns:1fr;gap:25px}.number{margin-bottom:5px}.features p{max-width:360px;font-size:14px}footer{align-items:flex-start}.how{padding-bottom:32px}}
+  @media(max-width:600px){header{padding-top:20px}nav{gap:21px;font-size:12px}.hero{grid-template-columns:1fr;gap:45px;padding-top:35px;padding-bottom:55px}h1{font-size:54px;max-width:360px}.intro{max-width:350px}.preview{max-width:326px}.features{grid-template-columns:1fr;gap:25px}.number{margin-bottom:5px}.features p{max-width:360px;font-size:14px}footer{align-items:flex-start}.how{padding-bottom:32px}}
   @media(prefers-reduced-motion:reduce){html{scroll-behavior:auto}.button{transition:none}}
 </style>
 </head>
@@ -90,7 +96,11 @@ ${banner}
         <p class="availability">Made for iPhone. Already have the app? Open it above.<br>New here? Links is invite-only. Ask a friend who uses it for an invite.</p>
       </div>
       <figure class="preview">
-        <img class="app-screen" src="/app-preview.png" width="804" height="1748" fetchpriority="high" alt="The Links iPhone app showing a shared inbox with sample links.">
+        <div class="iphone">
+          <div class="phone-display">
+            <img class="app-screen" src="/app-preview.png" width="804" height="1748" fetchpriority="high" alt="The Links iPhone app showing a shared inbox with sample links.">
+          </div>
+        </div>
         <figcaption>The real Links app. A few made-up finds.</figcaption>
       </figure>
     </section>
