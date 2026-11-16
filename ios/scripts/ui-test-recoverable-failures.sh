@@ -11,20 +11,23 @@ awk -v selection="${2:-/dev/null}" '
     return line
   }
   /The system shell \(SpringBoard.*probably crashed/ { shell_crashed = 1 }
-  /Lost connection to test process|Test crashed with signal term\./ { process_killed = 1 }
+  /Lost connection to test process|Test crashed with signal term\./ {
+    if ($0 !~ /error: -\[/ && active != "" && !completed[active]) killed[active] = 1
+  }
   /Test crashed with signal/ && !/Test crashed with signal term\./ { unsafe_signal = 1 }
   /SIG(SEGV|ABRT|BUS|ILL|FPE|TRAP)|EXC_BAD_ACCESS/ { unsafe_signal = 1 }
   /XCTAssert.*failed|Asynchronous wait failed/ { assertion_failure = 1 }
   /^UI test result contains unrecognized failure/ { unknown_result = 1 }
   /^Test Case .*LinksUITests\.[A-Za-z0-9_]+ [A-Za-z0-9_]+.* started/ {
-    started[test_id($0)] = 1
+    active = test_id($0)
+    started[active] = 1
   }
   /error: -\[LinksUITests\.[A-Za-z0-9_]+ [A-Za-z0-9_]+\] :/ {
     test = $0
     sub(/^.*error: -\[LinksUITests\./, "", test)
     sub(/\] :.*/, "", test)
     sub(/ /, "/", test)
-    if (/Test crashed with signal term\./) process_killed = 1
+    if (/Lost connection to test process|Test crashed with signal term\./) killed[test] = 1
     else if (/Lost connection to the application/) crash[test] = 1
     else if (/Failed to launch .*Timed out while launching/) launch[test] = 1
     else if (/Failed to launch .*Simulator device failed to launch|Failed to launch .*system shell \(SpringBoard/) shell_launch[test] = 1
@@ -36,6 +39,7 @@ awk -v selection="${2:-/dev/null}" '
     sub(/\].*/, "", test)
     sub(/ /, "/", test)
     completed[test] = 1
+    if (active == test) active = ""
     if ($0 ~ / failed /) failed[test] = 1
   }
   END {
@@ -45,11 +49,12 @@ awk -v selection="${2:-/dev/null}" '
       sub(/^LinksUITests\//, "", expected)
       if (!completed[expected]) {
         missing[expected] = 1
-        if (started[expected]) interrupted = 1
+        if (started[expected] && killed[expected]) interrupted = 1
+        else if (started[expected]) unknown_interruption = 1
       }
     }
     close(selection)
-    if (!process_killed || !interrupted) {
+    if (!interrupted || unknown_interruption) {
       for (test in missing) {
         print "warning: UI test selection incomplete; refusing recovery: " test > "/dev/stderr"
         exit 1

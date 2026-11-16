@@ -35,10 +35,36 @@ class RecoveryTests(unittest.TestCase):
         selection = NOTIFICATION + "LinksUITests/OtherUITests/testLater\n" + \
             "LinksUITests/LinksUITests/testRenamingAddingPeopleToAndLeavingAChat\n"
         for evidence in ("Lost connection to test process\n", "Test crashed with signal term.\n"):
-            result = self.parse(KILLED_LOG + evidence, selection)
+            log = KILLED_LOG.replace("Restarting after unexpected exit", evidence + "Restarting after unexpected exit")
+            result = self.parse(log, selection)
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertEqual(result.stdout, "crash LinksUITests/testNotificationTogglesSaveEachSetting\n"
                              "crash OtherUITests/testLater\n")
+
+    def test_scoped_lost_process_issue_recovers_the_incomplete_case(self):
+        result = json.loads(KILLED_RESULT.read_text())
+        result["issues"]["testFailureSummaries"]["_values"][0]["message"]["_value"] = "Lost connection to test process"
+        evidence = self.result_failures(result)
+        parsed = self.parse(KILLED_LOG + evidence, NOTIFICATION)
+        self.assertEqual(parsed.returncode, 0, parsed.stderr)
+        self.assertEqual(parsed.stdout, "crash LinksUITests/testNotificationTogglesSaveEachSetting\n")
+        for problem in ("XCTAssertTrue failed", "Timed out while evaluating UI query"):
+            parsed = self.parse(KILLED_LOG + evidence + self.failure(problem, "testNotificationTogglesSaveEachSetting"),
+                                NOTIFICATION)
+            self.assertNotEqual(parsed.returncode, 0)
+            self.assertEqual(parsed.stdout, "")
+
+    def test_killed_evidence_cannot_authorize_another_interrupted_case(self):
+        for message in ("Lost connection to test process", "Test crashed with signal term."):
+            evidence = f"xcresult: error: -[LinksUITests.LinksUITests testOther] : {message}\n"
+            parsed = self.parse(KILLED_LOG + evidence, NOTIFICATION)
+            self.assertNotEqual(parsed.returncode, 0)
+            self.assertEqual(parsed.stdout, "")
+        evidence = self.result_failures(json.loads(KILLED_RESULT.read_text()))
+        log = KILLED_LOG + "Test Case '-[LinksUITests.LinksUITests testOther]' started.\n" + evidence
+        parsed = self.parse(log, NOTIFICATION + "LinksUITests/LinksUITests/testOther\n")
+        self.assertNotEqual(parsed.returncode, 0)
+        self.assertEqual(parsed.stdout, "")
 
     def test_killed_marker_without_interrupted_selected_test_stays_red(self):
         for log in ("", KILLED_LOG):
