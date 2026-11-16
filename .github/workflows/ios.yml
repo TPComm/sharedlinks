@@ -66,8 +66,8 @@ jobs:
     env:
       # The image defaults to Xcode 27.1; use 27.2, the same build as local development.
       DEVELOPER_DIR: /Applications/Xcode_27.2.app/Contents/Developer
-      # Measured 44s LinksKit + 50s build + 3s packaging/upload, rounded to 100s.
-      LINKS_UI_TEST_FIRST_SHARD_OVERHEAD: 100
+      # Run 43854152996: slice 1 finished 275s later with a 100s planning overhead.
+      LINKS_UI_TEST_FIRST_SHARD_OVERHEAD: 375
     steps:
       - uses: actions/checkout@v7
 
