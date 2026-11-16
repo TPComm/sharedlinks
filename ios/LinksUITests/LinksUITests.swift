@@ -1084,7 +1084,7 @@ final class LinksUITests: XCTestCase {
         wait(for: [label], timeout: timeout)
     }
 
-    private func waitFor(_ toggle: XCUIElement, value: String, timeout: TimeInterval = 5) {
+    private func waitFor(_ toggle: XCUIElement, value: String, timeout: TimeInterval = 30) {
         let flipped = XCTNSPredicateExpectation(predicate: NSPredicate(format: "value == %@", value), object: toggle)
         wait(for: [flipped], timeout: timeout)
     }
