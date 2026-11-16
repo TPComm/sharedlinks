@@ -977,7 +977,9 @@ final class LinksUITests: XCTestCase {
         XCTAssert(to.waitForExistence(timeout: 30), "no To row in the Share Extension")
         XCTAssert(to.label.contains("Everyone"), to.label)
         to.tap()
-        app.buttons[name].firstMatch.tap()
+        let pick = app.buttons[name].firstMatch
+        XCTAssert(pick.waitForExistence(timeout: 30), "no \(name) in the chat picker")
+        pick.tap()
         XCTAssert(to.label.contains(name), to.label)
         XCTAssert(app.staticTexts["Goes to Friend."].waitForExistence(timeout: 5), "the footer doesn't follow the chat")
         app.buttons["Cancel"].firstMatch.tap()
