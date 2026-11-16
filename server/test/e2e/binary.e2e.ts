@@ -204,8 +204,10 @@ describe("a day with Links", () => {
     expect([health.status, health.text]).toEqual([200, "ok\n"]);
     const home = await call("/");
     expect(home.status).toBe(200);
-    expect(home.headers.get("content-type")).toBe("text/plain; charset=utf-8");
-    expect(home.text).toContain("Links API");
+    expect(home.headers.get("content-type")).toBe("text/html; charset=utf-8");
+    expect(home.text).toContain("Good finds.");
+    expect(home.text).toContain('href="sharedlinks://inbox"');
+    expect((await call("/icon.png")).headers.get("content-type")).toBe("image/png");
     expect(await call("/nope")).toMatchObject({ status: 404, data: { error: "Not found" } });
   });
 

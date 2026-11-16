@@ -6,6 +6,7 @@ import { Accounts, AuthError, INVITE_TOKEN_RE, MAX_GROUP_MEMBERS, publicUser } f
 import type { Config } from "./config.ts";
 import { defaultGroup, deleteEmptyGroups, deleteLink, now, openDatabase, type CommentRow, type GroupRow, type LinkRow, type UserRow } from "./db.ts";
 import { BadRequest, canonical, clipText, extractUrl } from "./links.ts";
+import { landingPage } from "./landing.ts";
 import { REPORT_REASONS } from "./moderation.ts";
 import { fetchMetadata, PREVIEW_VERSION } from "./previews.ts";
 import { Pusher, type PushOptions } from "./push.ts";
@@ -603,7 +604,7 @@ export function createApp(config: Config, opts: AppOptions = {}) {
     ? { "/.well-known/apple-app-site-association": Response.json(appSiteAssociation(config.appleAppIds)) }
     : {};
   const routes = {
-    "/": new Response("Links API. Open the Links app to use it.\n", { headers: { "Content-Type": "text/plain; charset=utf-8" } }),
+    "/": new Response(landingPage(config), { headers: { "Content-Type": "text/html; charset=utf-8" } }),
     "/healthz": new Response("ok\n"),
     // What's deployed: the nightly check compares `commit` with origin/main.
     "/version": Response.json({ commit: BUILD_COMMIT }),
