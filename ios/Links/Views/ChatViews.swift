@@ -71,7 +71,10 @@ struct ChatPicker: View {
         .sheet(isPresented: $showingChats) { ChatListView() }
         .sheet(item: $infoGroup) { group in
             NavigationStack {
-                ChatInfoView(groupID: group.id)
+                ChatInfoView(groupID: group.id) { link in
+                    infoGroup = nil
+                    model.showPage(link)
+                }
                     .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { infoGroup = nil } } }
             }
         }
@@ -130,7 +133,12 @@ struct ChatListView: View {
                 }
             }
             .navigationTitle("Chats")
-            .navigationDestination(for: Int.self) { ChatInfoView(groupID: $0) }
+            .navigationDestination(for: Int.self) { groupID in
+                ChatInfoView(groupID: groupID) { link in
+                    dismiss()
+                    model.showPage(link)
+                }
+            }
             .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } } }
             .confirmationDialog("Mute Notifications", isPresented: Binding(
                 get: { muting != nil }, set: { if !$0 { muting = nil } }),
@@ -157,6 +165,7 @@ struct ChatListView: View {
 struct ChatInfoView: View {
     @Environment(AppModel.self) private var model
     let groupID: Int
+    let openLink: (SharedLink) -> Void
     @State private var choosingDuration = false
     @State private var saving = false
     @State private var failure: String?
@@ -168,7 +177,7 @@ struct ChatInfoView: View {
                     Section {
                         Text(model.inbox.title(of: group)).font(.headline)
                     }
-                    TasteMatchSection(group: group)
+                    TasteMatchSection(group: group, openLink: openLink)
                     if group.muted != nil {
                         Section {
                             Toggle(isOn: Binding(get: { group.isMuted(at: context.date) }, set: { muted in
@@ -230,6 +239,7 @@ private struct TasteMatchSection: View {
     @Environment(AppModel.self) private var model
     @Environment(\.dynamicTypeSize) private var typeSize
     let group: LinkGroup
+    let openLink: (SharedLink) -> Void
 
     var body: some View {
         let matches = model.inbox.tasteMatches(in: group.id)
@@ -263,8 +273,8 @@ private struct TasteMatchSection: View {
             .padding(.vertical, 8)
 
             ForEach(matches.prefix(3)) { link in
-                NavigationLink {
-                    LinkDetailView(linkID: link.id)
+                Button {
+                    openLink(link)
                 } label: {
                     HStack(alignment: .top, spacing: 12) {
                         if !typeSize.isAccessibilitySize {
@@ -281,9 +291,16 @@ private struct TasteMatchSection: View {
                                 .foregroundStyle(.secondary)
                         }
                         .fixedSize(horizontal: false, vertical: true)
+                        Spacer(minLength: 0)
+                        Image(systemName: "chevron.right")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(.tertiary)
+                            .accessibilityHidden(true)
                     }
                     .padding(.vertical, 4)
+                    .contentShape(.rect)
                 }
+                .buttonStyle(.plain)
                 .accessibilityHint("Opens the link page without changing seen status")
                 .accessibilityIdentifier("tasteMatch.link.\(link.id)")
             }
