@@ -15,11 +15,11 @@ public extension InboxState {
     }
 
     func tasteMatchSummary(in groupID: Int, count: Int) -> String {
-        let members = group(groupID)?.members ?? []
-        let links = count == 1 ? "1 link" : "\(count) links"
+        let members = Set(group(groupID)?.members ?? [])
+        let links = count == 1 ? "1 link" : "\(count.formatted()) links"
         if members.count == 2, let friend = members.first(where: { $0 != me }) {
             return "You and \(name(of: friend)) both loved \(links)"
         }
-        return "All \(members.count) of you loved \(links)"
+        return "All \(members.count.formatted()) of you loved \(links)"
     }
 }
