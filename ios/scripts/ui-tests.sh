@@ -13,8 +13,8 @@
 #                               test-without-building)
 #   LINKS_UI_TEST_LOGS          keep the server and xcodebuild logs here (default: a temp folder,
 #                               deleted at exit)
-#   LINKS_UI_TEST_SHARD         K/N: run only every Nth test starting with the Kth, as CI does to
-#                               split the tests across N runners (default: all of them)
+#   LINKS_UI_TEST_SHARD         K/N: run the Kth duration-weighted slice across N runners
+#                               (default: all tests); ui-test-durations.tsv steers balance
 set -euo pipefail
 
 ios="$(cd "$(dirname "$0")/.." && pwd)"
@@ -26,8 +26,10 @@ logs="${LINKS_UI_TEST_LOGS:-$tmp}"
 mkdir -p "$logs"
 server_pid=""
 shutdown_udid=""
+xctestrun_copy=""
 
 cleanup() {
+  if [[ -n "$xctestrun_copy" ]]; then rm -f "$xctestrun_copy"; fi
   if [[ -n "$server_pid" ]]; then
     kill "$server_pid" 2>/dev/null || true
     wait "$server_pid" 2>/dev/null || true
@@ -89,37 +91,40 @@ fi
 # until it crashes. Later launches take a second, so the app is installed and launched once here,
 # where simctl waits as long as it takes. Only on our own Simulator with an app already built
 # (test-without-building); best effort.
-app="${LINKS_UI_TEST_DERIVED_DATA:-build}"
-if [[ "$app" != /* ]]; then app="$ios/$app"; fi
-app="$app/Build/Products/Debug-iphonesimulator/Links.app"
+derived_data="${LINKS_UI_TEST_DERIVED_DATA:-build}"
+if [[ "$derived_data" != /* ]]; then derived_data="$ios/$derived_data"; fi
+products="$derived_data/Build/Products"
+app="$products/Debug-iphonesimulator/Links.app"
 warm_up() {
   [[ -n "${udid:-}" && "${LINKS_UI_TEST_ACTION:-test}" == test-without-building && -d "$app" ]] || return 0
-  local started=$SECONDS
-  xcrun simctl boot "$udid" 2>/dev/null || true
+  local started=$SECONDS phase=$SECONDS
+  if ! xcrun simctl list devices | grep -q "$udid) (Booted)"; then
+    xcrun simctl boot "$udid"
+  fi
+  xcrun simctl bootstatus "$udid" -b
+  echo "Simulator boot/bootstatus completed in $((SECONDS - phase))s"
+  phase=$SECONDS
   if xcrun simctl install "$udid" "$app"; then
+    echo "Simulator app install completed in $((SECONDS - phase))s"
+    phase=$SECONDS
     # Right after boot SpringBoard may not take launches yet, so a failed launch gets a few more.
     for _ in 1 2 3 4 5 6; do
       SIMCTL_CHILD_LINKS_UI_TESTS=1 xcrun simctl launch "$udid" com.tpcomm.links >/dev/null && break
       sleep 10
     done
+    echo "Simulator app launch completed in $((SECONDS - phase))s"
     xcrun simctl terminate "$udid" com.tpcomm.links 2>/dev/null || true
+  else
+    echo "warning: Simulator app install failed after $((SECONDS - phase))s" >&2
   fi
   echo "Simulator booted and Links launched once in $((SECONDS - started))s"
 }
 warm_up
 
-# -- shard: deal the tests out in the order the test files list them, read from the source. The
-# last slice runs everything the others don't (-skip-testing), so a test the scan misses still runs.
+# The last slice runs everything the others don't, so a test the scan misses still runs.
 shard_args=()
-find "$ios/LinksUITests" -name '*.swift' -print0 | LC_ALL=C sort -z | xargs -0 awk '
-  FNR == 1 { class = "" }
-  /(^|[^A-Za-z0-9_])class[[:space:]]+[A-Za-z0-9_]+[[:space:]]*:[[:space:]]*XCTestCase/ {
-    sub(/.*class[[:space:]]+/, ""); sub(/[[:space:]]*:.*/, ""); class = $0; next
-  }
-  class != "" && /^[[:space:]]*(@[A-Za-z]+[[:space:]]+)*func[[:space:]]+test[A-Za-z0-9_]*[[:space:]]*\(/ {
-    sub(/.*func[[:space:]]+/, ""); sub(/[[:space:]]*\(.*/, ""); print "LinksUITests/" class "/" $0
-  }
-' >"$tmp/all-tests"
+python3 "$ios/scripts/ui-test-shards.py" --shard "${LINKS_UI_TEST_SHARD:-1/1}" >"$tmp/assignments"
+cut -f2 "$tmp/assignments" >"$tmp/all-tests"
 cp "$tmp/all-tests" "$tmp/selected-tests"
 if [[ -n "${LINKS_UI_TEST_SHARD:-}" ]]; then
   if [[ ! "$LINKS_UI_TEST_SHARD" =~ ^([0-9]+)/([0-9]+)$ ]] \
@@ -127,23 +132,23 @@ if [[ -n "${LINKS_UI_TEST_SHARD:-}" ]]; then
     echo "error: LINKS_UI_TEST_SHARD must be K/N with 1 <= K <= N, not \"$LINKS_UI_TEST_SHARD\"" >&2
     exit 1
   fi
-  shard="${BASH_REMATCH[1]}" shards="${BASH_REMATCH[2]}" i=0 mine=0
+  shard="${BASH_REMATCH[1]}" shards="${BASH_REMATCH[2]}" mine=0
   : >"$tmp/selected-tests"
-  while IFS= read -r test; do
-    if (( i % shards == shard - 1 )); then
+  while IFS=$'\t' read -r assigned test; do
+    if (( assigned == shard )); then
       mine=$((mine + 1))
       echo "$test" >>"$tmp/selected-tests"
       if (( shard < shards )); then shard_args+=("-only-testing:$test"); fi
     elif (( shard == shards )); then
       shard_args+=("-skip-testing:$test")
     fi
-    i=$((i + 1))
-  done <"$tmp/all-tests"
+  done <"$tmp/assignments"
+  total="$(wc -l <"$tmp/all-tests" | tr -d ' ')"
   if (( mine == 0 )); then
-    echo "error: UI test slice $LINKS_UI_TEST_SHARD has no tests ($i in all)" >&2
+    echo "error: UI test slice $LINKS_UI_TEST_SHARD has no tests ($total in all)" >&2
     exit 1
   fi
-  echo "UI test slice $LINKS_UI_TEST_SHARD: $mine of the $i tests found, plus any the scan missed in the last slice"
+  echo "UI test slice $LINKS_UI_TEST_SHARD: $mine of the $total tests found, plus any the scan missed in the last slice"
   if (( ${#shard_args[@]} )); then printf '  %s\n' "${shard_args[@]}"; fi
 fi
 # A shard's -only-testing args add to the caller's rather than narrowing them, so only an unsharded
@@ -153,21 +158,34 @@ if [[ -z "${LINKS_UI_TEST_SHARD:-}" ]]; then
   mv "$tmp/narrowed-tests" "$tmp/selected-tests"
 fi
 
+project_args=(-project Links.xcodeproj -scheme Links -configuration Debug)
+xctestrun=""
+if [[ "${LINKS_UI_TEST_ACTION:-test}" == test-without-building ]]; then
+  for candidate in "$products/"*.xctestrun; do
+    if [[ -f "$candidate" ]]; then xctestrun="$candidate"; break; fi
+  done
+  if [[ -n "$xctestrun" ]]; then
+    xctestrun_copy="$products/.links-ui-tests-$$.xctestrun"
+    project_args=(-xctestrun "$xctestrun_copy")
+  fi
+fi
+
 # xcodebuild hands TEST_RUNNER_<NAME> to the test runner as <NAME>. The tests pass the URL and
 # token on to the app (DEBUG builds read LINKS_SERVER_URL and LINKS_DEV_TOKEN).
 # Signed (ad hoc, for the Simulator): the app needs its App Group entitlement for the keychain.
 run_tests() {
   (
     cd "$ios"
-    TEST_RUNNER_LINKS_SERVER_URL="$url" \
-    TEST_RUNNER_LINKS_DEV_TOKEN="$me_token" \
-    TEST_RUNNER_LINKS_FRIEND_TOKEN="$friend_token" \
-    TEST_RUNNER_LINKS_SPARE_TOKEN="$spare_token" \
-    TEST_RUNNER_LINKS_DELETABLE_TOKEN="$deletable_token" \
+    export TEST_RUNNER_LINKS_SERVER_URL="$url"
+    export TEST_RUNNER_LINKS_DEV_TOKEN="$me_token"
+    export TEST_RUNNER_LINKS_FRIEND_TOKEN="$friend_token"
+    export TEST_RUNNER_LINKS_SPARE_TOKEN="$spare_token"
+    export TEST_RUNNER_LINKS_DELETABLE_TOKEN="$deletable_token"
+    if [[ -n "$xctestrun" ]]; then
+      python3 "$ios/scripts/ui-test-xctestrun.py" "$xctestrun" "$xctestrun_copy" || exit 1
+    fi
     xcodebuild "${LINKS_UI_TEST_ACTION:-test}" \
-      -project Links.xcodeproj \
-      -scheme Links \
-      -configuration Debug \
+      "${project_args[@]}" \
       -destination "$destination" \
       -derivedDataPath "${LINKS_UI_TEST_DERIVED_DATA:-build}" \
       -parallel-testing-enabled NO \
