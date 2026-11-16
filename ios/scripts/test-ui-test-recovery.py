@@ -1,4 +1,5 @@
 import pathlib
+import json
 import re
 import subprocess
 import sys
@@ -9,9 +10,71 @@ import unittest
 PARSER = pathlib.Path(__file__).with_name("ui-test-recoverable-failures.sh")
 SELECTION = pathlib.Path(__file__).with_name("ui-test-selection.sh")
 REAL_LOG = pathlib.Path(sys.argv.pop(1)) if len(sys.argv) > 1 else None
+KILLED_LOG = PARSER.with_name("ui-test-killed-runner.txt").read_text()
+KILLED_RESULT = PARSER.with_name("ui-test-killed-runner-result.json")
+NOTIFICATION = "LinksUITests/LinksUITests/testNotificationTogglesSaveEachSetting\n"
 
 
 class RecoveryTests(unittest.TestCase):
+    def result_failures(self, result):
+        return subprocess.run(
+            [sys.executable, str(PARSER.with_name("ui-test-result-failures.py"))],
+            input=json.dumps(result), capture_output=True, text=True, check=True
+        ).stdout
+
+    def test_run_43858784250_requires_result_evidence(self):
+        result = self.parse(KILLED_LOG, NOTIFICATION)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(result.stdout, "")
+        evidence = self.result_failures(json.loads(KILLED_RESULT.read_text()))
+        result = self.parse(KILLED_LOG + evidence, NOTIFICATION)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout, "crash LinksUITests/testNotificationTogglesSaveEachSetting\n")
+
+    def test_killed_process_reruns_incomplete_and_unstarted_only(self):
+        selection = NOTIFICATION + "LinksUITests/OtherUITests/testLater\n" + \
+            "LinksUITests/LinksUITests/testRenamingAddingPeopleToAndLeavingAChat\n"
+        for evidence in ("Lost connection to test process\n", "Test crashed with signal term.\n"):
+            result = self.parse(KILLED_LOG + evidence, selection)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(result.stdout, "crash LinksUITests/testNotificationTogglesSaveEachSetting\n"
+                             "crash OtherUITests/testLater\n")
+
+    def test_killed_marker_without_interrupted_selected_test_stays_red(self):
+        for log in ("", KILLED_LOG):
+            result = self.parse(log + "Lost connection to test process\n",
+                                "LinksUITests/LinksUITests/testNeverStarted\n")
+            self.assertNotEqual(result.returncode, 0)
+            self.assertEqual(result.stdout, "")
+
+    def test_killed_marker_does_not_hide_assertions_or_real_signals(self):
+        for problem in ("XCTAssertTrue failed", "Timed out while evaluating UI query",
+                        "Test crashed with signal segv.", "Test crashed with signal abrt."):
+            for name in ("testNotificationTogglesSaveEachSetting", "testOther"):
+                log = KILLED_LOG + "Lost connection to test process\n" + \
+                    f"file.swift:1: error: -[LinksUITests.LinksUITests {name}] : {problem}\n"
+                result = self.parse(log, NOTIFICATION)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertEqual(result.stdout, "")
+        for signal in ("SIGSEGV", "SIGABRT", "EXC_BAD_ACCESS"):
+            result = self.parse(KILLED_LOG + f"Lost connection to test process\n{signal}\n", NOTIFICATION)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertEqual(result.stdout, "")
+
+    def test_result_failures_preserve_assertions_and_unknown_issues(self):
+        self.assertEqual(self.result_failures({}), "")
+        result = json.loads(KILLED_RESULT.read_text())
+        issues = result["issues"]["testFailureSummaries"]["_values"]
+        issues.append({"testCaseName": {"_value": "OtherUITests.testOther()"},
+                       "message": {"_value": "XCTAssertEqual failed"}})
+        parsed = self.parse(KILLED_LOG + self.result_failures(result), NOTIFICATION)
+        self.assertNotEqual(parsed.returncode, 0)
+        self.assertEqual(parsed.stdout, "")
+        issues[-1] = {"message": {"_value": "Unknown failure"}}
+        parsed = self.parse(KILLED_LOG + self.result_failures(result), NOTIFICATION)
+        self.assertNotEqual(parsed.returncode, 0)
+        self.assertEqual(parsed.stdout, "")
+
     def parse(self, log, selection=""):
         with tempfile.NamedTemporaryFile(mode="w") as fixture, tempfile.NamedTemporaryFile(mode="w") as selected:
             fixture.write(log)

@@ -211,6 +211,13 @@ fi
 
 # Only infrastructure failures get another go; an assertion failure keeps the run red.
 if [[ $status -ne 0 ]]; then
+  # Xcode can omit the per-case failure from stdout when the Simulator kills the runner.
+  result_bundle=$(sed -n 's/^[[:space:]]*\(.*\.xcresult\)[[:space:]]*$/\1/p' "$logs/xcodebuild.log" | tail -1)
+  if [[ -n "$result_bundle" && -d "$result_bundle" ]]; then
+    if xcrun xcresulttool get object --legacy --path "$result_bundle" --format json >"$tmp/test-result.json"; then
+      python3 "$ios/scripts/ui-test-result-failures.py" <"$tmp/test-result.json" >>"$logs/xcodebuild.log"
+    fi
+  fi
   recoverable="$(bash "$ios/scripts/ui-test-recoverable-failures.sh" "$logs/xcodebuild.log" "$tmp/selected-tests" || true)"
   if [[ -n "$recoverable" ]]; then
     if [[ "$recoverable" == *crash* ]]; then

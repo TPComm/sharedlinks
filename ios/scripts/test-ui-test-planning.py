@@ -162,6 +162,8 @@ if command == "bun":
 elif command == "xcrun":
     with (root / "simctl.jsonl").open("a") as log:
         log.write(json.dumps(args) + "\n")
+    if args[:3] == ["xcresulttool", "get", "object"]:
+        print((root / "failure.json").read_text())
     if args[:3] == ["simctl", "list", "devices"]:
         state = "Booted" if os.environ["MOCK_BOOTED"] == "1" else "Shutdown"
         print(f"    Links UI Tests (AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE) ({state})")
@@ -175,6 +177,17 @@ elif command == "xcodebuild":
         output.write(json.dumps(entry) + "\n")
     case = "-[LinksUITests.LinksUITests testSignedInLaunchShowsTheInbox]"
     print(f"Test Case '{case}' started.")
+    if os.environ["MOCK_RECOVERY"] == "2" and attempt == 0:
+        bundle = root / "Test-Links.xcresult"
+        bundle.mkdir()
+        (root / "failure.json").write_text(json.dumps({"issues": {"testFailureSummaries": {"_values": [{
+            "testCaseName": {"_value": "LinksUITests.testSignedInLaunchShowsTheInbox()"},
+            "message": {"_value": "Test crashed with signal term."}
+        }]}}}))
+        print("Restarting after unexpected exit, crash, or test timeout; summary will include totals from previous launches.")
+        print("Test session results, code coverage, and logs:")
+        print(f"    {bundle}")
+        sys.exit(65)
     if os.environ["MOCK_RECOVERY"] == "1" and attempt == 0:
         print(f"file.swift:1: error: {case} : Failed to launch app: Timed out while launching")
         print(f"Test Case '{case}' failed (94 seconds).")
@@ -185,7 +198,8 @@ elif command == "xcodebuild":
             for name in ("bun", "curl", "xcrun", "xcodebuild"):
                 (commands / name).symlink_to(mock)
             environment = dict(os.environ, HOME=str(root), PATH=str(commands) + os.pathsep + os.environ["PATH"],
-                               MOCK_ROOT=str(root), MOCK_BOOTED=str(int(booted)), MOCK_RECOVERY=str(int(recovery)),
+                               MOCK_ROOT=str(root), MOCK_BOOTED=str(int(booted)),
+                               MOCK_RECOVERY="2" if recovery == "killed" else str(int(recovery)),
                                LINKS_UI_TEST_DERIVED_DATA=str(root / "build"), LINKS_UI_TEST_ACTION=action)
             environment.pop("LINKS_UI_TEST_SHARD", None)
             result = subprocess.run(["bash", str(SCRIPTS / "ui-tests.sh"),
@@ -224,6 +238,20 @@ elif command == "xcodebuild":
         self.assertIn("-project", invocations[0]["args"])
         self.assertNotIn("-xctestrun", invocations[0]["args"])
         self.assertFalse(any(args[:2] == ["simctl", "install"] for args in simctl))
+
+    def test_killed_runner_uses_xcresult_reboots_and_refreshes_tokens(self):
+        invocations, commands, result = self.run_script("test-without-building", recovery="killed")
+        self.assertEqual(len(invocations), 2)
+        self.assertTrue(any(args[:4] == ["xcresulttool", "get", "object", "--legacy"] for args in commands))
+        self.assertTrue(any(args[:2] == ["simctl", "shutdown"] for args in commands))
+        self.assertTrue(any(args[:2] == ["simctl", "boot"] for args in commands))
+        for invocation in invocations:
+            self.assertIn("-only-testing:LinksUITests/LinksUITests/testSignedInLaunchShowsTheInbox", invocation["args"])
+        old = invocations[0]["plist"]["LinksUITests"]["TestingEnvironmentVariables"]
+        new = invocations[1]["plist"]["LinksUITests"]["TestingEnvironmentVariables"]
+        for key in ("LINKS_SPARE_TOKEN", "LINKS_DELETABLE_TOKEN"):
+            self.assertNotEqual(old[key], new[key])
+        self.assertIn("simulator crash interrupted UI tests", result.stderr)
 
     def test_without_xctestrun_falls_back_to_project_and_boots(self):
         invocations, simctl, _ = self.run_script("test-without-building", artifact=False, booted=False)
