@@ -45,6 +45,9 @@ awk -v selection="${2:-/dev/null}" '
   END {
     for (test in genuine) exit 1
     if (unsafe_signal || unknown_result || assertion_failure) exit 1
+    for (test in failed) {
+      if (killed[test]) interrupted = 1
+    }
     while ((getline expected < selection) > 0) {
       sub(/^LinksUITests\//, "", expected)
       if (!completed[expected]) {
@@ -61,10 +64,10 @@ awk -v selection="${2:-/dev/null}" '
       }
     }
     for (test in failed) {
-      if (genuine[test] || (crash[test] && !shell_crashed) || !(launch[test] || (shell_crashed && (crash[test] || shell_launch[test])))) exit 1
+      if (genuine[test] || (crash[test] && !shell_crashed) || !(killed[test] || launch[test] || (shell_crashed && (crash[test] || shell_launch[test])))) exit 1
     }
     for (test in failed) {
-      kind = (shell_crashed && (crash[test] || shell_launch[test])) ? "crash" : "launch"
+      kind = (killed[test] || (shell_crashed && (crash[test] || shell_launch[test]))) ? "crash" : "launch"
       print kind, test
     }
     for (test in missing) print "crash", test

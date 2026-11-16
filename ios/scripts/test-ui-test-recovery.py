@@ -73,6 +73,22 @@ class RecoveryTests(unittest.TestCase):
             self.assertNotEqual(result.returncode, 0)
             self.assertEqual(result.stdout, "")
 
+    def test_completed_killed_case_recovers_with_its_own_evidence(self):
+        selection = "LinksUITests/LinksUITests/testExample\nLinksUITests/LinksUITests/testLater\n"
+        for message in ("Lost connection to test process", "Test crashed with signal term."):
+            log = "Test Case '-[LinksUITests.LinksUITests testExample]' started.\n" + self.failure(message)
+            parsed = self.parse(log, selection)
+            self.assertEqual(parsed.returncode, 0, parsed.stderr)
+            self.assertEqual(parsed.stdout, "crash LinksUITests/testExample\ncrash LinksUITests/testLater\n")
+            for name in ("testExample", "testOther"):
+                for problem in ("XCTAssertTrue failed", "Test crashed with signal segv.", "Unknown failure"):
+                    parsed = self.parse(log + self.failure(problem, name), selection)
+                    self.assertNotEqual(parsed.returncode, 0)
+                    self.assertEqual(parsed.stdout, "")
+            parsed = self.parse(log + "Test Case '-[LinksUITests.LinksUITests testOther]' failed (1 seconds).\n")
+            self.assertNotEqual(parsed.returncode, 0)
+            self.assertEqual(parsed.stdout, "")
+
     def test_killed_marker_does_not_hide_assertions_or_real_signals(self):
         for problem in ("XCTAssertTrue failed", "Timed out while evaluating UI query",
                         "Test crashed with signal segv.", "Test crashed with signal abrt."):
