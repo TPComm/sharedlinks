@@ -460,8 +460,14 @@ export function createApp(config: Config, opts: AppOptions = {}) {
   }
 
   async function addLink(text: unknown, note: unknown, requestedGroup: unknown, by: string) {
-    const raw = extractUrl(text);
+    let raw = extractUrl(text);
     if (!raw) throw new BadRequest("That doesn't look like a link.");
+    let page: URL;
+    try { page = new URL(raw); } catch { throw new BadRequest("That doesn't look like a link."); }
+    if (page.origin === new URL(config.publicUrl).origin) {
+      const token = page.pathname.match(/^\/l\/([^/]+)$/)?.[1];
+      if (token) raw = publicLink(token)?.url ?? raw;
+    }
     const cleanNote = clipText(note, 500);
     accounts.screen(cleanNote, "note");
     const { url, platform } = await canonical(raw, fetchOpts);

@@ -327,6 +327,32 @@ describe("links", () => {
     friendId = res.data.user.id;
   });
 
+  test("adding a shared link page resolves the original within and across chats", async () => {
+    const added = await call("/api/links", { token, body: { url: `${origin}/plain?shared=original` } });
+    expect(added.status).toBe(201);
+    const link = added.data.link;
+    const again = await call("/api/links", { token, body: { url: link.share_url } });
+    expect(again.data).toMatchObject({ duplicate: true, link: { id: link.id } });
+    const chat = await call("/api/groups", { token, body: { name: "Shared pages" } });
+    const forwarded = await call("/api/links", { token, body: { url: link.share_url, group_id: chat.data.group.id } });
+    expect(forwarded.status).toBe(201);
+    expect(forwarded.data).toMatchObject({ duplicate: false, link: { url: link.url, group_id: chat.data.group.id } });
+    expect(forwarded.data.link.id).not.toBe(link.id);
+  });
+
+  test("shared page resolution leaves unknown tokens and other origins alone", async () => {
+    const added = await call("/api/links", { token, body: { url: `${origin}/plain?shared=boundaries` } });
+    for (const url of [
+      `${baseConfig.publicUrl}/l/${"a".repeat(32)}`,
+      `${origin}/l/${added.data.link.token}`,
+      `${baseConfig.publicUrl}/l/${added.data.link.token}/image`,
+    ]) {
+      const result = await call("/api/links", { token, body: { url } });
+      expect(result.status).toBe(201);
+      expect(result.data).toMatchObject({ duplicate: false, link: { url } });
+    }
+  });
+
   test("migrations: AUTOINCREMENT ids and today's URL spelling", async () => {
     const db = new Database(join(dataDir, "links.db"), { readonly: true });
     const { sql } = db.query("SELECT sql FROM sqlite_master WHERE name = 'links'").get() as { sql: string };

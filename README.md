@@ -329,6 +329,7 @@ API endpoints except sign-in need `Authorization: Bearer <session token>`; pages
 | GET | `/version` | public: `{commit}`, the git commit the server was built from (`dev` unless built by `deploy/deploy.sh`) |
 
 Each link includes `token` (its unguessable share token) and `share_url` (the absolute public `/l/:token` URL).
+Adding a `share_url` from this server adds the original URL, with duplicate detection within the destination chat.
 Anyone with that URL can view its title and thumbnail and open the original URL, without seeing the inbox.
 Each link also includes `comment_count` and `last_comment: {person, snippet, at} | null`, scoped to
 what the reader may see. The snippet is at most 120 Unicode characters; `at` is the comment's
