@@ -208,6 +208,12 @@ describe("a day with Links", () => {
     expect(home.text).toContain("Good finds.");
     expect(home.text).toContain('href="sharedlinks://inbox"');
     expect((await call("/icon.png")).headers.get("content-type")).toBe("image/png");
+    expect(home.text).toContain('src="/app-preview.png"');
+    // This runs from a separate cwd: the actual app capture must travel in the binary.
+    const preview = await fetch(`${server.url}/app-preview.png`);
+    expect(preview.status).toBe(200);
+    expect(preview.headers.get("content-type")).toBe("image/png");
+    expect([...new Uint8Array(await preview.arrayBuffer()).slice(0, 8)]).toEqual([137, 80, 78, 71, 13, 10, 26, 10]);
     expect(await call("/nope")).toMatchObject({ status: 404, data: { error: "Not found" } });
   });
 

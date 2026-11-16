@@ -52,27 +52,8 @@ ${banner}
   .button svg{width:19px;height:19px}
   .store-link{font-size:13px;font-weight:600}
   .availability{max-width:370px;font-size:12px;line-height:1.8;color:var(--muted);margin:16px 0 0}
-  .preview{position:relative;padding:31px 25px 25px;border:1px solid #dce4d7;border-radius:26px;background:#e9eee3;transform:rotate(2deg)}
-  .preview:before{content:"";position:absolute;inset:14px -12px -12px 12px;border:1px solid #d8dfd0;border-radius:26px;z-index:-1}
-  .inbox{background:#fff;border:1px solid #e2e6dd;border-radius:17px;padding:24px 19px 14px;box-shadow:0 14px 32px #273d2510;transform:rotate(-2deg)}
-  .inbox-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:16px}
-  .inbox-title{font-size:23px;font-weight:700;letter-spacing:-.9px}
-  .avatar{display:grid;place-items:center;background:#ede7d9;color:#716242;width:29px;height:29px;border-radius:50%;font-size:10px;font-weight:700}
-  .tabs{display:flex;border-bottom:1px solid #edf0e9;padding-bottom:12px;gap:23px;font-size:11px;color:#748071}
-  .selected{color:var(--green);font-weight:700}
-  .count{display:inline-block;background:#e7eee2;border-radius:4px;padding:0 5px;margin-left:3px}
-  .sample{display:flex;align-items:center;gap:12px;padding:17px 0;border-bottom:1px solid #edf0e9}
-  .sample:last-of-type{border:0}
-  .art{display:grid;place-items:center;flex-shrink:0;width:66px;height:72px;border-radius:8px;overflow:hidden}
-  .art svg{width:100%;height:100%}
-  .sample-text{min-width:0}
-  .source{font-size:8px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:#6b7867}
-  .sample h2{font-size:12px;line-height:1.5;letter-spacing:-.15px;margin:3px 0 5px;font-weight:650}
-  .from{font-size:9px;color:#64705f}
-  .from strong{color:#4b6045;font-weight:600}
-  .note{background:#f5f6f0;border-radius:5px;padding:5px 7px;font-size:9px;color:#64705f;margin-top:6px}
-  .inbox-bottom{display:flex;align-items:center;justify-content:center;gap:6px;color:#6b7867;font-size:9px;padding-top:14px;border-top:1px solid #edf0e9}
-  .inbox-bottom svg{width:12px;height:12px}
+  .preview{width:100%;max-width:290px;justify-self:center}
+  .app-screen{display:block;width:100%;height:auto;border:1px solid #d6dcd2;border-radius:36px;background:white;box-shadow:0 20px 48px #273d2520}
   figcaption{text-align:center;color:#64705f;font-size:10px;margin-top:20px;letter-spacing:.3px}
   figure{margin:0}
   .how{padding-top:33px;padding-bottom:43px;border-top:1px solid var(--line)}
@@ -87,8 +68,8 @@ ${banner}
   footer a{text-decoration:none;display:inline-block;padding:8px 0}
   .skip{position:absolute;top:-100px;left:20px;background:white;padding:10px;z-index:2}
   .skip:focus{top:10px}
-  @media(max-width:800px){.wrap{padding:0 25px}.hero{gap:35px;padding-top:44px;padding-bottom:60px}h1{font-size:49px;letter-spacing:-2.8px}.intro{font-size:16px}.preview{padding:23px 14px 20px}.inbox{padding:20px 13px 12px}.sample{gap:9px}.art{width:51px;height:62px}.features{gap:24px}}
-  @media(max-width:600px){header{padding-top:20px}nav{gap:21px;font-size:12px}.hero{grid-template-columns:1fr;gap:45px;padding-top:35px;padding-bottom:55px}h1{font-size:54px;max-width:360px}.intro{max-width:350px}.preview{max-width:360px;width:100%;justify-self:center;padding:26px 21px 20px}.inbox{padding:22px 18px 14px}.art{width:64px;height:70px}.sample h2{font-size:13px}.source{font-size:9px}.from,.note{font-size:10px}.tabs{font-size:12px}.inbox-bottom{font-size:10px}.features{grid-template-columns:1fr;gap:25px}.number{margin-bottom:5px}.features p{max-width:360px;font-size:14px}footer{align-items:flex-start}.how{padding-bottom:32px}}
+  @media(max-width:800px){.wrap{padding:0 25px}.hero{gap:35px;padding-top:44px;padding-bottom:60px}h1{font-size:49px;letter-spacing:-2.8px}.intro{font-size:16px}.features{gap:24px}}
+  @media(max-width:600px){header{padding-top:20px}nav{gap:21px;font-size:12px}.hero{grid-template-columns:1fr;gap:45px;padding-top:35px;padding-bottom:55px}h1{font-size:54px;max-width:360px}.intro{max-width:350px}.preview{max-width:310px}.features{grid-template-columns:1fr;gap:25px}.number{margin-bottom:5px}.features p{max-width:360px;font-size:14px}footer{align-items:flex-start}.how{padding-bottom:32px}}
   @media(prefers-reduced-motion:reduce){html{scroll-behavior:auto}.button{transition:none}}
 </style>
 </head>
@@ -108,25 +89,9 @@ ${banner}
         <div class="actions"><a class="button" href="${escapeHtml(appUrl)}">Open in Links ${arrow}</a>${store}</div>
         <p class="availability">Made for iPhone. Already have the app? Open it above.<br>New here? Links is invite-only. Ask a friend who uses it for an invite.</p>
       </div>
-      <figure class="preview" aria-label="An illustrative Links inbox with example links">
-        <div class="inbox">
-          <div class="inbox-header"><span class="inbox-title">Your links</span><span class="avatar" aria-hidden="true">YO</span></div>
-          <div class="tabs" aria-hidden="true"><span class="selected">Queue <span class="count">3</span></span><span>Seen</span><span>Sent</span></div>
-          <div class="sample">
-            <div class="art" aria-hidden="true"><svg viewBox="0 0 66 72"><rect width="66" height="72" fill="#e9e2d0"/><ellipse cx="33" cy="40" rx="28" ry="23" fill="#faf6e9"/><ellipse cx="33" cy="40" rx="21" ry="17" fill="#b5bf71"/><g fill="none" stroke="#e6bf6e" stroke-width="3"><path d="M18 30q31-7 28 9T20 48t24-15M22 27q-9 23 17 22t3-19M18 40q26-17 30 2"/></g><g fill="#4c7345"><ellipse cx="29" cy="29" rx="4" ry="7" transform="rotate(-30 29 29)"/><ellipse cx="41" cy="45" rx="4" ry="6" transform="rotate(35 41 45)"/></g></svg></div>
-            <div class="sample-text"><div class="source">A recipe worth keeping</div><h2>Sunday calls for lemon pasta</h2><div class="from">From <strong>Alex</strong> · Just now</div><div class="note">“Let’s make this this weekend”</div></div>
-          </div>
-          <div class="sample">
-            <div class="art" aria-hidden="true"><svg viewBox="0 0 66 72"><rect width="66" height="72" fill="#cad9d6"/><circle cx="49" cy="17" r="8" fill="#f8edd0"/><path d="m-10 60 30-37 25 37 12-21 23 33H-10" fill="#7b9683"/><path d="m-5 72 31-33 28 33" fill="#3d6657"/><path d="m26 72 8-20 7 20" fill="#d9dfbe"/></svg></div>
-            <div class="sample-text"><div class="source">A place to go</div><h2>The long way home</h2><div class="from">From <strong>Sam</strong> · 12 min ago</div></div>
-          </div>
-          <div class="sample">
-            <div class="art" aria-hidden="true"><svg viewBox="0 0 66 72"><rect width="66" height="72" fill="#e8cbb6"/><rect x="12" y="13" width="42" height="49" rx="3" fill="#fbf4e5" transform="rotate(-8 33 36)"/><path d="M23 26h23M22 32h20M21 38h24M20 44h15" stroke="#a9ac89" stroke-width="2"/><circle cx="48" cy="55" r="11" fill="#b16b4d"/><path d="m46 51 6 4-6 4z" fill="#fff8e9"/></svg></div>
-            <div class="sample-text"><div class="source">A new perspective</div><h2>A small idea for a slower day</h2><div class="from">From <strong>Jamie</strong> · 1 hr ago</div></div>
-          </div>
-          <div class="inbox-bottom"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" aria-hidden="true"><rect x="4" y="7" width="8" height="7" rx="2"/><path d="M5.5 7V4a2.5 2.5 0 0 1 5 0v3"/></svg> Just you and your people</div>
-        </div>
-        <figcaption>A few made-up finds. Imagine yours here.</figcaption>
+      <figure class="preview">
+        <img class="app-screen" src="/app-preview.png" width="804" height="1748" fetchpriority="high" alt="The Links iPhone app showing a shared inbox with sample links.">
+        <figcaption>The real Links app. A few made-up finds.</figcaption>
       </figure>
     </section>
     <section class="how" id="how-it-works" aria-labelledby="how-title">

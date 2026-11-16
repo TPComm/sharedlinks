@@ -215,6 +215,8 @@ describe("browser landing page", () => {
     expect(res.data).toContain('href="/privacy"');
     expect(res.data).toContain('href="/support"');
     expect(res.data).toContain('href="/icon.png"');
+    expect(res.data).toContain('src="/app-preview.png"');
+    expect(res.data).toContain("The real Links app. A few made-up finds.");
     expect(res.data).not.toContain("apps.apple.com");
     expect(res.data).not.toContain("apple-itunes-app");
     expect(res.data).not.toContain("<script");

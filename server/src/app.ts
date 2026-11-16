@@ -12,6 +12,7 @@ import { fetchMetadata, PREVIEW_VERSION } from "./previews.ts";
 import { Pusher, type PushOptions } from "./push.ts";
 // Embedded in the compiled binary (bun build --compile), for invite pages and their link previews.
 import iconPath from "../../assets/icon/previews/B/default-256.png" with { type: "file" };
+import appPreviewPath from "../../assets/landing/inbox.png" with { type: "file" };
 import { BUILD_COMMIT } from "./version.ts";
 
 export const EMOJIS = new Set(["❤️", "😂", "🔥", "😮", "😭", "👎"]);
@@ -845,6 +846,9 @@ export function createApp(config: Config, opts: AppOptions = {}) {
       },
     },
     "/icon.png": new Response(Bun.file(iconPath), {
+      headers: { "Content-Type": "image/png", "Cache-Control": "public, max-age=86400" },
+    }),
+    "/app-preview.png": new Response(Bun.file(appPreviewPath), {
       headers: { "Content-Type": "image/png", "Cache-Control": "public, max-age=86400" },
     }),
 
