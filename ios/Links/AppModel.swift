@@ -741,15 +741,11 @@ final class AppModel {
         switch DeepLink(url: url) {
         case .open(let id):
             // The link's page, not TikTok straight away (see DeepLink.open).
-            if let link = inbox.links.first(where: { $0.id == id }) {
-                showPage(link)
-            } else {
-                // From a widget that saw a newer inbox than this (backgrounded) app has.
-                Task {
-                    await refresh()
-                    if let link = inbox.links.first(where: { $0.id == id }) { showPage(link) }
-                }
-            }
+            // From a widget, it may have seen a newer inbox than this (backgrounded) app has.
+            showPage { $0.id == id }
+        case .link(let token):
+            // A shared /l/ link, e.g. tapped in Messages: its page, when it's in my inbox.
+            showPage { $0.token == token }
         case .add:
             addPrefill = ""
             showAddSheet = true
@@ -772,9 +768,21 @@ final class AppModel {
                     if inbox.group(id) != nil { showChat(id) }
                 }
             }
-        // The server's universal links, handled once link pages ship.
-        case .inbox, .link, nil:
+        case .inbox, nil:
             break
+        }
+    }
+
+    /// The page of the first link that matches, refreshing once if this (backgrounded) app's inbox
+    /// doesn't have it yet; nothing if it still isn't there.
+    private func showPage(where matches: @escaping (SharedLink) -> Bool) {
+        if let link = inbox.links.first(where: matches) {
+            showPage(link)
+        } else {
+            Task {
+                await refresh()
+                if let link = inbox.links.first(where: matches) { showPage(link) }
+            }
         }
     }
 

@@ -170,6 +170,27 @@ struct SharedLinkTests {
         #expect(try APIClient.decoder.decode(SharedLink.self, from: data) == link)
     }
 
+    @Test func decodesTheShareTokenAndPage() throws {
+        let json = #"{\#(Self.required), "token": "AbC-_09", "share_url": "https://links.example.com/l/AbC-_09"}"#
+        let link = try Fixture.decode(SharedLink.self, json)
+        #expect(link.token == "AbC-_09")
+        #expect(link.shareURL?.absoluteString == "https://links.example.com/l/AbC-_09")
+        #expect(link.shareableURL.absoluteString == "https://links.example.com/l/AbC-_09")
+        let object = try #require(try JSONSerialization.jsonObject(with: APIClient.encoder.encode(link)) as? [String: Any])
+        #expect(object["share_url"] as? String == "https://links.example.com/l/AbC-_09")
+        #expect(object["token"] as? String == "AbC-_09")
+        #expect(try APIClient.decoder.decode(SharedLink.self, from: APIClient.encoder.encode(link)) == link)
+    }
+
+    @Test(arguments: ["", #""token": null, "share_url": null,"#, #""share_url": "","#, #""share_url": 42,"#,
+                      #""share_url": "sharedlinks://l/abc","#, #""share_url": "https:/l/abc","#])
+    func olderServersShareTheOriginalLink(_ fields: String) throws {
+        let link = try Fixture.decode(SharedLink.self, "{\(fields) \(Self.required)}")
+        #expect(link.shareURL == nil)
+        #expect(link.shareableURL == link.url)
+        #expect(link.shareableURL.absoluteString == "https://example.com/a")
+    }
+
     @Test func pendingMeansThePreviewIsLoading() {
         func link(_ meta: String) -> SharedLink { SharedLink(id: 1, url: URL(string: "https://x.com")!, platform: .x, meta: meta, addedBy: "u") }
         #expect(link("pending").isLoadingPreview)

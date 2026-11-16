@@ -186,6 +186,21 @@ final class LinksUITests: XCTestCase {
         XCTAssertNil(try server.state(as: server.friend).link(link.id)?.seen[me], "the widget marked it watched")
     }
 
+    func testSharedLinkPageOpensTheLinksPage() throws {
+        let link = try seed(by: server.friend)
+        let token = try XCTUnwrap(link.token, "the server gave the link no share token")
+        launch()
+        waitForRow(link, in: "toWatch")
+        app.tabBars.buttons["Sent"].tap()
+        // What a /l/ universal link hands the app; the Simulator can't open universal links.
+        app.open(URL(string: "sharedlinks://l/\(token)")!)
+        XCTAssert(page(link).waitForExistence(timeout: 10), "no page for the shared link")
+        XCTAssert(app.tabBars.buttons["Queue"].isSelected)
+        XCTAssertEqual(app.state, .runningForeground)
+        let me = try server.state(as: server.me).me
+        XCTAssertNil(try server.state(as: server.friend).link(link.id)?.seen[me], "the shared link marked it watched")
+    }
+
     func testWidgetDeepLinkOpensTheNewLinkSheet() throws {
         launch()
         app.open(URL(string: "sharedlinks://add")!)

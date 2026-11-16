@@ -37,6 +37,7 @@ struct LinksServer: Sendable {
         let reactions: [String: String]
         let commentCount: Int?
         let lastComment: CommentActivity?
+        let token: String?
 
         struct CommentActivity: Decodable, Equatable {
             let person: String
@@ -45,7 +46,7 @@ struct LinksServer: Sendable {
         }
 
         enum CodingKeys: String, CodingKey {
-            case id, url, note, seen, reactions
+            case id, url, note, seen, reactions, token
             case addedBy = "added_by"
             case addedAt = "added_at"
             case groupID = "group_id"
