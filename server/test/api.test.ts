@@ -1360,10 +1360,15 @@ describe("deleting an account", () => {
     expect(existsSync(join(dataDir, "thumbs", String(sent.id)))).toBe(true);
     const photo = await fetch(api + "/api/me/photo", { method: "PUT", body: PNG, headers: { Authorization: `Bearer ${token}` } });
     const photoPath = new URL(((await photo.json()) as any).user.avatar).pathname;
+    // A report on Jane keeps its own copy of her photo, which outlives the photo itself.
+    expect((await call("/api/reports", { token: friendToken, body: { user_id: janeId, reason: "offensive" } })).status).toBe(201);
+    const reportCopy = join(dataDir, "report-photos", photoPath.split("/")[2]!);
+    expect(existsSync(reportCopy)).toBe(true);
 
     expect((await call("/api/me", { method: "DELETE", token })).data).toEqual({ ok: true });
     expect((await fetch(api + photoPath)).status).toBe(404);
     expect(existsSync(join(dataDir, photoPath))).toBe(false);
+    expect(existsSync(reportCopy)).toBe(true);
 
     // Every session is gone, with the 401 the app reads as "signed out".
     for (const t of [token, otherPhone.data.token]) {

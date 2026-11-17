@@ -117,6 +117,7 @@ function linksTable(name: string, ifNotExists = false) {
 export function openDatabase(dataDir: string, legacyAllowedEmails: string[] = []): Database {
   mkdirSync(join(dataDir, "thumbs"), { recursive: true });
   mkdirSync(join(dataDir, "photos"), { recursive: true });
+  mkdirSync(join(dataDir, "report-photos"), { recursive: true });
   const db = new Database(join(dataDir, "links.db"), { create: true, strict: true });
   db.exec(`
     PRAGMA journal_mode = WAL;
