@@ -363,8 +363,9 @@ creation time in Unix seconds, not its edit time. Comments stay separate from th
 New comments alert every current chat member except the author, on devices with live app sessions.
 Members who muted the chat, reported the link, or blocked its sender or the commenter get no alert.
 Alerts identify the commenter and include a shortened comment preview; tapping opens the link.
-Edits, deletions and reports stay silent. Comments do not change Queue counts or widget/app badges;
-the app tracks read threads locally.
+Edits, deletions and reports stay silent. Posting a comment marks the link seen for its author, so a
+first comment on someone else's unseen link leaves the author's Queue and lowers their badge. Other
+members' counts and badges don't change; the app tracks read threads locally.
 
 Admin: `links-server mint-session <email> [name]`, `links-server delete-user <email>` (what the app's Delete Account does),
 `links-server claim [<email> <legacy name>]` (list legacy people, or let that account claim one),
