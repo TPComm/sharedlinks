@@ -19,7 +19,7 @@
  *      SESSION_DAYS, APNS_TEAM_ID, APNS_TOPIC (the app's bundle id), APNS_KEY_ID + APNS_KEY_FILE (one
  *      .p8 key for Sandbox and Production); push is off without them
  */
-import { mkdirSync, readdirSync, rmSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, readdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { Accounts } from "./accounts.ts";
 import { startServer } from "./app.ts";
@@ -125,6 +125,14 @@ if (command === "mint-session") {
   const db = openDatabase(config.dataDir, config.legacyAllowedEmails);
   db.run("VACUUM INTO ?", [file]);
   db.close();
+  // Uploaded profile photos live outside SQLite and can't be fetched again. Each token's file never
+  // changes, so copy the new ones; a copy whose photo was replaced or removed goes, as deletion promises.
+  const photos = join(config.dataDir, "photos");
+  const saved = join(dir, "photos");
+  mkdirSync(saved, { recursive: true });
+  const live = new Set(existsSync(photos) ? readdirSync(photos).filter((f) => !f.endsWith(".part")) : []);
+  for (const f of live) if (!existsSync(join(saved, f))) copyFileSync(join(photos, f), join(saved, f));
+  for (const f of readdirSync(saved)) if (!live.has(f)) rmSync(join(saved, f), { force: true });
   const names = readdirSync(dir);
   const old = names.filter((f) => /^links-\d{4}-\d{2}-\d{2}\.db$/.test(f)).sort().slice(0, -14);
   // Labelled copies (links-YYYY-MM-DD-pre-deploy.db) go after 14 days too, as the privacy page promises,
