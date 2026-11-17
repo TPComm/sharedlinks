@@ -2,7 +2,7 @@ import type { Database } from "bun:sqlite";
 import { randomBytes } from "node:crypto";
 import { rmSync } from "node:fs";
 import { join } from "node:path";
-import { Accounts, AuthError, INVITE_TOKEN_RE, MAX_GROUP_MEMBERS, MAX_PHOTO_BYTES, photoType, publicUser } from "./accounts.ts";
+import { Accounts, AuthError, INVITE_TOKEN_RE, MAX_GROUP_MEMBERS, MAX_PHOTO_BYTES, photoType, publicUser, reportPhoto } from "./accounts.ts";
 import type { Config } from "./config.ts";
 import { defaultGroup, deleteEmptyGroups, deleteLink, now, openDatabase, type CommentRow, type GroupRow, type LinkRow, type UserRow } from "./db.ts";
 import { BadRequest, canonical, clipText, extractUrl } from "./links.ts";
@@ -537,9 +537,9 @@ export function createApp(config: Config, opts: AppOptions = {}) {
       const user = db.query("SELECT * FROM users WHERE id = ?").get(id) as UserRow | null;
       if (!user || !sees(me, id)) throw new NotFound("That person isn't in Links anymore.");
       return {
-        link_id: null, comment_id: null, user_id: id, label: `person ${id}`,
+        link_id: null, comment_id: null, user_id: id, label: `person ${id}`, photo: user.photo || null,
         snapshot: { name: user.name, avatar: publicUser(user, config.publicUrl).avatar, email: user.email,
-                    ...(user.photo ? { photo_copy: accounts.keepPhotoForReport(user.photo) } : {}) },
+                    ...(user.photo ? { photo_copy: reportPhoto(user.photo) } : {}) },
       };
     }
     if (!Number.isSafeInteger(data.comment_id)) throw new NotFound("That comment was deleted.");
@@ -884,6 +884,11 @@ export function createApp(config: Config, opts: AppOptions = {}) {
             "INSERT OR IGNORE INTO reports (reporter, link_id, comment_id, user_id, reason, details, snapshot, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
             [me, target.link_id, target.comment_id, target.user_id, data.reason, details, JSON.stringify(target.snapshot), now()],
           );
+          // Copied only for a report that was saved, so a repeat (ignored) leaves no stray copy.
+          const photo = "photo" in target ? target.photo : null;
+          if (changes && photo && !accounts.keepPhotoForReport(photo)) {
+            db.run("UPDATE reports SET snapshot = json_set(snapshot, '$.photo_copy', NULL) WHERE id = ?", [lastInsertRowid]);
+          }
           return { id: changes ? Number(lastInsertRowid) : null, label: target.label, linkId: target.link_id };
         });
         if (id !== null) {

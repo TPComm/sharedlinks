@@ -1364,6 +1364,10 @@ describe("deleting an account", () => {
     expect((await call("/api/reports", { token: friendToken, body: { user_id: janeId, reason: "offensive" } })).status).toBe(201);
     const reportCopy = join(dataDir, "report-photos", photoPath.split("/")[2]!);
     expect(existsSync(reportCopy)).toBe(true);
+    // Reporting her again after she changes it keeps the first report, so it makes no second copy.
+    await fetch(api + "/api/me/photo", { method: "PUT", body: PNG, headers: { Authorization: `Bearer ${token}` } });
+    expect((await call("/api/reports", { token: friendToken, body: { user_id: janeId, reason: "spam" } })).status).toBe(201);
+    expect(readdirSync(join(dataDir, "report-photos"))).toEqual([photoPath.split("/")[2]!]);
 
     expect((await call("/api/me", { method: "DELETE", token })).data).toEqual({ ok: true });
     expect((await fetch(api + photoPath)).status).toBe(404);
