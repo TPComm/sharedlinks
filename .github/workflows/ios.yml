@@ -121,6 +121,7 @@ jobs:
         env:
           LINKS_UI_TEST_ACTION: test-without-building
           LINKS_UI_TEST_SHARD: ${{ matrix.shard }}/${{ strategy.job-total }}
+          LINKS_UI_TEST_LOGS: ${{ github.workspace }}/ios/diagnostics/ui-test-logs
         run: ios/scripts/ui-tests.sh
 
       - name: Collect UI test diagnostics
