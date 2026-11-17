@@ -366,14 +366,14 @@ export class Accounts {
       this.db.run("DELETE FROM seen WHERE person = ?", [userId]);
       this.db.run("DELETE FROM reactions WHERE person = ?", [userId]);
       this.db.run("DELETE FROM users WHERE id = ?", [userId]); // sessions and memberships cascade
-      return { ids, orphaned: deleteEmptyGroups(this.db), photo, copies };
+      for (const { copy } of copies) {
+        if (!this.db.query("SELECT 1 FROM reports WHERE json_extract(snapshot, '$.photo_copy') = ?").get(copy)) {
+          rmSync(join(this.config.dataDir, copy), { force: true });
+        }
+      }
+      return { ids, orphaned: deleteEmptyGroups(this.db), photo };
     })();
     this.removePhotoFile(sent.photo);
-    for (const { copy } of sent.copies) {
-      if (!this.db.query("SELECT 1 FROM reports WHERE json_extract(snapshot, '$.photo_copy') = ?").get(copy)) {
-        rmSync(join(this.config.dataDir, copy), { force: true });
-      }
-    }
     for (const id of [...sent.ids.map((r) => r.id), ...sent.orphaned]) {
       rmSync(join(this.config.dataDir, "thumbs", String(id)), { force: true });
     }
