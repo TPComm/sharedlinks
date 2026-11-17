@@ -12,6 +12,27 @@ REAL_LOG = pathlib.Path(sys.argv.pop(1)) if len(sys.argv) > 1 else None
 
 
 class RecoveryTests(unittest.TestCase):
+    def test_skip_guard(self):
+        script = PARSER.with_name("ui-tests.sh").read_text()
+        guard = script.split("# Without the TEST_RUNNER_", 1)[1].split('if [[ $status -ne 0 ]]', 1)[0]
+        guard = guard.split("\n", 1)[1]
+        allowed = "Messages on this Simulator can't open iMessage apps: the app drawer is disabled (no iMessage daemon); run on a device"
+        missing_server = "Run ios/scripts/ui-tests.sh, which starts a server for these tests."
+        summary = "Test Case '-[LinksUITests.MessagesUITests testExample]' skipped (1 seconds).\n"
+        for reasons, expected in (([], 0), ([allowed], 0), ([missing_server], 1),
+                                  ([allowed, missing_server], 1), (["Unknown skip"], 1),
+                                  ([allowed, "Unknown skip"], 1)):
+            with self.subTest(reasons=reasons), tempfile.TemporaryDirectory() as logs:
+                log = "".join(f"file.swift:1: test : Test skipped - {reason}\n" for reason in reasons)
+                pathlib.Path(logs, "xcodebuild.log").write_text(log + (summary if reasons else ""))
+                result = subprocess.run(
+                    ["bash", "-c", 'set -euo pipefail; status=0; logs="$1"; ' + guard + '\nexit "$status"', "test", logs],
+                    capture_output=True, text=True,
+                )
+                self.assertEqual(result.returncode, expected, result.stderr)
+                if reasons == [allowed]:
+                    self.assertIn("warning: " + allowed, result.stderr)
+
     def parse(self, log, selection=""):
         with tempfile.NamedTemporaryFile(mode="w") as fixture, tempfile.NamedTemporaryFile(mode="w") as selected:
             fixture.write(log)
