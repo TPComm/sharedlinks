@@ -840,6 +840,7 @@ describe("reports, blocks and the word list", () => {
     expect(res.data).toContain("newest 14 days");
     expect(res.data).toContain("Grafana Cloud");
     expect(res.data).toContain("push token");
+    expect(res.data).toContain("a link to the sender's profile photo for a new link (anyone holding that link can open the photo)");
   });
 
   test("/version says which commit is running, without signing in", async () => {
