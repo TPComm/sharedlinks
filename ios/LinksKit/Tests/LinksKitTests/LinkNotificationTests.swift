@@ -7,7 +7,8 @@ struct LinkNotificationTests {
     @Test func readsWhatTheServerSends() throws {
         // As server/src/push.ts sends it, through APNs' JSON (numbers arrive as NSNumber).
         let json = #"""
-        {"aps": {"alert": {"title": "Sam in Movie night", "body": "sent a link: Cats"}, "category": "NEW_LINK", "mutable-content": 1},
+        {"aps": {"alert": {"title": "Sam in Movie night", "body": "sent a link: Cats"}, "category": "NEW_LINK", "mutable-content": 1,
+                 "thread-id": "links-group-5"},
          "link_id": 7, "sender_id": "user_01SAM", "group_id": 5, "sender_name": "Sam",
          "sender_avatar": "https://photos.test/sam.png", "chat": "Movie night", "thumb": "/thumbs/7/2"}
         """#
@@ -15,7 +16,7 @@ struct LinkNotificationTests {
         let note = try #require(LinkNotification(userInfo: userInfo))
         #expect(note == LinkNotification(linkID: 7, groupID: 5, senderID: "user_01SAM", senderName: "Sam",
                                          senderAvatar: URL(string: "https://photos.test/sam.png"),
-                                         chat: "Movie night", thumb: "/thumbs/7/2"))
+                                         chat: "Movie night", thumb: "/thumbs/7/2", threadID: "links-group-5"))
         #expect(note.conversationID == "links-group-5")
     }
 
@@ -24,6 +25,15 @@ struct LinkNotificationTests {
         #expect(note.senderName == nil)
         #expect(note.thumb == nil)
         #expect(note.conversationID == LinkGroup.defaultConversationID)
+    }
+
+    @Test func anUnnamedChatKeepsItsOwnConversation() throws {
+        // The server only sends `chat` for a named chat; the thread id still says which one.
+        let note = try #require(LinkNotification(userInfo: [
+            "aps": ["thread-id": "links-group-9"], "link_id": 7, "group_id": 9, "sender_name": "Sam",
+        ]))
+        #expect(note.chat == nil)
+        #expect(note.conversationID == "links-group-9")
     }
 
     @Test func otherPushesAreNotNewLinks() {

@@ -17,9 +17,11 @@ public struct LinkNotification: Equatable, Sendable {
     public var chat: String?
     /// The thumbnail's path on the server (`/thumbs/<id>/<v>`), fetched with the phone's session.
     public var thumb: String?
+    /// The push's `thread-id`: the chat's conversation id, which the server sends for every chat.
+    public var threadID: String?
 
     public init(linkID: Int, groupID: Int? = nil, senderID: String? = nil, senderName: String? = nil,
-                senderAvatar: URL? = nil, chat: String? = nil, thumb: String? = nil) {
+                senderAvatar: URL? = nil, chat: String? = nil, thumb: String? = nil, threadID: String? = nil) {
         self.linkID = linkID
         self.groupID = groupID
         self.senderID = senderID
@@ -27,6 +29,7 @@ public struct LinkNotification: Equatable, Sendable {
         self.senderAvatar = senderAvatar
         self.chat = chat
         self.thumb = thumb
+        self.threadID = threadID
     }
 
     public init?(userInfo: [AnyHashable: Any]) {
@@ -40,10 +43,14 @@ public struct LinkNotification: Equatable, Sendable {
         chat = Self.text(userInfo["chat"])
         // Only a path on our own server: the session token goes with it.
         thumb = Self.text(userInfo["thumb"]).flatMap { $0.hasPrefix("/thumbs/") && !$0.contains("..") ? $0 : nil }
+        threadID = Self.text((userInfo["aps"] as? [AnyHashable: Any])?["thread-id"])
     }
 
     /// The conversation the push belongs to, the same id `ShareSuggestions` donates for the chat.
     public var conversationID: String {
+        if let threadID, threadID == LinkGroup.defaultConversationID || threadID.hasPrefix("links-group-") {
+            return threadID
+        }
         if let groupID, chat != nil { return "links-group-\(groupID)" }
         return LinkGroup.defaultConversationID
     }
