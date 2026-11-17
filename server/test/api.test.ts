@@ -613,7 +613,7 @@ describe("links", () => {
       state: (await call("/api/state", { token })).data.users.find((u: any) => u.id === friendId)?.avatar });
     expect((await avatarIn()).me).toBe("https://example.com/r.png");
     expect((await fetch(api + "/api/me/photo", { method: "PUT", body: PNG })).status).toBe(401);
-    for (const bad of ["not a photo", new Uint8Array(0), Uint8Array.of(0xff, 0xd8, 0xff, 0, 0, 0)]) {
+    for (const bad of ["not a photo", new Uint8Array(0), Uint8Array.of(0xff, 0xd8, 0xff, 0, 0, 0), PNG.slice(0, 24)]) {
       expect((await put(bad)).status).toBe(400);
     }
     const huge = new Uint8Array(2_000_001);
