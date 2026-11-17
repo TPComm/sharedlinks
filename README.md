@@ -171,7 +171,10 @@ runtime is inside the binary, so run `bun upgrade && deploy/deploy.sh …` about
 them the app still works, polling while it's open. To turn them on:
 
 1. In [Certificates, Identifiers & Profiles](https://developer.apple.com/account/resources/identifiers/list),
-   open the app's identifier (`LINKS_BUNDLE_ID`) and tick **Push Notifications**.
+   open the app's identifier (`LINKS_BUNDLE_ID`) and tick **Push Notifications** and **Communication
+   Notifications** (new-link pushes show the sender's photo). The notification service extension,
+   `LINKS_BUNDLE_ID.notifications`, which adds that photo and the link's thumbnail, needs its own
+   identifier with the App Group, like `.share` and `.widgets`.
 2. Under [Keys](https://developer.apple.com/account/resources/authkeys/list), add a key with
    **Apple Push Notifications service (APNs)**, for **Sandbox & Production** so one key covers Xcode
    builds and TestFlight/App Store builds. Download the `.p8` (only possible once) and note its Key ID.

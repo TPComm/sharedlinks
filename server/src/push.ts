@@ -95,10 +95,12 @@ export class Pusher {
   /** A new link: alert everyone who can see it except its sender. Skipped if it's gone by now. */
   async newLink(linkId: number) {
     const link = this.db.query(
-      `SELECT l.title, l.note, l.platform, l.added_by, l.group_id, u.name, g.name AS chat, g.is_default
+      `SELECT l.title, l.note, l.platform, l.added_by, l.group_id, l.thumb_type, l.thumb_v, u.name, u.avatar,
+              g.name AS chat, g.is_default
          FROM links l JOIN users u ON u.id = l.added_by JOIN groups g ON g.id = l.group_id WHERE l.id = ?`,
     ).get(linkId) as { title: string | null; note: string; platform: string; added_by: string; group_id: number;
-                       name: string; chat: string; is_default: number } | null;
+                       thumb_type: string | null; thumb_v: number | null; name: string; avatar: string | null;
+                       chat: string; is_default: number } | null;
     if (!link) return;
     const recipients = this.db.query(
       `SELECT DISTINCT d.user_id FROM device_tokens d WHERE d.user_id != ?1
@@ -109,7 +111,16 @@ export class Pusher {
     const noun = nounOf(link.platform);
     const lead = `sent ${article(noun)} ${noun}`;
     // A named chat other than the default one says where it was sent, as Messages does.
-    const title = !link.is_default && link.chat ? `${link.name} in ${link.chat}` : link.name;
+    const named = !link.is_default && !!link.chat;
+    const title = named ? `${link.name} in ${link.chat}` : link.name;
+    // For the app's Notification Service Extension, which shows the sender's photo (as Messages
+    // does) and attaches the thumbnail, fetched with the phone's own session.
+    const rich = {
+      sender_name: link.name,
+      ...(link.avatar ? { sender_avatar: link.avatar } : {}),
+      ...(named ? { chat: link.chat } : {}),
+      ...(link.thumb_type ? { thumb: `/thumbs/${linkId}${link.thumb_v ? `/${link.thumb_v}` : ""}` } : {}),
+    };
     const muted = recipients.filter(({ user_id }) => this.isMuted(link.group_id, user_id));
     this.badges(muted.map(({ user_id }) => user_id));
     await Promise.all(recipients.filter(({ user_id }) => !this.isMuted(link.group_id, user_id)).map(({ user_id }) => this.toPerson(user_id, "alert", (badge) => this.fit({
@@ -117,7 +128,7 @@ export class Pusher {
         alert: { title, body: [lead, link.title, link.note] as const },
         badge, sound: "default", "thread-id": threadId(link.group_id, link.is_default), category: "NEW_LINK", "mutable-content": 1,
       },
-      link_id: linkId, sender_id: link.added_by, group_id: link.group_id,
+      link_id: linkId, sender_id: link.added_by, group_id: link.group_id, ...rich,
     }))));
   }
 

@@ -16,10 +16,23 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
     func application(_ application: UIApplication,
                      didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil) -> Bool {
         UNUserNotificationCenter.current().delegate = self
+        UNUserNotificationCenter.current().setNotificationCategories([Self.newLinkCategory])
         // Signing in registers too (AppModel.signIn).
         if SessionStore.token != nil, !AppModel.isUITesting { application.registerForRemoteNotifications() }
         return true
     }
+
+    /// The actions on a new-link push (#27), done from the notification without opening the app.
+    static let newLinkCategory = UNNotificationCategory(
+        identifier: LinkNotification.category,
+        actions: [
+            UNNotificationAction(identifier: LinkNotification.markWatchedAction, title: "Mark as Watched",
+                                 icon: UNNotificationActionIcon(systemImageName: "checkmark.circle")),
+            UNTextInputNotificationAction(identifier: LinkNotification.commentAction, title: "Comment",
+                                          icon: UNNotificationActionIcon(systemImageName: "bubble"),
+                                          textInputButtonTitle: "Send", textInputPlaceholder: "Add a comment"),
+        ],
+        intentIdentifiers: [])
 
     func application(_ application: UIApplication, didRegisterForRemoteNotificationsWithDeviceToken deviceToken: Data) {
         self.deviceToken = deviceToken.map { String(format: "%02x", $0) }.joined()
@@ -49,11 +62,39 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
         didReceive response: UNNotificationResponse,
         withCompletionHandler completionHandler: @escaping () -> Void
     ) {
-        let id = response.notification.request.content.userInfo["link_id"] as? Int
+        let id = LinkNotification(userInfo: response.notification.request.content.userInfo)?.linkID
+        let action = response.actionIdentifier
+        let comment = (response as? UNTextInputNotificationResponse)?.userText
         nonisolated(unsafe) let completionHandler = completionHandler
         DispatchQueue.main.async {
-            if let id { MainActor.assumeIsolated { self.openLinkID = id } }
-            completionHandler()
+            MainActor.assumeIsolated {
+                guard let id, action != UNNotificationDefaultActionIdentifier else {
+                    if let id { self.openLinkID = id }
+                    return completionHandler()
+                }
+                Task {
+                    await Self.perform(action, on: id, comment: comment)
+                    self.refreshes += 1
+                    completionHandler()
+                }
+            }
+        }
+    }
+
+    /// A notification action, straight to the server: iOS may have woken the app in the
+    /// background just for this, before RootView or AppModel are around.
+    static func perform(_ action: String, on linkID: Int, comment: String?) async {
+        let client = APIClient()
+        do {
+            switch action {
+            case LinkNotification.markWatchedAction: _ = try await client.setSeen(linkID, true)
+            case LinkNotification.commentAction:
+                let body = comment?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                if !body.isEmpty { _ = try await client.addComment(linkID, body: body) }
+            default: break
+            }
+        } catch {
+            print("Couldn't \(action) link \(linkID): \(error.localizedDescription)")
         }
     }
 }

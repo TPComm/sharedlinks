@@ -11,7 +11,7 @@ const dataDir = mkdtempSync(join(tmpdir(), "links-push-"));
 const LONG_TITLE = "🐱".repeat(300);
 
 const users: Record<string, object> = {
-  sam: { id: "user_01SAM", email: "sam@team.test", email_verified: true, first_name: "Sam" },
+  sam: { id: "user_01SAM", email: "sam@team.test", email_verified: true, first_name: "Sam", profile_picture_url: "https://photos.test/sam.png" },
   alex: { id: "user_01ALEX", email: "alex@team.test", email_verified: true, first_name: "Alex" },
   kim: { id: "user_01KIM", email: "kim@team.test", email_verified: true, first_name: "Kim" },
   carol: { id: "user_01CAROL", email: "carol@team.test", email_verified: true, first_name: "Carol" },
@@ -28,9 +28,13 @@ const fakeWorkOS = Bun.serve({
     },
   },
 });
+// A 1×1 PNG.
+const PNG = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==", "base64");
 const fakeOrigin = Bun.serve({
   port: 0,
   routes: {
+    "/pic": new Response(`<html><head><meta property="og:title" content="Pic"><meta property="og:image" content="/thumb.png"></head></html>`, { headers: { "Content-Type": "text/html" } }),
+    "/thumb.png": new Response(PNG, { headers: { "Content-Type": "image/png" } }),
     "/video": new Response(`<html><head><meta property="og:title" content="Cats &amp; Dogs"></head></html>`, { headers: { "Content-Type": "text/html" } }),
     "/long": new Response(`<html><head><title>${LONG_TITLE}</title></head></html>`, { headers: { "Content-Type": "text/html" } }),
     "/slow": async () => { await Bun.sleep(1500); return new Response("<title>Too late</title>", { headers: { "Content-Type": "text/html" } }); },
@@ -166,6 +170,7 @@ describe("pushes", () => {
           "thread-id": "links-inbox", category: "NEW_LINK", "mutable-content": 1,
         },
         group_id: 1, link_id: data.link.id, sender_id: "user_01SAM",
+        sender_name: "Sam", sender_avatar: "https://photos.test/sam.png",
       });
     }
     // A duplicate sends nothing.
@@ -173,6 +178,24 @@ describe("pushes", () => {
     await call("/api/links", { token: alex, body: { url: `${fakeOrigin.url.origin}/video?n=1` } });
     await settle();
     expect(sent).toEqual([]);
+  });
+
+  test("a new link's push carries its thumbnail path for the app to fetch with its own session", async () => {
+    const { data } = await call("/api/links", { token: alex, body: { url: `${fakeOrigin.url.origin}/pic` } });
+    await settle();
+    expect(data.link.thumb).toBeNull(); // the preview lands after the response
+    const link = (await call("/api/state", { token: sam })).data.links.find((l: any) => l.id === data.link.id);
+    expect(link.thumb).toMatch(/^\/thumbs\/\d+/);
+    expect(sent.map((s) => s.token).sort()).toEqual([SAM, KIM]);
+    for (const s of sent) {
+      expect(s.body).toMatchObject({ link_id: data.link.id, sender_name: "Alex", thumb: link.thumb });
+      // Alex has no photo, and the default chat has no name to show.
+      expect(s.body.sender_avatar).toBeUndefined();
+      expect(s.body.chat).toBeUndefined();
+    }
+    const thumb = await fetch(api + link.thumb, { headers: { Authorization: `Bearer ${sam}` } });
+    expect(thumb.status).toBe(200);
+    expect(Buffer.from(await thumb.arrayBuffer())).toEqual(PNG);
   });
 
   test("a link in a chat alerts only its members, threaded by chat and titled with its name", async () => {
@@ -183,6 +206,7 @@ describe("pushes", () => {
     expect(sent.map((s) => s.token)).toEqual([ALEX]);
     expect(sent[0]!.body).toMatchObject({
       aps: { alert: { title: "Sam in Movie night" }, "thread-id": `links-group-${chat.id}` }, group_id: chat.id,
+      sender_name: "Sam", chat: "Movie night",
     });
     // Kim isn't in it, so Kim's badge doesn't count it; Alex's does.
     const db = app.db;
