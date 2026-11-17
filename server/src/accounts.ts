@@ -15,6 +15,9 @@ export class AuthError extends Error {
 }
 
 /** `publicUrl` makes an uploaded photo's address; without one, only WorkOS pictures show. */
+/** A report's own copy of a person's photo (its snapshot's `photo_copy`), relative to DATA_DIR. */
+export const reportPhoto = (token: string) => join("report-photos", token);
+
 export const publicUser = (u: UserRow, publicUrl = "") => ({ id: u.id, name: u.name, avatar: avatarOf(u, publicUrl) });
 
 function avatarOf(u: UserRow, publicUrl: string): string | null {
@@ -324,14 +327,13 @@ export class Accounts {
     return (this.db.query("SELECT id FROM users WHERE photo = ?").get(token) as { id: string } | null)?.id ?? null;
   }
 
-  /** A copy of a reported person's photo for the report (`photo_copy`, under DATA_DIR), kept after they change it. */
-  keepPhotoForReport(token: string): string | null {
-    const copy = join("report-photos", token);
+  /** Copies a reported person's photo to `reportPhoto(token)` for a saved report, which keeps it after they change it. */
+  keepPhotoForReport(token: string): boolean {
     try {
-      copyFileSync(this.photoPath(token), join(this.config.dataDir, copy));
-      return copy;
+      copyFileSync(this.photoPath(token), join(this.config.dataDir, reportPhoto(token)));
+      return true;
     } catch {
-      return null;
+      return false;
     }
   }
 
