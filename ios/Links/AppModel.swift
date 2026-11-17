@@ -95,6 +95,11 @@ final class AppModel {
             tourCompleted = false
         }
         #if DEBUG
+        // Extensions don't inherit the UI test runner's environment.
+        LinksConfig.sharedDefaults.set(
+            ProcessInfo.processInfo.environment["LINKS_DEV_TOKEN"] != nil
+                ? ProcessInfo.processInfo.environment["LINKS_SERVER_URL"] : nil,
+            forKey: "links.uiTests.serverURL")
         // LINKS_HOLD_PRACTICE_CONFIRMATION=1: the Share Extension keeps practice Send's confirmation up
         // until it's tapped (the tour's UI test). Written every launch, so it never outlives the test.
         Onboarding.shared.holdsPracticeConfirmation =

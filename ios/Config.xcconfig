@@ -1,13 +1,13 @@
-// Settings for all three targets. Change these, not the project file.
+// Settings for all targets. Change these, not the project file.
 
 // Apple Developer team that owns the app in App Store Connect. Only device and archive builds
 // use it; Simulator builds sign ad hoc.
 DEVELOPMENT_TEAM = 9F2D9SPG9Z
 
-// Base bundle id, registered in App Store Connect. The Share Extension, widgets and notification
-// service extension append .share / .widgets / .notifications, and the App Group is
-// group.$(LINKS_BUNDLE_ID). A fork that ships its own build sets its own team and something it
-// owns here, e.g. com.yourname.links.
+// Base bundle id, registered in App Store Connect. The extensions append
+// .share / .widgets / .messages / .notifications, and the App Group is group.$(LINKS_BUNDLE_ID).
+// A fork that ships its own build sets its own team and something it owns here,
+// e.g. com.yourname.links.
 LINKS_BUNDLE_ID = com.tpcomm.links
 
 // The version people see, and the build number App Store Connect needs to be higher than the

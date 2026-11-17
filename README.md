@@ -46,6 +46,18 @@ New people get a short **welcome tour** after their first sign-in (Profile → S
 It walks through putting Links at the front of the share sheet, with a practice share that ticks
 itself off, and TipKit tips then point out the gestures once each.
 
+## Messages extension
+
+In Messages, open **+ → Links** (under **More** if needed), browse **Queue / Recent**, and tap
+a link to insert a draft, **not send it**. The draft uses the public `/l/<token>` share page,
+never the original URL. Older cached links without a share page stay greyed out until refreshed
+in Links. Select a Links message to see **Open in Links** for its link page; open the main app
+to sign in if needed.
+
+On the iOS 27 Simulator, this flow works in the seeded iMessage conversation
+**+1 (555) 564-8583**, which `MessagesUITests` uses to check draft insertion without sending.
+New conversations stay SMS, with the iMessage app drawer disabled.
+
 ## Set up WorkOS (once)
 
 1. Create a WorkOS account and enable **AuthKit** (email + password, passkeys, Apple…). If you turn
