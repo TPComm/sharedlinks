@@ -133,6 +133,13 @@ if (command === "mint-session") {
   const live = new Set(existsSync(photos) ? readdirSync(photos).filter((f) => !f.endsWith(".part")) : []);
   for (const f of live) if (!existsSync(join(saved, f))) copyFileSync(join(photos, f), join(saved, f));
   for (const f of readdirSync(saved)) if (!live.has(f)) rmSync(join(saved, f), { force: true });
+  // Reports keep their photo copies (photo_copy) after the photo itself goes, so these are only added.
+  const reported = join(config.dataDir, "report-photos");
+  const savedReported = join(dir, "report-photos");
+  mkdirSync(savedReported, { recursive: true });
+  for (const f of existsSync(reported) ? readdirSync(reported) : []) {
+    if (!existsSync(join(savedReported, f))) copyFileSync(join(reported, f), join(savedReported, f));
+  }
   const names = readdirSync(dir);
   const old = names.filter((f) => /^links-\d{4}-\d{2}-\d{2}\.db$/.test(f)).sort().slice(0, -14);
   // Labelled copies (links-YYYY-MM-DD-pre-deploy.db) go after 14 days too, as the privacy page promises,

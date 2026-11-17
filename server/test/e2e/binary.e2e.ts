@@ -504,7 +504,7 @@ describe("a day with Links", () => {
     const file = run.stdout.match(/^backed up to (.+)\n$/)?.[1] ?? "";
     expect(days.map((d) => join(dir, `links-${d}.db`))).toContain(file);
     // The three oldest dated snapshots and the old labelled ones go; anything else in the folder stays.
-    expect(readdirSync(dir).sort()).toEqual([...old.slice(3), ...recent, basename(file), "links-latest.db", "notes.txt", "photos"].sort());
+    expect(readdirSync(dir).sort()).toEqual([...old.slice(3), ...recent, basename(file), "links-latest.db", "notes.txt", "photos", "report-photos"].sort());
     expect(readdirSync(join(dir, "photos"))).toEqual(readdirSync(join(dataDir, "photos")));
 
     const live = (await call("/api/state", { token: alice.token })).data;
@@ -528,7 +528,7 @@ describe("a day with Links", () => {
     expect(fallback.code, fallback.logs()).toBe(0);
     const kept = readdirSync(join(dataDir, "backups"));
     expect(kept.filter((f) => /^links-\d{4}-\d{2}-\d{2}\.db$/.test(f))).toHaveLength(1);
-    expect(kept.filter((f) => !/^links-\d{4}-\d{2}-\d{2}\.db$/.test(f)).sort()).toEqual(["links-2000-01-02-pre-b.db", ...odd, "photos"].sort());
+    expect(kept.filter((f) => !/^links-\d{4}-\d{2}-\d{2}\.db$/.test(f)).sort()).toEqual(["links-2000-01-02-pre-b.db", ...odd, "photos", "report-photos"].sort());
   });
 
   e2e("exits 0 promptly on SIGTERM, and keeps everything across a restart", async () => {
