@@ -292,7 +292,12 @@ struct ProfileSheet: View {
         Group {
             if model.me?.avatar == nil {
                 PhotosPicker(selection: $pickedPhoto, matching: .images, preferredItemEncoding: .compatible) {
-                    rowLabel("Add Profile Photo", systemImage: "camera")
+                    // Built in place: PhotosPicker's label closure isn't main-actor isolated, unlike rowLabel.
+                    Label {
+                        Text("Add Profile Photo").foregroundStyle(Color.primary)
+                    } icon: {
+                        Image(systemName: "camera")
+                    }
                 }
             } else {
                 Menu {
