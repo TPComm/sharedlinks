@@ -1,6 +1,6 @@
 import type { Database } from "bun:sqlite";
 import { randomBytes } from "node:crypto";
-import { rmSync } from "node:fs";
+import { readdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { Accounts, AuthError, INVITE_TOKEN_RE, MAX_GROUP_MEMBERS, MAX_PHOTO_BYTES, photoType, publicUser, reportPhoto } from "./accounts.ts";
 import type { Config } from "./config.ts";
@@ -1087,6 +1087,14 @@ export function createApp(config: Config, opts: AppOptions = {}) {
 
 export function startServer(config: Config, opts: AppOptions = {}) {
   const app = createApp(config, opts);
+  const named = new Set((app.db.query("SELECT photo FROM users WHERE photo <> ''").all() as { photo: string }[]).map((r) => r.photo));
+  const evidence = new Set((app.db.query("SELECT json_extract(snapshot, '$.photo_copy') AS copy FROM reports WHERE json_extract(snapshot, '$.photo_copy') IS NOT NULL")
+    .all() as { copy: string }[]).map((r) => r.copy));
+  const photos = readdirSync(join(config.dataDir, "photos")).filter((f) => f.endsWith(".part") || !named.has(f));
+  const reported = readdirSync(join(config.dataDir, "report-photos")).filter((f) => !evidence.has(join("report-photos", f)));
+  for (const f of photos) rmSync(join(config.dataDir, "photos", f));
+  for (const f of reported) rmSync(join(config.dataDir, "report-photos", f));
+  if (photos.length || reported.length) console.log(`removed ${photos.length} orphaned profile photo(s) and ${reported.length} report photo(s)`);
   const server = Bun.serve({
     port: config.port,
     hostname: config.hostname,

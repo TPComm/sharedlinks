@@ -1,5 +1,5 @@
 import { Database } from "bun:sqlite";
-import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import { afterAll, beforeAll, describe, expect, spyOn, test } from "bun:test";
 import { existsSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -14,6 +14,49 @@ import { fakeFetch } from "./unit/helpers.ts";
 // 1x1 PNG
 const PNG = Uint8Array.from(atob("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="), (c) => c.charCodeAt(0));
 const VERIFIER = "v".repeat(43);
+
+test("startup removes orphaned photos and report copies, but keeps referenced files", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "links-orphan-photos-"));
+  const db = openDatabase(dir);
+  db.run("INSERT INTO users (id, name, created_at, photo) VALUES ('person', 'Person', 1, 'kept')");
+  db.run("INSERT INTO reports (reporter, user_id, reason, details, snapshot, created_at) VALUES ('person', 'person', 'spam', '', ?, 1)",
+    [JSON.stringify({ photo_copy: "report-photos/evidence" })]);
+  db.close();
+  for (const file of ["photos/kept", "photos/orphan", "photos/unfinished.part", "report-photos/evidence", "report-photos/orphan"]) {
+    writeFileSync(join(dir, file), PNG);
+  }
+  const reopened = openDatabase(dir);
+  reopened.close();
+  expect(existsSync(join(dir, "photos/orphan"))).toBe(true);
+  const log = spyOn(console, "log").mockImplementation(() => {});
+  const config = { ...configFromEnv({}), port: 0, hostname: "127.0.0.1", dataDir: dir, previewBackfillMs: 0 };
+  let started: ReturnType<typeof startServer> | undefined;
+  try {
+    started = startServer(config);
+    expect(readdirSync(join(dir, "photos"))).toEqual(["kept"]);
+    expect(readdirSync(join(dir, "report-photos"))).toEqual(["evidence"]);
+    expect(log.mock.calls).toEqual([["removed 2 orphaned profile photo(s) and 1 report photo(s)"]]);
+    started.app.push.close();
+    started.server.stop(true);
+    await started.app.idle();
+    started.app.db.close();
+    started = undefined;
+    log.mockClear();
+    started = startServer(config);
+    expect(log).not.toHaveBeenCalled();
+    expect(readdirSync(join(dir, "photos"))).toEqual(["kept"]);
+    expect(readdirSync(join(dir, "report-photos"))).toEqual(["evidence"]);
+  } finally {
+    log.mockRestore();
+    if (started) {
+      started.app.push.close();
+      started.server.stop(true);
+      await started.app.idle();
+      started.app.db.close();
+    }
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
 
 const dataDir = mkdtempSync(join(tmpdir(), "links-test-"));
 let api: string;
