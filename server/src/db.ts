@@ -51,6 +51,11 @@ export interface UserRow {
   push_reactions: number;
   /** 1 if WorkOS had verified `email` when they last signed in, or an admin vouched for it (see migrateToV13). */
   email_verified: number;
+  /**
+   * The photo they uploaded, as its file's token under `photos/` (see migrateToV17); "" once they
+   * removed their photo; null to use `avatar`, the picture WorkOS has for them.
+   */
+  photo: string | null;
 }
 
 export interface CommentRow {
@@ -111,6 +116,8 @@ function linksTable(name: string, ifNotExists = false) {
 /** `legacyAllowedEmails`: the old ALLOWED_EMAILS guest list, read once by migrateToV7. */
 export function openDatabase(dataDir: string, legacyAllowedEmails: string[] = []): Database {
   mkdirSync(join(dataDir, "thumbs"), { recursive: true });
+  mkdirSync(join(dataDir, "photos"), { recursive: true });
+  mkdirSync(join(dataDir, "report-photos"), { recursive: true });
   const db = new Database(join(dataDir, "links.db"), { create: true, strict: true });
   db.exec(`
     PRAGMA journal_mode = WAL;
@@ -197,6 +204,7 @@ export function openDatabase(dataDir: string, legacyAllowedEmails: string[] = []
   migrateToV14(db);
   migrateToV15(db);
   migrateToV16(db);
+  migrateToV17(db);
   db.transaction(() => {
     const update = db.query("UPDATE links SET share_token = ? WHERE id = ? AND share_token IS NULL");
     for (const row of db.query("SELECT id FROM links WHERE share_token IS NULL").all() as { id: number }[]) {
@@ -217,6 +225,16 @@ function migrateToV16(db: Database) {
       update.run(randomBytes(24).toString("base64url"), row.id);
     }
     db.run("PRAGMA user_version = 16");
+  })();
+}
+
+function migrateToV17(db: Database) {
+  const { user_version } = db.query("PRAGMA user_version").get() as { user_version: number };
+  if (user_version >= 17) return;
+  db.transaction(() => {
+    const have = (db.query("PRAGMA table_info(users)").all() as { name: string }[]).map((c) => c.name);
+    if (!have.includes("photo")) db.run("ALTER TABLE users ADD COLUMN photo TEXT");
+    db.run("PRAGMA user_version = 17");
   })();
 }
 

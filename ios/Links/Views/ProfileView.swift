@@ -1,4 +1,5 @@
 import LinksKit
+import PhotosUI
 import SwiftUI
 
 /// My avatar at the top of every tab, which opens my profile (#74).
@@ -46,6 +47,9 @@ struct ProfileSheet: View {
     @State private var failure: String?
     /// A rename that failed: its alert comes back with what was typed once the error is closed.
     @State private var retryingRename = false
+    @State private var pickedPhoto: PhotosPickerItem?
+    @State private var savingPhoto = false
+    @State private var choosingPhoto = false
 
     /// Spells out what goes and what stays, since none of it can come back.
     private var deleteWarning: String {
@@ -78,6 +82,7 @@ struct ProfileSheet: View {
             List {
                 header
                 Section {
+                    photoRow
                     row("Change Display Name", systemImage: "pencil") {
                         nameDraft = model.me?.name ?? ""
                         renaming = true
@@ -210,6 +215,21 @@ struct ProfileSheet: View {
                 Text("This is what your friends see next to the links you send.")
             }
             .failureAlert($failure)
+            // Presented from the list, not the photo row: a save re-renders that row (and swaps Add
+            // for the Change menu), which dropped a picker presented from inside it.
+            .photosPicker(isPresented: $choosingPhoto, selection: $pickedPhoto, matching: .images,
+                          preferredItemEncoding: .compatible)
+            .onChange(of: pickedPhoto) { _, item in
+                guard let item else { return }
+                pickedPhoto = nil
+                savePhoto {
+                    // .compatible hands over HEIC photos as JPEG.
+                    guard let data = try await item.loadTransferable(type: Data.self) else {
+                        throw APIError.server("That photo couldn't be opened. Try another one.")
+                    }
+                    try await model.setPhoto(data)
+                }
+            }
             .onChange(of: failure) { _, message in
                 guard message == nil, retryingRename else { return }
                 retryingRename = false
@@ -230,6 +250,14 @@ struct ProfileSheet: View {
         Section {
             VStack(spacing: 6) {
                 AvatarView(user: model.me, size: 88)
+                    .overlay {
+                        if savingPhoto {
+                            ProgressView()
+                                .frame(width: 88, height: 88)
+                                .background(.ultraThinMaterial, in: .circle)
+                                .accessibilityLabel("Saving photo")
+                        }
+                    }
                     .padding(.bottom, 6)
                 Text(model.me?.name ?? "")
                     .font(.title2.bold())
@@ -250,12 +278,42 @@ struct ProfileSheet: View {
 
     /// A settings-style row: the icon in the accent color, the title in the text color.
     private func row(_ title: String, systemImage: String, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            Label {
-                Text(title).foregroundStyle(Color.primary)
-            } icon: {
-                Image(systemName: systemImage)
+        Button(action: action) { rowLabel(title, systemImage: systemImage) }
+    }
+
+    private func rowLabel(_ title: String, systemImage: String) -> some View {
+        Label {
+            Text(title).foregroundStyle(Color.primary)
+        } icon: {
+            Image(systemName: systemImage)
+        }
+    }
+
+    /// Straight to the photo picker; once there's a photo, a menu that can also remove it (#97).
+    @ViewBuilder private var photoRow: some View {
+        Group {
+            if model.me?.avatar == nil {
+                row("Add Profile Photo", systemImage: "camera") { choosingPhoto = true }
+            } else {
+                Menu {
+                    Button("Choose Photo", systemImage: "photo.on.rectangle") { choosingPhoto = true }
+                    Button("Remove Photo", systemImage: "trash", role: .destructive) {
+                        savePhoto { try await model.removePhoto() }
+                    }
+                } label: {
+                    rowLabel("Change Profile Photo", systemImage: "camera")
+                }
             }
+        }
+        .disabled(savingPhoto)
+        .accessibilityIdentifier("profile.photo")
+    }
+
+    private func savePhoto(_ save: @escaping () async throws -> Void) {
+        savingPhoto = true
+        Task {
+            do { try await save() } catch { failure = error.localizedDescription }
+            savingPhoto = false
         }
     }
 

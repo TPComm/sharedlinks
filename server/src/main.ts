@@ -19,7 +19,8 @@
  *      SESSION_DAYS, APNS_TEAM_ID, APNS_TOPIC (the app's bundle id), APNS_KEY_ID + APNS_KEY_FILE (one
  *      .p8 key for Sandbox and Production); push is off without them
  */
-import { mkdirSync, readdirSync, rmSync } from "node:fs";
+import { Database } from "bun:sqlite";
+import { copyFileSync, existsSync, mkdirSync, readdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { Accounts } from "./accounts.ts";
 import { startServer } from "./app.ts";
@@ -121,10 +122,55 @@ if (command === "mint-session") {
   const dir = rest[0] ?? join(config.dataDir, "backups");
   mkdirSync(dir, { recursive: true });
   const file = join(dir, `links-${new Date().toISOString().slice(0, 10)}.db`);
-  rmSync(file, { force: true });
+  // Uploaded profile photos live outside SQLite and can't be fetched again; each token's file never
+  // changes. They're copied before the snapshot and again for the tokens it names, so a photo replaced
+  // in between is still saved; one that came and went in between means another try. A copy whose photo
+  // the snapshot no longer names goes, as deletion promises.
+  const photos = join(config.dataDir, "photos");
+  const saved = join(dir, "photos");
+  mkdirSync(saved, { recursive: true });
+  const copyIn = (f: string) => {
+    try {
+      if (!existsSync(join(saved, f))) copyFileSync(join(photos, f), join(saved, f));
+    } catch {} // replaced meanwhile; the check below decides
+  };
+  const reported = join(config.dataDir, "report-photos");
+  const savedReported = join(dir, "report-photos");
+  mkdirSync(savedReported, { recursive: true });
+  const copyReport = (copy: string) => {
+    try {
+      if (!existsSync(join(dir, copy))) copyFileSync(join(config.dataDir, copy), join(dir, copy));
+    } catch {} // deleted meanwhile; the check below decides
+  };
   const db = openDatabase(config.dataDir, config.legacyAllowedEmails);
-  db.run("VACUUM INTO ?", [file]);
+  let named: string[] = [];
+  let missing: string[] = [];
+  let evidence: string[] = [];
+  let lost: string[] = [];
+  for (let attempt = 0; attempt < 3; attempt++) {
+    for (const f of existsSync(photos) ? readdirSync(photos) : []) if (!f.endsWith(".part")) copyIn(f);
+    for (const f of existsSync(reported) ? readdirSync(reported) : []) copyReport(join("report-photos", f));
+    rmSync(file, { force: true });
+    db.run("VACUUM INTO ?", [file]);
+    const snapshot = new Database(file, { readonly: true });
+    named = (snapshot.query("SELECT photo FROM users WHERE photo <> ''").all() as { photo: string }[]).map((r) => r.photo);
+    evidence = (snapshot.query("SELECT json_extract(snapshot, '$.photo_copy') AS copy FROM reports WHERE json_extract(snapshot, '$.photo_copy') IS NOT NULL")
+      .all() as { copy: string }[]).map((r) => r.copy);
+    snapshot.close();
+    named.forEach(copyIn);
+    evidence.forEach(copyReport);
+    missing = named.filter((t) => !existsSync(join(saved, t)));
+    lost = evidence.filter((copy) => !existsSync(join(dir, copy)));
+    if (!missing.length && !lost.length) break;
+  }
   db.close();
+  if (missing.length || lost.length) {
+    if (missing.length) console.error(`backup failed: ${missing.length} profile photo(s) changed while saving; run it again`);
+    if (lost.length) console.error(`backup failed: report photo(s) missing from ${config.dataDir}: ${lost.join(", ")}`);
+    process.exit(1);
+  }
+  for (const f of readdirSync(saved)) if (!named.includes(f)) rmSync(join(saved, f), { force: true });
+  for (const f of readdirSync(savedReported)) if (!evidence.includes(join("report-photos", f))) rmSync(join(savedReported, f), { force: true });
   const names = readdirSync(dir);
   const old = names.filter((f) => /^links-\d{4}-\d{2}-\d{2}\.db$/.test(f)).sort().slice(0, -14);
   // Labelled copies (links-YYYY-MM-DD-pre-deploy.db) go after 14 days too, as the privacy page promises,

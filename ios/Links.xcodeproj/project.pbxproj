@@ -9,10 +9,14 @@
 /* Begin PBXBuildFile section */
 		1A2B3C4D0000000000000101 /* LinksKit in Frameworks */ = {isa = PBXBuildFile; productRef = 1A2B3C4D0000000000000091 /* LinksKit */; };
 		1A2B3C4D0000000000000102 /* LinksKit in Frameworks */ = {isa = PBXBuildFile; productRef = 1A2B3C4D0000000000000092 /* LinksKit */; };
+		13A000000000000000000101 /* LinksKit in Frameworks */ = {isa = PBXBuildFile; productRef = 13A000000000000000000092 /* LinksKit */; };
 		1A2B3C4D0000000000000103 /* LinksKit in Frameworks */ = {isa = PBXBuildFile; productRef = 1A2B3C4D0000000000000093 /* LinksKit */; };
 		1A2B3C4D0000000000000104 /* LinksShare.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 1A2B3C4D0000000000000032 /* LinksShare.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		13A000000000000000000104 /* LinksMessages.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 13A000000000000000000032 /* LinksMessages.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		1A2B3C4D0000000000000105 /* LinksWidgets.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 1A2B3C4D0000000000000033 /* LinksWidgets.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		1A2B3C4D0000000000000106 /* SharedLinks.icon in Resources */ = {isa = PBXBuildFile; fileRef = 1A2B3C4D0000000000000035 /* SharedLinks.icon */; };
+		1A2B3C4D0000000000000201 /* LinksKit in Frameworks */ = {isa = PBXBuildFile; productRef = 1A2B3C4D0000000000000291 /* LinksKit */; };
+		1A2B3C4D0000000000000202 /* LinksNotifications.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 1A2B3C4D0000000000000231 /* LinksNotifications.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -22,6 +26,13 @@
 			proxyType = 1;
 			remoteGlobalIDString = 1A2B3C4D0000000000000042;
 			remoteInfo = LinksShare;
+		};
+		13A000000000000000000111 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 1A2B3C4D0000000000000001 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 13A000000000000000000042;
+			remoteInfo = LinksMessages;
 		};
 		1A2B3C4D0000000000000112 /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
@@ -37,6 +48,13 @@
 			remoteGlobalIDString = 1A2B3C4D0000000000000041;
 			remoteInfo = Links;
 		};
+		1A2B3C4D0000000000000211 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 1A2B3C4D0000000000000001 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 1A2B3C4D0000000000000241;
+			remoteInfo = LinksNotifications;
+		};
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXCopyFilesBuildPhase section */
@@ -48,6 +66,8 @@
 			files = (
 				1A2B3C4D0000000000000104 /* LinksShare.appex in Embed Foundation Extensions */,
 				1A2B3C4D0000000000000105 /* LinksWidgets.appex in Embed Foundation Extensions */,
+				13A000000000000000000104 /* LinksMessages.appex in Embed Foundation Extensions */,
+				1A2B3C4D0000000000000202 /* LinksNotifications.appex in Embed Foundation Extensions */,
 			);
 			name = "Embed Foundation Extensions";
 			runOnlyForDeploymentPostprocessing = 0;
@@ -57,10 +77,12 @@
 /* Begin PBXFileReference section */
 		1A2B3C4D0000000000000031 /* Links.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Links.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		1A2B3C4D0000000000000032 /* LinksShare.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = LinksShare.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+		13A000000000000000000032 /* LinksMessages.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = LinksMessages.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		1A2B3C4D0000000000000033 /* LinksWidgets.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = LinksWidgets.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		1A2B3C4D0000000000000034 /* Config.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Config.xcconfig; sourceTree = "<group>"; };
 		1A2B3C4D0000000000000035 /* SharedLinks.icon */ = {isa = PBXFileReference; lastKnownFileType = folder.iconcomposer.icon; name = SharedLinks.icon; path = ../assets/icon/SharedLinks.icon; sourceTree = "<group>"; };
 		1A2B3C4D0000000000000036 /* LinksUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = LinksUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		1A2B3C4D0000000000000231 /* LinksNotifications.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = LinksNotifications.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -72,6 +94,11 @@
 		1A2B3C4D0000000000000022 /* LinksShare */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
 			path = LinksShare;
+			sourceTree = "<group>";
+		};
+		13A000000000000000000022 /* LinksMessages */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = LinksMessages;
 			sourceTree = "<group>";
 		};
 		1A2B3C4D0000000000000023 /* LinksWidgets */ = {
@@ -87,6 +114,11 @@
 		1A2B3C4D0000000000000025 /* LinksUITests */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
 			path = LinksUITests;
+			sourceTree = "<group>";
+		};
+		1A2B3C4D0000000000000226 /* LinksNotifications */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = LinksNotifications;
 			sourceTree = "<group>";
 		};
 /* End PBXFileSystemSynchronizedRootGroup section */
@@ -108,6 +140,14 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		13A000000000000000000055 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				13A000000000000000000101 /* LinksKit in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		1A2B3C4D0000000000000058 /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
@@ -123,6 +163,14 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		1A2B3C4D0000000000000252 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				1A2B3C4D0000000000000201 /* LinksKit in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
@@ -134,6 +182,8 @@
 				1A2B3C4D0000000000000021 /* Links */,
 				1A2B3C4D0000000000000022 /* LinksShare */,
 				1A2B3C4D0000000000000023 /* LinksWidgets */,
+				13A000000000000000000022 /* LinksMessages */,
+				1A2B3C4D0000000000000226 /* LinksNotifications */,
 				1A2B3C4D0000000000000024 /* Support */,
 				1A2B3C4D0000000000000025 /* LinksUITests */,
 				1A2B3C4D0000000000000012 /* Products */,
@@ -146,6 +196,8 @@
 				1A2B3C4D0000000000000031 /* Links.app */,
 				1A2B3C4D0000000000000032 /* LinksShare.appex */,
 				1A2B3C4D0000000000000033 /* LinksWidgets.appex */,
+				13A000000000000000000032 /* LinksMessages.appex */,
+				1A2B3C4D0000000000000231 /* LinksNotifications.appex */,
 				1A2B3C4D0000000000000036 /* LinksUITests.xctest */,
 			);
 			name = Products;
@@ -168,6 +220,8 @@
 			dependencies = (
 				1A2B3C4D0000000000000121 /* PBXTargetDependency */,
 				1A2B3C4D0000000000000122 /* PBXTargetDependency */,
+				13A000000000000000000121 /* PBXTargetDependency */,
+				1A2B3C4D0000000000000221 /* PBXTargetDependency */,
 			);
 			fileSystemSynchronizedGroups = (
 				1A2B3C4D0000000000000021 /* Links */,
@@ -202,6 +256,29 @@
 			productName = LinksShare;
 			productReference = 1A2B3C4D0000000000000032 /* LinksShare.appex */;
 			productType = "com.apple.product-type.app-extension";
+		};
+		13A000000000000000000042 /* LinksMessages */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 13A000000000000000000073 /* Build configuration list for PBXNativeTarget "LinksMessages" */;
+			buildPhases = (
+				13A000000000000000000054 /* Sources */,
+				13A000000000000000000055 /* Frameworks */,
+				13A000000000000000000056 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			fileSystemSynchronizedGroups = (
+				13A000000000000000000022 /* LinksMessages */,
+			);
+			name = LinksMessages;
+			packageProductDependencies = (
+				13A000000000000000000092 /* LinksKit */,
+			);
+			productName = LinksMessages;
+			productReference = 13A000000000000000000032 /* LinksMessages.appex */;
+			productType = "com.apple.product-type.app-extension.messages";
 		};
 		1A2B3C4D0000000000000043 /* LinksWidgets */ = {
 			isa = PBXNativeTarget;
@@ -247,6 +324,29 @@
 			productReference = 1A2B3C4D0000000000000036 /* LinksUITests.xctest */;
 			productType = "com.apple.product-type.bundle.ui-testing";
 		};
+		1A2B3C4D0000000000000241 /* LinksNotifications */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 1A2B3C4D0000000000000271 /* Build configuration list for PBXNativeTarget "LinksNotifications" */;
+			buildPhases = (
+				1A2B3C4D0000000000000251 /* Sources */,
+				1A2B3C4D0000000000000252 /* Frameworks */,
+				1A2B3C4D0000000000000253 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			fileSystemSynchronizedGroups = (
+				1A2B3C4D0000000000000226 /* LinksNotifications */,
+			);
+			name = LinksNotifications;
+			packageProductDependencies = (
+				1A2B3C4D0000000000000291 /* LinksKit */,
+			);
+			productName = LinksNotifications;
+			productReference = 1A2B3C4D0000000000000231 /* LinksNotifications.appex */;
+			productType = "com.apple.product-type.app-extension";
+		};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
@@ -270,6 +370,9 @@
 						CreatedOnToolsVersion = 27.0;
 						TestTargetID = 1A2B3C4D0000000000000041;
 					};
+					1A2B3C4D0000000000000241 = {
+						CreatedOnToolsVersion = 27.0;
+					};
 				};
 			};
 			buildConfigurationList = 1A2B3C4D0000000000000071 /* Build configuration list for PBXProject "Links" */;
@@ -292,7 +395,9 @@
 				1A2B3C4D0000000000000041 /* Links */,
 				1A2B3C4D0000000000000042 /* LinksShare */,
 				1A2B3C4D0000000000000043 /* LinksWidgets */,
+				13A000000000000000000042 /* LinksMessages */,
 				1A2B3C4D0000000000000044 /* LinksUITests */,
+				1A2B3C4D0000000000000241 /* LinksNotifications */,
 			);
 		};
 /* End PBXProject section */
@@ -313,6 +418,13 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		13A000000000000000000056 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		1A2B3C4D0000000000000059 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
@@ -321,6 +433,13 @@
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 		1A2B3C4D0000000000000063 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		1A2B3C4D0000000000000253 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -344,6 +463,13 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		13A000000000000000000054 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		1A2B3C4D0000000000000057 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
@@ -358,6 +484,13 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		1A2B3C4D0000000000000251 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXTargetDependency section */
@@ -365,6 +498,11 @@
 			isa = PBXTargetDependency;
 			target = 1A2B3C4D0000000000000042 /* LinksShare */;
 			targetProxy = 1A2B3C4D0000000000000111 /* PBXContainerItemProxy */;
+		};
+		13A000000000000000000121 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 13A000000000000000000042 /* LinksMessages */;
+			targetProxy = 13A000000000000000000111 /* PBXContainerItemProxy */;
 		};
 		1A2B3C4D0000000000000122 /* PBXTargetDependency */ = {
 			isa = PBXTargetDependency;
@@ -375,6 +513,11 @@
 			isa = PBXTargetDependency;
 			target = 1A2B3C4D0000000000000041 /* Links */;
 			targetProxy = 1A2B3C4D0000000000000113 /* PBXContainerItemProxy */;
+		};
+		1A2B3C4D0000000000000221 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 1A2B3C4D0000000000000241 /* LinksNotifications */;
+			targetProxy = 1A2B3C4D0000000000000211 /* PBXContainerItemProxy */;
 		};
 /* End PBXTargetDependency section */
 
@@ -517,6 +660,29 @@
 			};
 			name = Debug;
 		};
+		13A000000000000000000085 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				APPLICATION_EXTENSION_API_ONLY = YES;
+				ASSETCATALOG_COMPILER_APPICON_NAME = "iMessage App Icon";
+				CODE_SIGN_ENTITLEMENTS = Support/LinksMessages.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = "Support/LinksMessages-Info.plist";
+				INFOPLIST_KEY_CFBundleDisplayName = Links;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = "$(LINKS_BUNDLE_ID).messages";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
 		1A2B3C4D0000000000000086 /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
@@ -532,6 +698,29 @@
 					"@executable_path/../../Frameworks",
 				);
 				PRODUCT_BUNDLE_IDENTIFIER = "$(LINKS_BUNDLE_ID).share";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
+		13A000000000000000000086 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				APPLICATION_EXTENSION_API_ONLY = YES;
+				ASSETCATALOG_COMPILER_APPICON_NAME = "iMessage App Icon";
+				CODE_SIGN_ENTITLEMENTS = Support/LinksMessages.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = "Support/LinksMessages-Info.plist";
+				INFOPLIST_KEY_CFBundleDisplayName = Links;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = "$(LINKS_BUNDLE_ID).messages";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SKIP_INSTALL = YES;
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
@@ -611,6 +800,50 @@
 			};
 			name = Release;
 		};
+		1A2B3C4D0000000000000281 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				APPLICATION_EXTENSION_API_ONLY = YES;
+				CODE_SIGN_ENTITLEMENTS = Support/LinksNotifications.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = "Support/LinksNotifications-Info.plist";
+				INFOPLIST_KEY_CFBundleDisplayName = Links;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = "$(LINKS_BUNDLE_ID).notifications";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		1A2B3C4D0000000000000282 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				APPLICATION_EXTENSION_API_ONLY = YES;
+				CODE_SIGN_ENTITLEMENTS = Support/LinksNotifications.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = "Support/LinksNotifications-Info.plist";
+				INFOPLIST_KEY_CFBundleDisplayName = Links;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = "$(LINKS_BUNDLE_ID).notifications";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -641,6 +874,15 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
+		13A000000000000000000073 /* Build configuration list for PBXNativeTarget "LinksMessages" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				13A000000000000000000085 /* Debug */,
+				13A000000000000000000086 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
 		1A2B3C4D0000000000000074 /* Build configuration list for PBXNativeTarget "LinksWidgets" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
@@ -655,6 +897,15 @@
 			buildConfigurations = (
 				1A2B3C4D0000000000000131 /* Debug */,
 				1A2B3C4D0000000000000132 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		1A2B3C4D0000000000000271 /* Build configuration list for PBXNativeTarget "LinksNotifications" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				1A2B3C4D0000000000000281 /* Debug */,
+				1A2B3C4D0000000000000282 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
@@ -677,7 +928,15 @@
 			isa = XCSwiftPackageProductDependency;
 			productName = LinksKit;
 		};
+		13A000000000000000000092 /* LinksKit */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = LinksKit;
+		};
 		1A2B3C4D0000000000000093 /* LinksKit */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = LinksKit;
+		};
+		1A2B3C4D0000000000000291 /* LinksKit */ = {
 			isa = XCSwiftPackageProductDependency;
 			productName = LinksKit;
 		};

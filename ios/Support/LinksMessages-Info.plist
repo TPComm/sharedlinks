@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>LinksServerURL</key>
+    <string>$(LINKS_SERVER_URL)</string>
+    <key>LinksAppGroup</key>
+    <string>group.$(LINKS_BUNDLE_ID)</string>
+    <key>LinksAssociatedDomain</key>
+    <string>$(LINKS_ASSOCIATED_DOMAIN)</string>
+    <key>NSAppTransportSecurity</key>
+    <dict>
+        <key>NSAllowsLocalNetworking</key>
+        <true/>
+    </dict>
+    <key>NSExtension</key>
+    <dict>
+        <key>NSExtensionPointIdentifier</key>
+        <string>com.apple.message-payload-provider</string>
+        <key>NSExtensionPrincipalClass</key>
+        <string>$(PRODUCT_MODULE_NAME).MessagesViewController</string>
+    </dict>
+</dict>
+</plist>

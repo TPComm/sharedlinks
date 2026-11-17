@@ -204,8 +204,16 @@ describe("a day with Links", () => {
     expect([health.status, health.text]).toEqual([200, "ok\n"]);
     const home = await call("/");
     expect(home.status).toBe(200);
-    expect(home.headers.get("content-type")).toBe("text/plain; charset=utf-8");
-    expect(home.text).toContain("Links API");
+    expect(home.headers.get("content-type")).toBe("text/html; charset=utf-8");
+    expect(home.text).toContain("Good finds.");
+    expect(home.text).toContain('href="sharedlinks://inbox"');
+    expect((await call("/icon.png")).headers.get("content-type")).toBe("image/png");
+    expect(home.text).toContain('src="/app-preview.png"');
+    // This runs from a separate cwd: the actual app capture must travel in the binary.
+    const preview = await fetch(`${server.url}/app-preview.png`);
+    expect(preview.status).toBe(200);
+    expect(preview.headers.get("content-type")).toBe("image/png");
+    expect([...new Uint8Array(await preview.arrayBuffer()).slice(0, 8)]).toEqual([137, 80, 78, 71, 13, 10, 26, 10]);
     expect(await call("/nope")).toMatchObject({ status: 404, data: { error: "Not found" } });
   });
 
@@ -371,6 +379,9 @@ describe("a day with Links", () => {
   e2e("refuses request bodies over 64 KB", async () => {
     const res = await call("/api/links", { token: alice.token, body: JSON.stringify({ text: "x".repeat(70_000) }) });
     expect(res.status).toBe(413);
+    // 30,000 three-byte characters: under 64K characters, but about 90 KB.
+    const wide = await call("/api/links", { token: alice.token, body: JSON.stringify({ text: "界".repeat(30_000) }) });
+    expect(wide.status).toBe(413);
   });
 
   e2e("deletes a link for everyone, and never reuses its id", async () => {
@@ -483,6 +494,11 @@ describe("a day with Links", () => {
     const recent = [`links-${daysAgo(12)}-pre-deploy.db`, `links-${daysAgo(1)}-pre-deploy.db`];
     const labelled = ["links-2000-01-01-pre-deploy.db", `links-${daysAgo(15)}-pre-v2.db`, ...recent];
     for (const name of [...old, ...labelled, "links-latest.db", "notes.txt"]) writeFileSync(join(dir, name), "old");
+    // A copy of a photo that has since been replaced or removed goes too.
+    mkdirSync(join(dir, "photos"));
+    writeFileSync(join(dir, "photos", "gone"), "old");
+    mkdirSync(join(dir, "report-photos"));
+    writeFileSync(join(dir, "report-photos", "gone"), "old");
     const days = [new Date().toISOString().slice(0, 10)];
     const run = await cli(dataDir, "backup", dir);
     days.push(new Date().toISOString().slice(0, 10)); // in case it ran across midnight UTC
@@ -490,13 +506,15 @@ describe("a day with Links", () => {
     const file = run.stdout.match(/^backed up to (.+)\n$/)?.[1] ?? "";
     expect(days.map((d) => join(dir, `links-${d}.db`))).toContain(file);
     // The three oldest dated snapshots and the old labelled ones go; anything else in the folder stays.
-    expect(readdirSync(dir).sort()).toEqual([...old.slice(3), ...recent, basename(file), "links-latest.db", "notes.txt"].sort());
+    expect(readdirSync(dir).sort()).toEqual([...old.slice(3), ...recent, basename(file), "links-latest.db", "notes.txt", "photos", "report-photos"].sort());
+    expect(readdirSync(join(dir, "photos"))).toEqual(readdirSync(join(dataDir, "photos")));
+    expect(readdirSync(join(dir, "report-photos"))).toEqual([]);
 
     const live = (await call("/api/state", { token: alice.token })).data;
     const snapshot = new Database(file, { readonly: true });
     try {
       expect(snapshot.query("PRAGMA integrity_check").get()).toEqual({ integrity_check: "ok" });
-      expect(snapshot.query("PRAGMA user_version").get()).toEqual({ user_version: 16 });
+      expect(snapshot.query("PRAGMA user_version").get()).toEqual({ user_version: 17 });
       expect(snapshot.query("SELECT id, url FROM links ORDER BY id").all())
         .toEqual(live.links.map((l: any) => ({ id: l.id, url: l.url })).sort((a: any, b: any) => a.id - b.id));
       expect(snapshot.query("SELECT name FROM users WHERE id = ?").get(alice.id)).toEqual({ name: "Ally A" });
@@ -513,7 +531,22 @@ describe("a day with Links", () => {
     expect(fallback.code, fallback.logs()).toBe(0);
     const kept = readdirSync(join(dataDir, "backups"));
     expect(kept.filter((f) => /^links-\d{4}-\d{2}-\d{2}\.db$/.test(f))).toHaveLength(1);
-    expect(kept.filter((f) => !/^links-\d{4}-\d{2}-\d{2}\.db$/.test(f)).sort()).toEqual(["links-2000-01-02-pre-b.db", ...odd].sort());
+    expect(kept.filter((f) => !/^links-\d{4}-\d{2}-\d{2}\.db$/.test(f)).sort()).toEqual(["links-2000-01-02-pre-b.db", ...odd, "photos", "report-photos"].sort());
+
+    // A report whose photo copy is gone fails the backup rather than saving it without its evidence.
+    const live2 = new Database(join(dataDir, "links.db"));
+    try {
+      const { lastInsertRowid } = live2.run(
+        "INSERT INTO reports (reporter, user_id, reason, details, snapshot, created_at) VALUES (?, ?, 'spam', '', ?, ?)",
+        [bob.id, alice.id, JSON.stringify({ name: "Ally A", photo_copy: "report-photos/missing" }), Date.now()],
+      );
+      const lost = await cli(dataDir, "backup", dir);
+      expect(lost.code, lost.logs()).not.toBe(0);
+      expect(lost.stderr).toContain("report-photos/missing");
+      live2.run("DELETE FROM reports WHERE id = ?", [lastInsertRowid]);
+    } finally {
+      live2.close();
+    }
   });
 
   e2e("exits 0 promptly on SIGTERM, and keeps everything across a restart", async () => {
@@ -572,10 +605,10 @@ describe("upgrading a database from the web-app days (v0)", () => {
     if (server?.running) await server.stop();
   });
 
-  e2e("migrates to user_version 16 and keeps the history under legacy people", async () => {
+  e2e("migrates to user_version 17 and keeps the history under legacy people", async () => {
     const db = new Database(join(dataDir, "links.db"), { readonly: true });
     try {
-      expect(db.query("PRAGMA user_version").get()).toEqual({ user_version: 16 });
+      expect(db.query("PRAGMA user_version").get()).toEqual({ user_version: 17 });
       expect((db.query("SELECT sql FROM sqlite_master WHERE name = 'links'").get() as { sql: string }).sql).toContain("AUTOINCREMENT");
       expect(db.query("SELECT name FROM sqlite_master WHERE name = 'people'").get()).toBeNull();
     } finally {

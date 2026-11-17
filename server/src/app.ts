@@ -2,20 +2,24 @@ import type { Database } from "bun:sqlite";
 import { randomBytes } from "node:crypto";
 import { rmSync } from "node:fs";
 import { join } from "node:path";
-import { Accounts, AuthError, INVITE_TOKEN_RE, MAX_GROUP_MEMBERS, publicUser } from "./accounts.ts";
+import { Accounts, AuthError, INVITE_TOKEN_RE, MAX_GROUP_MEMBERS, MAX_PHOTO_BYTES, photoType, publicUser, reportPhoto } from "./accounts.ts";
 import type { Config } from "./config.ts";
 import { defaultGroup, deleteEmptyGroups, deleteLink, now, openDatabase, type CommentRow, type GroupRow, type LinkRow, type UserRow } from "./db.ts";
 import { BadRequest, canonical, clipText, extractUrl } from "./links.ts";
+import { landingPage } from "./landing.ts";
 import { REPORT_REASONS } from "./moderation.ts";
 import { fetchMetadata, PREVIEW_VERSION } from "./previews.ts";
 import { Pusher, type PushOptions } from "./push.ts";
 // Embedded in the compiled binary (bun build --compile), for invite pages and their link previews.
 import iconPath from "../../assets/icon/previews/B/default-256.png" with { type: "file" };
+import appPreviewPath from "../../assets/landing/inbox.png" with { type: "file" };
 import { BUILD_COMMIT } from "./version.ts";
 
 export const EMOJIS = new Set(["❤️", "😂", "🔥", "😮", "😭", "👎"]);
 
 class NotFound extends Error {}
+/** 413, which Bun itself sent before PUT /api/me/photo raised its body limit. */
+class TooLarge extends Error {}
 
 const MAX_GROUP_NAME = 60;
 const json = (body: unknown, status = 200) =>
@@ -25,8 +29,10 @@ const redirect = (location: string) =>
   new Response(null, { status: 302, headers: { Location: location, "Cache-Control": "no-store" } });
 
 async function readJson(req: Request): Promise<Record<string, any>> {
-  const text = await req.text();
-  if (text.length > 65536) throw new BadRequest("Request too large.");
+  // Bytes, not characters: the server-wide cap is the photo's, so this is JSON's only one.
+  const body = new Uint8Array(await req.arrayBuffer());
+  if (body.length > 65536) throw new TooLarge("Request too large.");
+  const text = new TextDecoder().decode(body);
   if (!text.trim()) return {};
   try {
     const value = JSON.parse(text);
@@ -159,7 +165,7 @@ function privacyPage(email: string, sessionDays: number): string {
 
 <h2>What Links keeps, and why</h2>
 <ul>
-<li><b>Your account:</b> your email address, display name and profile photo address. They come from WorkOS, our sign-in provider, when you first sign in, and you can change your name in the app. They sign you in, match invites sent to you, and show your friends who sent what.</li>
+<li><b>Your account:</b> your email address, display name and profile photo. They come from WorkOS, our sign-in provider, when you first sign in, and you can change your name and photo in the app; a photo you choose is stored on our server. They sign you in, match invites sent to you, and show your friends who sent what.</li>
 <li><b>What you do in Links:</b> the links you send and their notes, your comments, which links you've seen, your reactions, the reports you make and the people you block. For each link the server also fetches its title, author and thumbnail from the link's page.</li>
 <li><b>Invites you send:</b> the email address you invite, if you type one, when the invite expires, and who used it. They let your friend in; cancelling an invite deletes it.</li>
 <li><b>Signed-in devices:</b> a scrambled (hashed) copy of each device's sign-in token, with when it was created and last used, and the push notification token Apple gives the app on that device, which the server uses to send it notifications.</li>
@@ -173,7 +179,7 @@ function privacyPage(email: string, sessionDays: number): string {
 <ul>
 <li><b>The people in your chats</b> see your name and photo. People only lists people you share a chat with. Anyone with a link's share URL can see its title, thumbnail and original URL. Notes, who sent it, comments, reactions and activity stay private to the chat. Your name and photo can still appear on links in a chat you've left, or under Blocked People for someone who blocked you. Reports and blocks are private: only the person who runs the server reads reports.</li>
 <li><b>WorkOS</b> runs sign-in. It keeps your email, your sign-in details and the sign-ins you make, and gets the app's name and version and your iOS version when you sign in, plus, like any website, your IP address and browser details while you sign in. See the <a href="https://workos.com/legal/privacy">WorkOS privacy policy</a>.</li>
-<li><b>Apple</b> delivers push notifications. For each one, the server sends Apple your device's push token and what the notification shows: who sent a link or reacted, the chat's name, the link's title and note (shortened if long), the reaction, and how many links are in your Queue tab, along with Links' own numbers for the link, its sender and its chat. See the <a href="https://www.apple.com/legal/privacy/">Apple privacy policy</a>.</li>
+<li><b>Apple</b> delivers push notifications. For each one, the server sends Apple your device's push token and what the notification shows: who sent a link, reacted or commented, the chat's name, the link's title and note (shortened if long), the reaction or shortened comment text, and how many links are in your Queue tab, along with Links' own numbers for the link, its sender, its chat and the comment. See the <a href="https://www.apple.com/legal/privacy/">Apple privacy policy</a>.</li>
 <li><b>Grafana Cloud</b> (Grafana Labs) keeps a copy of the server logs, the web server's and the daily backup's own messages, and the server health figures, so problems can be spotted and fixed. See the <a href="https://grafana.com/legal/privacy-policy/">Grafana Labs privacy policy</a>.</li>
 <li><b>The company that hosts this server</b> stores it on its computers.</li>
 </ul>
@@ -358,7 +364,7 @@ export function createApp(config: Config, opts: AppOptions = {}) {
       const link = links.get(summary.link_id);
       if (link) applyCommentSummary(link, summary);
     }
-    const users = (db.query(`SELECT * FROM users WHERE id IN (${PEOPLE}) ORDER BY created_at`).all(me) as UserRow[]).map(publicUser);
+    const users = (db.query(`SELECT * FROM users WHERE id IN (${PEOPLE}) ORDER BY created_at`).all(me) as UserRow[]).map((u) => publicUser(u, config.publicUrl));
     return { me, users, groups: groupsOf(me), links: [...links.values()], blocked: [...blocked] };
   }
 
@@ -531,8 +537,9 @@ export function createApp(config: Config, opts: AppOptions = {}) {
       const user = db.query("SELECT * FROM users WHERE id = ?").get(id) as UserRow | null;
       if (!user || !sees(me, id)) throw new NotFound("That person isn't in Links anymore.");
       return {
-        link_id: null, comment_id: null, user_id: id, label: `person ${id}`,
-        snapshot: { name: user.name, avatar: user.avatar, email: user.email },
+        link_id: null, comment_id: null, user_id: id, label: `person ${id}`, photo: user.photo || null,
+        snapshot: { name: user.name, avatar: publicUser(user, config.publicUrl).avatar, email: user.email,
+                    ...(user.photo ? { photo_copy: reportPhoto(user.photo) } : {}) },
       };
     }
     if (!Number.isSafeInteger(data.comment_id)) throw new NotFound("That comment was deleted.");
@@ -584,6 +591,7 @@ export function createApp(config: Config, opts: AppOptions = {}) {
         if (e instanceof AuthError) res = json({ error: e.message }, e.status);
         else if (e instanceof BadRequest) res = json({ error: e.message }, 400);
         else if (e instanceof NotFound) res = json({ error: e.message }, 404);
+        else if (e instanceof TooLarge) res = json({ error: e.message }, 413);
         else {
           console.error(`error handling ${req.method} ${new URL(req.url).pathname}:`, e);
           res = json({ error: "Something went wrong." }, 500);
@@ -603,7 +611,7 @@ export function createApp(config: Config, opts: AppOptions = {}) {
     ? { "/.well-known/apple-app-site-association": Response.json(appSiteAssociation(config.appleAppIds)) }
     : {};
   const routes = {
-    "/": new Response("Links API. Open the Links app to use it.\n", { headers: { "Content-Type": "text/plain; charset=utf-8" } }),
+    "/": new Response(landingPage(config), { headers: { "Content-Type": "text/html; charset=utf-8" } }),
     "/healthz": new Response("ok\n"),
     // What's deployed: the nightly check compares `commit` with origin/main.
     "/version": Response.json({ commit: BUILD_COMMIT }),
@@ -679,6 +687,19 @@ export function createApp(config: Config, opts: AppOptions = {}) {
         await accounts.deleteUser(me);
         push.badges(badgesChange);
         return json({ ok: true });
+      }),
+    },
+    // The body is the photo itself (a JPEG or PNG; the app sends a 512px JPEG), not JSON.
+    "/api/me/photo": {
+      PUT: route(async (req, me) => {
+        if (Number(req.headers.get("content-length") ?? 0) > MAX_PHOTO_BYTES) throw new TooLarge("That photo is too big.");
+        const bytes = new Uint8Array(await req.arrayBuffer());
+        accounts.setPhoto(me, bytes, (change) => asUser(me, change));
+        return json(accounts.mePayload(me));
+      }),
+      DELETE: route((_req, me) => {
+        accounts.removePhoto(me, (change) => asUser(me, change));
+        return json(accounts.mePayload(me));
       }),
     },
     "/api/me/claim": {
@@ -846,6 +867,9 @@ export function createApp(config: Config, opts: AppOptions = {}) {
     "/icon.png": new Response(Bun.file(iconPath), {
       headers: { "Content-Type": "image/png", "Cache-Control": "public, max-age=86400" },
     }),
+    "/app-preview.png": new Response(Bun.file(appPreviewPath), {
+      headers: { "Content-Type": "image/png", "Cache-Control": "public, max-age=86400" },
+    }),
 
     // Report a link, comment or person. Links and comments are hidden for the reporter at once.
     // The owner reads reports with `links-server reports` (and in the log).
@@ -860,6 +884,11 @@ export function createApp(config: Config, opts: AppOptions = {}) {
             "INSERT OR IGNORE INTO reports (reporter, link_id, comment_id, user_id, reason, details, snapshot, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
             [me, target.link_id, target.comment_id, target.user_id, data.reason, details, JSON.stringify(target.snapshot), now()],
           );
+          // Copied only for a report that was saved, so a repeat (ignored) leaves no stray copy.
+          const photo = "photo" in target ? target.photo : null;
+          if (changes && photo && !accounts.keepPhotoForReport(photo)) {
+            db.run("UPDATE reports SET snapshot = json_set(snapshot, '$.photo_copy', NULL) WHERE id = ?", [lastInsertRowid]);
+          }
           return { id: changes ? Number(lastInsertRowid) : null, label: target.label, linkId: target.link_id };
         });
         if (id !== null) {
@@ -933,6 +962,7 @@ export function createApp(config: Config, opts: AppOptions = {}) {
           const { lastInsertRowid } = db.run("INSERT INTO comments (link_id, person, body, created_at) VALUES (?, ?, ?, ?)", [id, me, body, now()]);
           return db.query("SELECT * FROM comments WHERE id = ?").get(lastInsertRowid) as CommentRow;
         });
+        if (push.enabled) track(Promise.resolve().then(() => push.newComment(comment.id)));
         return json({ comment }, 201);
       }),
     },
@@ -1001,6 +1031,20 @@ export function createApp(config: Config, opts: AppOptions = {}) {
       }),
     },
 
+    // Public like /l/:token/image: only people shown the photo's random address can load it, and
+    // AsyncImage sends no session. A new photo gets a new address, so this one never changes.
+    "/photos/:token": {
+      GET: route<Request & { params: { token: string } }>(async (req) => {
+        const token = req.params.token;
+        if (!TOKEN.test(token) || !accounts.photoOwner(token)) throw new NotFound("Not found");
+        const file = Bun.file(accounts.photoPath(token));
+        if (!(await file.exists())) throw new NotFound("Not found");
+        const bytes = await file.bytes();
+        return new Response(bytes, { headers: { "Content-Type": photoType(bytes) ?? "application/octet-stream",
+          "Cache-Control": "public, max-age=31536000, immutable",
+          "Content-Security-Policy": "default-src 'none'; sandbox", "X-Content-Type-Options": "nosniff" } });
+      }, pub),
+    },
     "/thumbs/:id": { GET: route<WithId>(serveThumb) },
     // The version only changes the URL, so phones re-download a replaced thumbnail.
     "/thumbs/:id/:v": { GET: route<WithId>(serveThumb) },
@@ -1046,7 +1090,8 @@ export function startServer(config: Config, opts: AppOptions = {}) {
   const server = Bun.serve({
     port: config.port,
     hostname: config.hostname,
-    maxRequestBodySize: 65536,
+    // JSON bodies stop at readJson's 64 KB; only PUT /api/me/photo takes more.
+    maxRequestBodySize: MAX_PHOTO_BYTES + 65536,
     routes: app.routes,
     fetch: app.fallback,
   });

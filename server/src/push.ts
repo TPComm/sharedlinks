@@ -7,9 +7,9 @@
 import type { Database } from "bun:sqlite";
 import { readFileSync } from "node:fs";
 import http2 from "node:http2";
-import type { Accounts } from "./accounts.ts";
+import { type Accounts, publicUser } from "./accounts.ts";
 import type { ApnsEnv, Config } from "./config.ts";
-import { now } from "./db.ts";
+import { now, type UserRow } from "./db.ts";
 import { clip, clipText } from "./links.ts";
 
 /** Same nouns as `Platform.noun` in ios/LinksKit/Sources/LinksKit/Models.swift, mid-sentence. */
@@ -29,6 +29,7 @@ const threadId = (groupId: number, isDefault: number) => (isDefault ? "links-inb
 const IN_CHAT = (r: string, l: string) =>
   `EXISTS (SELECT 1 FROM group_members WHERE group_id = ${l}.group_id AND user_id = ${r})`;
 const MAX_PAYLOAD = 4096;
+const MAX_AVATAR_URL = 1024;
 /** Provider tokens must be refreshed every 20–60 minutes. */
 const JWT_TTL_S = 50 * 60;
 const IDLE_PING_MS = 60 * 60 * 1000;
@@ -95,10 +96,12 @@ export class Pusher {
   /** A new link: alert everyone who can see it except its sender. Skipped if it's gone by now. */
   async newLink(linkId: number) {
     const link = this.db.query(
-      `SELECT l.title, l.note, l.platform, l.added_by, l.group_id, u.name, g.name AS chat, g.is_default
+      `SELECT l.title, l.note, l.platform, l.added_by, l.group_id, l.thumb_type, l.thumb_v, u.name,
+              g.name AS chat, g.is_default
          FROM links l JOIN users u ON u.id = l.added_by JOIN groups g ON g.id = l.group_id WHERE l.id = ?`,
     ).get(linkId) as { title: string | null; note: string; platform: string; added_by: string; group_id: number;
-                       name: string; chat: string; is_default: number } | null;
+                       thumb_type: string | null; thumb_v: number | null; name: string;
+                       chat: string; is_default: number } | null;
     if (!link) return;
     const recipients = this.db.query(
       `SELECT DISTINCT d.user_id FROM device_tokens d WHERE d.user_id != ?1
@@ -109,7 +112,20 @@ export class Pusher {
     const noun = nounOf(link.platform);
     const lead = `sent ${article(noun)} ${noun}`;
     // A named chat other than the default one says where it was sent, as Messages does.
-    const title = !link.is_default && link.chat ? `${link.name} in ${link.chat}` : link.name;
+    const named = !link.is_default && !!link.chat;
+    const title = named ? `${link.name} in ${link.chat}` : link.name;
+    // For the app's Notification Service Extension, which shows the sender's photo (as Messages
+    // does) and attaches the thumbnail, fetched with the phone's own session.
+    // A photo URL too long to leave room for the alert in 4 KB is left out (the push still goes).
+    // Their uploaded photo, else their WorkOS picture, as the app shows them.
+    const sender = this.db.query("SELECT * FROM users WHERE id = ?").get(link.added_by) as UserRow;
+    const avatar = publicUser(sender, this.config.publicUrl).avatar;
+    const rich = {
+      sender_name: link.name,
+      ...(avatar && avatar.length <= MAX_AVATAR_URL ? { sender_avatar: avatar } : {}),
+      ...(named ? { chat: link.chat } : {}),
+      ...(link.thumb_type ? { thumb: `/thumbs/${linkId}${link.thumb_v ? `/${link.thumb_v}` : ""}` } : {}),
+    };
     const muted = recipients.filter(({ user_id }) => this.isMuted(link.group_id, user_id));
     this.badges(muted.map(({ user_id }) => user_id));
     await Promise.all(recipients.filter(({ user_id }) => !this.isMuted(link.group_id, user_id)).map(({ user_id }) => this.toPerson(user_id, "alert", (badge) => this.fit({
@@ -117,8 +133,33 @@ export class Pusher {
         alert: { title, body: [lead, link.title, link.note] as const },
         badge, sound: "default", "thread-id": threadId(link.group_id, link.is_default), category: "NEW_LINK", "mutable-content": 1,
       },
-      link_id: linkId, sender_id: link.added_by, group_id: link.group_id,
+      link_id: linkId, sender_id: link.added_by, group_id: link.group_id, ...rich,
     }))));
+  }
+
+  async newComment(commentId: number) {
+    if (!this.enabled) return;
+    const comment = this.db.query(`SELECT c.body, c.person, c.link_id, l.added_by, l.group_id,
+      u.name, g.name AS chat, g.is_default FROM comments c
+      JOIN links l ON l.id = c.link_id JOIN users u ON u.id = c.person
+      JOIN groups g ON g.id = l.group_id WHERE c.id = ?`).get(commentId) as {
+        body: string; person: string; link_id: number; added_by: string; group_id: number;
+        name: string; chat: string; is_default: number;
+      } | null;
+    if (!comment) return;
+    const recipients = this.db.query(`SELECT m.user_id FROM group_members m WHERE m.group_id = ?1 AND m.user_id != ?2
+      AND NOT EXISTS (SELECT 1 FROM blocks WHERE blocker = m.user_id AND blocked IN (?2, ?3))
+      AND NOT EXISTS (SELECT 1 FROM reports WHERE reporter = m.user_id AND (link_id = ?4 OR comment_id = ?5))`)
+      .all(comment.group_id, comment.person, comment.added_by, comment.link_id, commentId) as { user_id: string }[];
+    const title = !comment.is_default && comment.chat ? `${comment.name} in ${comment.chat}` : comment.name;
+    await Promise.all(recipients.filter(({ user_id }) => !this.isMuted(comment.group_id, user_id))
+      .map(({ user_id }) => this.toPerson(user_id, "alert", (badge) => this.fit({
+        aps: {
+          alert: { title, body: ["commented", null, comment.body] as const },
+          badge, sound: "default", "thread-id": threadId(comment.group_id, comment.is_default),
+        },
+        link_id: comment.link_id, group_id: comment.group_id, comment_id: commentId,
+      }))));
   }
 
   /**

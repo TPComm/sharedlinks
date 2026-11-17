@@ -71,7 +71,10 @@ struct ChatPicker: View {
         .sheet(isPresented: $showingChats) { ChatListView() }
         .sheet(item: $infoGroup) { group in
             NavigationStack {
-                ChatInfoView(groupID: group.id)
+                ChatInfoView(groupID: group.id) { link in
+                    infoGroup = nil
+                    model.showPage(link)
+                }
                     .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { infoGroup = nil } } }
             }
         }
@@ -130,7 +133,12 @@ struct ChatListView: View {
                 }
             }
             .navigationTitle("Chats")
-            .navigationDestination(for: Int.self) { ChatInfoView(groupID: $0) }
+            .navigationDestination(for: Int.self) { groupID in
+                ChatInfoView(groupID: groupID) { link in
+                    dismiss()
+                    model.showPage(link)
+                }
+            }
             .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } } }
             .confirmationDialog("Mute Notifications", isPresented: Binding(
                 get: { muting != nil }, set: { if !$0 { muting = nil } }),
@@ -157,6 +165,7 @@ struct ChatListView: View {
 struct ChatInfoView: View {
     @Environment(AppModel.self) private var model
     let groupID: Int
+    let openLink: (SharedLink) -> Void
     @State private var choosingDuration = false
     @State private var saving = false
     @State private var failure: String?
@@ -168,6 +177,7 @@ struct ChatInfoView: View {
                     Section {
                         Text(model.inbox.title(of: group)).font(.headline)
                     }
+                    TasteMatchSection(group: group, openLink: openLink)
                     if group.muted != nil {
                         Section {
                             Toggle(isOn: Binding(get: { group.isMuted(at: context.date) }, set: { muted in
@@ -208,6 +218,7 @@ struct ChatInfoView: View {
                     Text("You’re no longer in this chat.")
                 }
             }
+            .refreshable { await model.refresh() }
         }
         .navigationTitle("Chat Info")
         .navigationBarTitleDisplayMode(.inline)
@@ -220,6 +231,86 @@ struct ChatInfoView: View {
             do { try await model.setChatMuted(group, muted: muted, until: until) }
             catch { failure = error.localizedDescription }
             saving = false
+        }
+    }
+}
+
+private struct TasteMatchSection: View {
+    @Environment(AppModel.self) private var model
+    @Environment(\.dynamicTypeSize) private var typeSize
+    let group: LinkGroup
+    let openLink: (SharedLink) -> Void
+
+    var body: some View {
+        let matches = model.inbox.tasteMatches(in: group.id)
+        Section {
+            VStack(alignment: .leading, spacing: 10) {
+                Image(systemName: matches.isEmpty ? "heart" : "heart.fill")
+                    .font(.title2)
+                    .foregroundStyle(.indigo)
+                    .accessibilityHidden(true)
+                if matches.isEmpty {
+                    Text("No shared loves yet")
+                        .font(.title3.weight(.semibold))
+                        .accessibilityAddTraits(.isHeader)
+                        .accessibilityIdentifier("tasteMatch.empty")
+                    Text(group.members.count < 2
+                         ? "Add someone to this chat to find your shared favorites."
+                         : "When everyone reacts with ❤️, 😂 or 🔥 to the same link, you’ll find it here.")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                } else {
+                    Text(model.inbox.tasteMatchSummary(in: group.id, count: matches.count))
+                        .font(.title3.weight(.semibold))
+                        .accessibilityAddTraits(.isHeader)
+                        .accessibilityIdentifier("tasteMatch.summary")
+                    Text("Your latest shared favorites.")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .fixedSize(horizontal: false, vertical: true)
+            .padding(.vertical, 8)
+
+            ForEach(matches.prefix(3)) { link in
+                Button {
+                    openLink(link)
+                } label: {
+                    HStack(alignment: .top, spacing: 12) {
+                        if !typeSize.isAccessibilitySize {
+                            ThumbnailView(link: link)
+                                .frame(width: 52, height: 64)
+                                .accessibilityHidden(true)
+                        }
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(link.displayTitle)
+                                .font(.headline)
+                                .lineLimit(typeSize.isAccessibilitySize ? nil : 2)
+                            Text(link.sourceName)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                        .fixedSize(horizontal: false, vertical: true)
+                        Spacer(minLength: 0)
+                        Image(systemName: "chevron.right")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(.tertiary)
+                            .accessibilityHidden(true)
+                    }
+                    .padding(.vertical, 4)
+                    .contentShape(.rect)
+                }
+                .buttonStyle(.plain)
+                .accessibilityHint("Opens the link page without changing seen status")
+                .accessibilityIdentifier("tasteMatch.link.\(link.id)")
+            }
+        } header: {
+            Text("Taste Match")
+        } footer: {
+            if !matches.isEmpty {
+                Text("❤️, 😂 and 🔥 count as a love. Based on links you can see, with a reaction from everyone currently in this chat.")
+                    .accessibilityLabel("Heart, laughing and fire reactions count as a love. Based on links you can see, with a reaction from everyone currently in this chat.")
+            }
         }
     }
 }

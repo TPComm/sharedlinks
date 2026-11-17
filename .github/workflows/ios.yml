@@ -109,7 +109,7 @@ jobs:
         if: matrix.shard == 1
         working-directory: ios/build/Build/Products/Debug-iphonesimulator
         run: |
-          for bundle in Links.app Links.app/PlugIns/LinksShare.appex Links.app/PlugIns/LinksWidgets.appex; do
+          for bundle in Links.app Links.app/PlugIns/LinksShare.appex Links.app/PlugIns/LinksWidgets.appex Links.app/PlugIns/LinksMessages.appex Links.app/PlugIns/LinksNotifications.appex; do
             plutil -lint "$bundle/PrivacyInfo.xcprivacy"
           done
 

@@ -11,7 +11,7 @@ const dataDir = mkdtempSync(join(tmpdir(), "links-push-"));
 const LONG_TITLE = "🐱".repeat(300);
 
 const users: Record<string, object> = {
-  sam: { id: "user_01SAM", email: "sam@team.test", email_verified: true, first_name: "Sam" },
+  sam: { id: "user_01SAM", email: "sam@team.test", email_verified: true, first_name: "Sam", profile_picture_url: "https://photos.test/sam.png" },
   alex: { id: "user_01ALEX", email: "alex@team.test", email_verified: true, first_name: "Alex" },
   kim: { id: "user_01KIM", email: "kim@team.test", email_verified: true, first_name: "Kim" },
   carol: { id: "user_01CAROL", email: "carol@team.test", email_verified: true, first_name: "Carol" },
@@ -28,9 +28,13 @@ const fakeWorkOS = Bun.serve({
     },
   },
 });
+// A 1×1 PNG.
+const PNG = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==", "base64");
 const fakeOrigin = Bun.serve({
   port: 0,
   routes: {
+    "/pic": new Response(`<html><head><meta property="og:title" content="Pic"><meta property="og:image" content="/thumb.png"></head></html>`, { headers: { "Content-Type": "text/html" } }),
+    "/thumb.png": new Response(PNG, { headers: { "Content-Type": "image/png" } }),
     "/video": new Response(`<html><head><meta property="og:title" content="Cats &amp; Dogs"></head></html>`, { headers: { "Content-Type": "text/html" } }),
     "/long": new Response(`<html><head><title>${LONG_TITLE}</title></head></html>`, { headers: { "Content-Type": "text/html" } }),
     "/slow": async () => { await Bun.sleep(1500); return new Response("<title>Too late</title>", { headers: { "Content-Type": "text/html" } }); },
@@ -166,6 +170,7 @@ describe("pushes", () => {
           "thread-id": "links-inbox", category: "NEW_LINK", "mutable-content": 1,
         },
         group_id: 1, link_id: data.link.id, sender_id: "user_01SAM",
+        sender_name: "Sam", sender_avatar: "https://photos.test/sam.png",
       });
     }
     // A duplicate sends nothing.
@@ -173,6 +178,57 @@ describe("pushes", () => {
     await call("/api/links", { token: alex, body: { url: `${fakeOrigin.url.origin}/video?n=1` } });
     await settle();
     expect(sent).toEqual([]);
+  });
+
+  test("a new link's push carries its thumbnail path for the app to fetch with its own session", async () => {
+    const { data } = await call("/api/links", { token: alex, body: { url: `${fakeOrigin.url.origin}/pic` } });
+    await settle();
+    expect(data.link.thumb).toBeNull(); // the preview lands after the response
+    const link = (await call("/api/state", { token: sam })).data.links.find((l: any) => l.id === data.link.id);
+    expect(link.thumb).toMatch(/^\/thumbs\/\d+/);
+    expect(sent.map((s) => s.token).sort()).toEqual([SAM, KIM]);
+    for (const s of sent) {
+      expect(s.body).toMatchObject({ link_id: data.link.id, sender_name: "Alex", thumb: link.thumb });
+      // Alex has no photo, and the default chat has no name to show.
+      expect(s.body.sender_avatar).toBeUndefined();
+      expect(s.body.chat).toBeUndefined();
+    }
+    const thumb = await fetch(api + link.thumb, { headers: { Authorization: `Bearer ${sam}` } });
+    expect(thumb.status).toBe(200);
+    expect(Buffer.from(await thumb.arrayBuffer())).toEqual(PNG);
+  });
+
+  test("a sender photo URL too long for the 4 KB push is left out rather than losing the alert", async () => {
+    app.db.run("UPDATE users SET avatar = ? WHERE id = 'user_01SAM'", [`https://photos.test/${"x".repeat(4000)}.png`]);
+    try {
+      await call("/api/links", { token: sam, body: { url: `${fakeOrigin.url.origin}/plain?n=longphoto` } });
+      await settle();
+      expect(sent.length).toBeGreaterThan(0);
+      for (const s of sent) {
+        expect(s.body.sender_name).toBe("Sam");
+        expect(s.body.sender_avatar).toBeUndefined();
+      }
+    } finally {
+      app.db.run("UPDATE users SET avatar = ? WHERE id = 'user_01SAM'", ["https://photos.test/sam.png"]);
+    }
+  });
+
+  test("a new link's push shows the photo the sender uploaded, or none once they removed it", async () => {
+    try {
+      app.db.run("UPDATE users SET photo = 'tok123' WHERE id = 'user_01SAM'");
+      await call("/api/links", { token: sam, body: { url: `${fakeOrigin.url.origin}/plain?n=uploaded` } });
+      await settle();
+      expect(sent.length).toBeGreaterThan(0);
+      for (const s of sent) expect(s.body.sender_avatar).toBe("http://localhost:8000/photos/tok123");
+      sent = [];
+      app.db.run("UPDATE users SET photo = '' WHERE id = 'user_01SAM'");
+      await call("/api/links", { token: sam, body: { url: `${fakeOrigin.url.origin}/plain?n=removed` } });
+      await settle();
+      expect(sent.length).toBeGreaterThan(0);
+      for (const s of sent) expect(s.body.sender_avatar).toBeUndefined();
+    } finally {
+      app.db.run("UPDATE users SET photo = NULL WHERE id = 'user_01SAM'");
+    }
   });
 
   test("a link in a chat alerts only its members, threaded by chat and titled with its name", async () => {
@@ -183,6 +239,7 @@ describe("pushes", () => {
     expect(sent.map((s) => s.token)).toEqual([ALEX]);
     expect(sent[0]!.body).toMatchObject({
       aps: { alert: { title: "Sam in Movie night" }, "thread-id": `links-group-${chat.id}` }, group_id: chat.id,
+      sender_name: "Sam", chat: "Movie night",
     });
     // Kim isn't in it, so Kim's badge doesn't count it; Alex's does.
     const db = app.db;
@@ -384,7 +441,7 @@ describe("pushes", () => {
     expect(sent[0]!.body).toEqual({ aps: { badge: unwatched.length - 2 } });
   });
 
-  test("comment CRUD and reports send no pushes and leave To Watch unchanged", async () => {
+  test("new comments alert other members; edits, deletes and reports stay silent", async () => {
     const { data } = await call("/api/links", { token: sam, body: { url: `${fakeOrigin.url.origin}/video?n=comments` } });
     const id = data.link.id;
     await settle();
@@ -398,6 +455,14 @@ describe("pushes", () => {
     const made = await call(`/api/links/${id}/comments`, { token: sam, body: { body: "A reply" } });
     expect(made.status).toBe(201);
     const comment = made.data.comment.id;
+    await settle();
+    expect(sent.map((s) => s.token).sort()).toEqual([ALEX, KIM].sort());
+    expect(sent[0]!.body).toMatchObject({
+      aps: { alert: { title: "Sam", body: "commented\nA reply" }, "thread-id": "links-inbox", sound: "default" },
+      link_id: id, group_id: data.link.group_id, comment_id: comment,
+    });
+    expect(sent.find((s) => s.token === ALEX)!.body.aps.badge).toBe(before);
+    sent = [];
     await quiet();
     expect((await call(`/api/comments/${comment}`, { method: "PATCH", token: sam, body: { body: "Edited reply" } })).status).toBe(200);
     await quiet();
@@ -410,6 +475,59 @@ describe("pushes", () => {
     await quiet();
     expect((await call("/api/reports", { token: alex, body: { user_id: "user_01SAM", reason: "spam" } })).status).toBe(201);
     await quiet();
+  });
+
+  test("comment recipients respect chat membership, blocks, reports and mute", async () => {
+    const chat = (await call("/api/groups", { token: sam, body: { name: "Replies", members: ["user_01ALEX", "user_01KIM"] } })).data.group;
+    const link = (await call("/api/links", { token: sam, body: { url: `${fakeOrigin.url.origin}/video?n=comment-filters`, group_id: chat.id } })).data.link;
+    await settle();
+    const reply = async () => {
+      sent = [];
+      expect((await call(`/api/links/${link.id}/comments`, { token: alex, body: { body: "Hello" } })).status).toBe(201);
+      await settle();
+      return sent.map((s) => s.token).sort();
+    };
+    expect(await reply()).toEqual([SAM, KIM].sort());
+    expect(sent[0]!.body.aps["thread-id"]).toBe(`links-group-${chat.id}`);
+    expect(sent[0]!.body.aps.alert.title).toBe("Alex in Replies");
+    await call(`/api/groups/${chat.id}`, { token: kim, method: "PATCH", body: { muted: true } });
+    expect(await reply()).toEqual([SAM]);
+    await call(`/api/groups/${chat.id}`, { token: kim, method: "PATCH", body: { muted: false } });
+    for (const blocked of ["user_01SAM", "user_01ALEX"]) {
+      await call("/api/blocks", { token: kim, body: { user_id: blocked } });
+      await settle();
+      expect(await reply()).toEqual([SAM]);
+      await call(`/api/blocks/${blocked}`, { token: kim, method: "DELETE" });
+      await settle();
+    }
+    await call("/api/reports", { token: kim, body: { link_id: link.id, reason: "spam" } });
+    await settle();
+    expect(await reply()).toEqual([SAM]);
+    await call(`/api/groups/${chat.id}`, { token: sam, method: "DELETE" });
+    await settle();
+    expect(await reply()).toEqual([]);
+    await app.push.newComment(Number.MAX_SAFE_INTEGER);
+    expect(sent).toEqual([]);
+  });
+
+  test("comment previews clip Unicode and rejected comments send nothing", async () => {
+    const link = (await call("/api/links", { token: sam, body: { url: `${fakeOrigin.url.origin}/video?n=unicode-comments` } })).data.link;
+    await settle();
+    sent = [];
+    for (const body of ["", 123, null]) {
+      expect((await call(`/api/links/${link.id}/comments`, { token: alex, body: { body } })).status).toBe(400);
+    }
+    await settle();
+    expect(sent).toEqual([]);
+    const made = await call(`/api/links/${link.id}/comments`, { token: alex, body: { body: "😀".repeat(1000) } });
+    expect(made.status).toBe(201);
+    await settle();
+    expect(sent.map((s) => s.token).sort()).toEqual([SAM, KIM].sort());
+    for (const s of sent) {
+      expect(Buffer.byteLength(JSON.stringify(s.body))).toBeLessThanOrEqual(4096);
+      expect(s.body.aps.alert.body).toBe(`commented\n${"😀".repeat(200)}`);
+      expect(s.body.comment_id).toBe(made.data.comment.id);
+    }
   });
 
   test("reporting a link still updates only the reporter's badge, once", async () => {

@@ -102,7 +102,8 @@ SwiftUI for iOS 18+, built with Xcode 27.2 (CI pins `/Applications/Xcode_27.2.ap
 under `ios/`:
 
 - `Links/`: the app (`AppModel.swift`, `Views/`, `Intents/`)
-- `LinksShare/`: the Share Extension; `LinksWidgets/`: Home and Lock Screen widgets
+- `LinksShare/`: the Share Extension; `LinksWidgets/`: Home and Lock Screen widgets;
+  `LinksNotifications/`: the Notification Service Extension that adds photos to new-link pushes
 - `LinksKit/`: the Swift package all three use: API client, models, the session in the App Group
   keychain, the on-disk inbox cache. Put shared logic here, with tests in `LinksKit/Tests`.
 - `LinksUITests/`: XCUITests against a real server (`LinksServer.swift` sets up state through the API)
@@ -125,7 +126,7 @@ Rules:
   `DEVELOPMENT_TEAM` is only for devices.
 - The targets use file-system synchronized groups, so a new file in a target's folder is picked up
   without editing `project.pbxproj`.
-- Every shipped bundle (app, Share Extension, widgets) has its own `PrivacyInfo.xcprivacy`; declare
+- Every shipped bundle (app and each extension) has its own `PrivacyInfo.xcprivacy`; declare
   any new required-reason API in each bundle that uses it, or App Store Connect rejects the build.
 - The UI tests set `LINKS_UI_TESTS=1`, which skips the welcome tour, tips and the badge prompt.
 - Build and test on a Mac before pushing: an iOS CI run takes ~10 minutes (see above).

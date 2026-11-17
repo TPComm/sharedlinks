@@ -631,6 +631,25 @@ final class LinksUITests: XCTestCase {
         XCTAssert(email.waitForNonExistence(timeout: 5), "Done didn't close the profile")
     }
 
+    /// The photo picker runs out of process, so the photo goes up through the API; this checks the
+    /// profile shows it and can take it away again.
+    func testRemovingTheProfilePhotoGoesBackToInitials() throws {
+        let api = server!
+        try api.setPhoto(as: api.me)
+        addTeardownBlock { try? api.removePhoto(as: api.me) }
+        launch()
+        app.buttons["account"].tap()
+        let photo = app.buttons["profile.photo"]
+        XCTAssert(photo.waitForExistence(timeout: 5), "no photo row on the profile")
+        XCTAssertEqual(photo.label, "Change Profile Photo")
+        photo.tap()
+        let remove = app.buttons["Remove Photo"]
+        XCTAssert(remove.waitForExistence(timeout: 5), "no Remove Photo in the photo menu")
+        remove.tap()
+        try api.eventually("the photo removed") { try api.avatar(as: api.me) == nil ? true : nil }
+        XCTAssert(app.buttons["Add Profile Photo"].waitForExistence(timeout: 10), "the profile still offers to change the photo")
+    }
+
     func testNotificationTogglesSaveEachSetting() throws {
         let api = server!
         guard try api.notifications(as: api.me) != nil else {
@@ -730,6 +749,125 @@ final class LinksUITests: XCTestCase {
 
     // MARK: Chats
 
+    func testChatTasteMatchCountsAllAndOpensTheLatestThreeLinkPages() throws {
+        let meID = try server.state(as: server.me).me
+        let name = "Taste \(shortID())"
+        let chat = try server.startChat(name: name, members: [meID], as: server.friend)
+        leaveAfterwards(chat.id)
+        var matches: [LinksServer.Link] = []
+        for _ in 0..<4 {
+            let link = try server.add(uniqueURL(), to: chat.id, as: server.friend)
+            try server.react(link.id, emoji: "❤️", as: server.me)
+            try server.react(link.id, emoji: "🔥", as: server.friend)
+            matches.append(link)
+        }
+        let oneSided = try server.add(uniqueURL(), to: chat.id, as: server.friend)
+        try server.react(oneSided.id, emoji: "❤️", as: server.me)
+        launch()
+        pickChat(name)
+        openChatPicker()
+        app.buttons["Chat Info"].tap()
+        let summary = app.staticTexts["tasteMatch.summary"]
+        XCTAssert(summary.waitForExistence(timeout: 5))
+        XCTAssertEqual(summary.label, "You and Friend both loved 4 links")
+        XCTAssertFalse(app.buttons["tasteMatch.link.\(matches[0].id)"].exists)
+        XCTAssertFalse(app.buttons["tasteMatch.link.\(oneSided.id)"].exists)
+        for link in matches.suffix(3).reversed() {
+            scrolledTo(app.buttons["tasteMatch.link.\(link.id)"]).tap()
+            XCTAssert(app.scrollViews["linkPage.\(link.id)"].waitForExistence(timeout: 5))
+            app.navigationBars.buttons.element(boundBy: 0).tap()
+            openChatPicker()
+            app.buttons["Chat Info"].tap()
+        }
+        let state = try server.state(as: server.me)
+        XCTAssert(matches.allSatisfy { state.link($0.id)?.seen[meID] == nil }, "browsing matches marked links seen")
+    }
+
+    func testChatTasteMatchShowsAnEmptyStateForOneSidedLoves() throws {
+        let meID = try server.state(as: server.me).me
+        let name = "New taste \(shortID())"
+        let chat = try server.startChat(name: name, members: [meID], as: server.friend)
+        leaveAfterwards(chat.id)
+        let link = try server.add(uniqueURL(), to: chat.id, as: server.friend)
+        try server.react(link.id, emoji: "❤️", as: server.me)
+        launch()
+        pickChat(name)
+        openChatPicker()
+        app.buttons["Chat Info"].tap()
+        XCTAssert(app.staticTexts["tasteMatch.empty"].waitForExistence(timeout: 5))
+        XCTAssertFalse(app.staticTexts["tasteMatch.summary"].exists)
+        XCTAssertFalse(app.buttons["tasteMatch.link.\(link.id)"].exists)
+    }
+
+    func testChatTasteMatchOpensFromTheChatsList() throws {
+        let meID = try server.state(as: server.me).me
+        let name = "List taste \(shortID())"
+        let chat = try server.startChat(name: name, members: [meID], as: server.friend)
+        leaveAfterwards(chat.id)
+        let link = try server.add(uniqueURL(), to: chat.id, as: server.friend)
+        try server.react(link.id, emoji: "❤️", as: server.me)
+        try server.react(link.id, emoji: "🔥", as: server.friend)
+        launch()
+        openChatPicker()
+        app.buttons["Chats…"].tap()
+        scrolledTo(app.buttons["chat.row.\(chat.id)"]).tap()
+        scrolledTo(app.buttons["tasteMatch.link.\(link.id)"]).tap()
+        XCTAssert(app.scrollViews["linkPage.\(link.id)"].waitForExistence(timeout: 5))
+        XCTAssertFalse(app.navigationBars["Chat Info"].exists)
+        XCTAssertNil(try server.state(as: server.me).link(link.id)?.seen[meID])
+    }
+
+    func testChatTasteMatchNeedsTheWholeGroupAndRefreshesReactionChanges() throws {
+        let meID = try server.state(as: server.me).me
+        let thirdID = try server.state(as: server.deletable).me
+        let name = "Group taste \(shortID())"
+        let chat = try server.startChat(name: name, members: [meID, thirdID], as: server.friend)
+        leaveAfterwards(chat.id)
+        let server = server!
+        addTeardownBlock { try? server.leaveChat(chat.id, as: server.deletable) }
+        let link = try server.add(uniqueURL(), to: chat.id, as: server.friend)
+        try server.react(link.id, emoji: "❤️", as: server.me)
+        try server.react(link.id, emoji: "🔥", as: server.friend)
+        launch()
+        pickChat(name)
+        openChatPicker()
+        app.buttons["Chat Info"].tap()
+        XCTAssert(app.staticTexts["tasteMatch.empty"].waitForExistence(timeout: 5))
+
+        try server.react(link.id, emoji: "😂", as: server.deletable)
+        app.swipeDown()
+        let summary = app.staticTexts["tasteMatch.summary"]
+        XCTAssert(summary.waitForExistence(timeout: 15))
+        XCTAssertEqual(summary.label, "All 3 of you loved 1 link")
+        try server.react(link.id, emoji: "👎", as: server.deletable)
+        app.swipeDown()
+        XCTAssert(app.staticTexts["tasteMatch.empty"].waitForExistence(timeout: 15))
+        XCTAssertFalse(app.buttons["tasteMatch.link.\(link.id)"].exists)
+    }
+
+    func testChatTasteMatchAtLargestTextSizeOpensTheLinkPage() throws {
+        let meID = try server.state(as: server.me).me
+        let name = "Large taste \(shortID())"
+        let chat = try server.startChat(name: name, members: [meID], as: server.friend)
+        leaveAfterwards(chat.id)
+        let link = try server.add(uniqueURL(), to: chat.id, as: server.friend)
+        try server.react(link.id, emoji: "❤️", as: server.me)
+        try server.react(link.id, emoji: "🔥", as: server.friend)
+        app.launchArguments = ["-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityXXXL"]
+        defer { app.launchArguments = [] }
+        launch()
+        pickChat(name)
+        openChatPicker()
+        let info = app.buttons["Chat Info"]
+        for _ in 0..<5 where !info.isHittable { app.swipeUp() }
+        info.tap()
+        let summary = app.staticTexts["tasteMatch.summary"]
+        XCTAssert(summary.waitForExistence(timeout: 5))
+        XCTAssertGreaterThan(summary.frame.width, 0)
+        scrolledTo(app.buttons["tasteMatch.link.\(link.id)"]).tap()
+        XCTAssert(app.scrollViews["linkPage.\(link.id)"].waitForExistence(timeout: 5))
+    }
+
     func testChatInfoSavesMuteDurationsAndKeepsLinksVisible() throws {
         let meID = try server.state(as: server.me).me
         let name = "Mute \(shortID())"
@@ -741,7 +879,7 @@ final class LinksUITests: XCTestCase {
         pickChat(name)
         openChatPicker()
         app.buttons["Chat Info"].tap()
-        let toggle = app.switches["chat.mute"]
+        let toggle = scrolledTo(app.switches["chat.mute"])
         XCTAssert(toggle.waitForExistence(timeout: 5))
 
         toggle.switches.firstMatch.tap()

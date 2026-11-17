@@ -95,6 +95,11 @@ final class AppModel {
             tourCompleted = false
         }
         #if DEBUG
+        // Extensions don't inherit the UI test runner's environment.
+        LinksConfig.sharedDefaults.set(
+            ProcessInfo.processInfo.environment["LINKS_DEV_TOKEN"] != nil
+                ? ProcessInfo.processInfo.environment["LINKS_SERVER_URL"] : nil,
+            forKey: "links.uiTests.serverURL")
         // LINKS_HOLD_PRACTICE_CONFIRMATION=1: the Share Extension keeps practice Send's confirmation up
         // until it's tapped (the tour's UI test). Written every launch, so it never outlives the test.
         Onboarding.shared.holdsPracticeConfirmation =
@@ -231,6 +236,38 @@ final class AppModel {
             return
         }
         await refresh()
+    }
+
+    /// Uploads `data` from the photo picker as my avatar (#97), squared and shrunk first. Throws,
+    /// like `rename`, for the profile to show.
+    func setPhoto(_ data: Data) async throws {
+        let session = sessionID
+        guard let jpeg = await Task.detached(operation: { ProfilePhoto.jpeg(from: data) }).value else {
+            throw APIError.server("That photo couldn't be opened. Try another one.")
+        }
+        guard session == sessionID else { return }
+        try await savePhoto(session) { try await $0.setPhoto(jpeg) }
+    }
+
+    func removePhoto() async throws {
+        try await savePhoto(sessionID) { try await $0.removePhoto() }
+    }
+
+    /// A reply that lands after Sign Out (still available while a photo saves) is dropped, so it
+    /// can't put the old account back.
+    private func savePhoto(_ session: UUID, _ save: (APIClient) async throws -> MeResponse) async throws {
+        do {
+            let me = try await save(client)
+            guard session == sessionID else { return }
+            setAccount(me.user)
+        } catch APIError.signedOut {
+            if session == sessionID { endSession() }
+            return
+        } catch {
+            guard session == sessionID else { return }
+            throw error
+        }
+        await refresh() // my avatar on the links I sent
     }
 
     /// Shows the change at once. Once the last tap's save is done, the switches show the server's

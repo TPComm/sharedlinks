@@ -1,6 +1,6 @@
 import { Database } from "bun:sqlite";
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { startServer } from "../src/app.ts";
@@ -204,6 +204,25 @@ describe("auth", () => {
   });
 });
 
+describe("browser landing page", () => {
+  test("introduces Links without signing in or advertising an unconfigured download", async () => {
+    const res = await call("/");
+    expect(res.status).toBe(200);
+    expect(res.headers.get("content-type")).toBe("text/html; charset=utf-8");
+    expect(res.data).toContain("Good finds.");
+    expect(res.data).toContain("Links is invite-only.");
+    expect(res.data).toContain('href="sharedlinks://inbox"');
+    expect(res.data).toContain('href="/privacy"');
+    expect(res.data).toContain('href="/support"');
+    expect(res.data).toContain('href="/icon.png"');
+    expect(res.data).toContain('src="/app-preview.png"');
+    expect(res.data).toContain("The real Links app. A few made-up finds.");
+    expect(res.data).not.toContain("apps.apple.com");
+    expect(res.data).not.toContain("apple-itunes-app");
+    expect(res.data).not.toContain("<script");
+  });
+});
+
 describe("invites", () => {
   const tokenOf = (url: string) => url.split("/invite/")[1]!;
   let me: string;
@@ -368,7 +387,7 @@ describe("links", () => {
     const db = new Database(join(dataDir, "links.db"), { readonly: true });
     const { sql } = db.query("SELECT sql FROM sqlite_master WHERE name = 'links'").get() as { sql: string };
     expect(sql).toContain("AUTOINCREMENT");
-    expect((db.query("PRAGMA user_version").get() as any).user_version).toBe(16);
+    expect((db.query("PRAGMA user_version").get() as any).user_version).toBe(17);
     db.close();
     const { data } = await call("/api/state", { token });
     expect(data.links.map((l: any) => l.url)).toContain("https://de.wikipedia.org/wiki/M%C3%BCnchen");
@@ -585,6 +604,50 @@ describe("links", () => {
     const withThumb = data.links.find((l: any) => l.thumb);
     expect((await call(`/api/links/${withThumb.id}`, { method: "DELETE", token })).data).toEqual({ ok: true });
     expect((await call(withThumb.thumb, { token })).status).toBe(404);
+  });
+
+  test("profile photos: upload replaces the WorkOS picture at a new public address; remove goes back to initials", async () => {
+    const put = (body: Uint8Array | string, t = token) => fetch(api + "/api/me/photo", { method: "PUT", body,
+      headers: { Authorization: `Bearer ${t}`, "Content-Type": "image/jpeg" } });
+    const avatarIn = async () => ({ me: (await call("/api/me", { token })).data.user.avatar,
+      state: (await call("/api/state", { token })).data.users.find((u: any) => u.id === friendId)?.avatar });
+    expect((await avatarIn()).me).toBe("https://example.com/r.png");
+    expect((await fetch(api + "/api/me/photo", { method: "PUT", body: PNG })).status).toBe(401);
+    for (const bad of ["not a photo", new Uint8Array(0), Uint8Array.of(0xff, 0xd8, 0xff, 0, 0, 0), PNG.slice(0, 24)]) {
+      expect((await put(bad)).status).toBe(400);
+    }
+    const huge = new Uint8Array(2_000_001);
+    huge.set(PNG);
+    expect((await put(huge)).status).toBe(413);
+    expect((await avatarIn()).me).toBe("https://example.com/r.png");
+
+    const first = await put(PNG);
+    expect(first.status).toBe(200);
+    const url = ((await first.json()) as any).user.avatar as string;
+    expect(url).toMatch(/^https:\/\/links\.example\.com\/photos\/[A-Za-z0-9_-]{32}$/);
+    expect(await avatarIn()).toEqual({ me: url, state: url });
+    const path = new URL(url).pathname;
+    const served = await fetch(api + path); // no session: AsyncImage doesn't send one
+    expect(served.status).toBe(200);
+    expect(served.headers.get("Content-Type")).toBe("image/png");
+    expect(served.headers.get("X-Content-Type-Options")).toBe("nosniff");
+    expect(new Uint8Array(await served.arrayBuffer())).toEqual(PNG);
+    expect(readdirSync(join(dataDir, "photos"))).toEqual([path.split("/")[2]!]);
+
+    const second = ((await (await put(PNG)).json()) as any).user.avatar as string;
+    expect(second).not.toBe(url);
+    expect((await fetch(api + path)).status).toBe(404);
+    expect(readdirSync(join(dataDir, "photos"))).toEqual([second.split("/")[4]!]);
+    expect((await fetch(api + "/photos/../links.db")).status).toBe(404);
+
+    const removed = await call("/api/me/photo", { method: "DELETE", token });
+    expect(removed.status).toBe(200);
+    expect(removed.data.user.avatar).toBeNull();
+    expect(await avatarIn()).toEqual({ me: null, state: null });
+    expect((await fetch(new URL(second).pathname.replace(/^/, api))).status).toBe(404);
+    expect(readdirSync(join(dataDir, "photos"))).toEqual([]);
+    // Signing in again doesn't bring the WorkOS picture back over their choice.
+    expect((await signIn("good")).data.user.avatar).toBeNull();
   });
 
   test("logout ends the session", async () => {
@@ -1276,6 +1339,24 @@ describe("universal links", () => {
 });
 
 describe("deleting an account", () => {
+  test("keeps a shared report photo until its last reporter deletes their account", async () => {
+    const subject = mint("photo-subject@test.com", "Subject");
+    const first = mint("photo-first@test.com", "First");
+    const second = mint("photo-second@test.com", "Second");
+    const photo = await fetch(api + "/api/me/photo", { method: "PUT", body: PNG, headers: { Authorization: `Bearer ${subject}` } });
+    const user = ((await photo.json()) as any).user;
+    const copy = join(dataDir, "report-photos", new URL(user.avatar).pathname.split("/")[2]!);
+    for (const token of [first, second]) {
+      expect((await call("/api/reports", { token, body: { user_id: user.id, reason: "spam" } })).status).toBe(201);
+    }
+    expect(existsSync(copy)).toBe(true);
+    expect((await call("/api/me", { method: "DELETE", token: first })).status).toBe(200);
+    expect(existsSync(copy)).toBe(true);
+    expect((await call("/api/me", { method: "DELETE", token: second })).status).toBe(200);
+    expect(existsSync(copy)).toBe(false);
+    expect((await call("/api/me", { method: "DELETE", token: subject })).status).toBe(200);
+  });
+
   test("removes the person, every session, their marks and reactions, and the links they sent", async () => {
     const jane = await signIn("domain");
     const otherPhone = await signIn("domain");
@@ -1295,8 +1376,21 @@ describe("deleting an account", () => {
     }
     await idle();
     expect(existsSync(join(dataDir, "thumbs", String(sent.id)))).toBe(true);
+    const photo = await fetch(api + "/api/me/photo", { method: "PUT", body: PNG, headers: { Authorization: `Bearer ${token}` } });
+    const photoPath = new URL(((await photo.json()) as any).user.avatar).pathname;
+    // A report on Jane keeps its own copy of her photo, which outlives the photo itself.
+    expect((await call("/api/reports", { token: friendToken, body: { user_id: janeId, reason: "offensive" } })).status).toBe(201);
+    const reportCopy = join(dataDir, "report-photos", photoPath.split("/")[2]!);
+    expect(existsSync(reportCopy)).toBe(true);
+    // Reporting her again after she changes it keeps the first report, so it makes no second copy.
+    await fetch(api + "/api/me/photo", { method: "PUT", body: PNG, headers: { Authorization: `Bearer ${token}` } });
+    expect((await call("/api/reports", { token: friendToken, body: { user_id: janeId, reason: "spam" } })).status).toBe(201);
+    expect(readdirSync(join(dataDir, "report-photos"))).toEqual([photoPath.split("/")[2]!]);
 
     expect((await call("/api/me", { method: "DELETE", token })).data).toEqual({ ok: true });
+    expect((await fetch(api + photoPath)).status).toBe(404);
+    expect(existsSync(join(dataDir, photoPath))).toBe(false);
+    expect(existsSync(reportCopy)).toBe(false);
 
     // Every session is gone, with the 401 the app reads as "signed out".
     for (const t of [token, otherPhone.data.token]) {

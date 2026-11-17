@@ -32,6 +32,11 @@ marks it seen in one go.
 The **Throwback** card in Seen resurfaces links from at least a week ago that you and a friend
 loved, with a different starting pick each day.
 
+**Chat Info → Taste Match** counts links in that chat that every current member has reacted to
+with ❤️, 😂 or 🔥, and opens the three most recently shared matches on their normal link pages.
+It needs at least two people, uses only links visible to you, and updates as reactions and chat
+membership change. Browsing a match does not mark it seen.
+
 Each link's page also has a comment thread: read and reply below the reactions and receipts,
 edit or delete your own comments, or report someone else's. The list shows comment counts and
 highlights new replies; read positions stay on this device, separate for each account. The
@@ -40,6 +45,18 @@ sender's original note stays separate from the conversation.
 New people get a short **welcome tour** after their first sign-in (Profile → Show Tour Again).
 It walks through putting Links at the front of the share sheet, with a practice share that ticks
 itself off, and TipKit tips then point out the gestures once each.
+
+## Messages extension
+
+In Messages, open **+ → Links** (under **More** if needed), browse **Queue / Recent**, and tap
+a link to insert a draft, **not send it**. The draft uses the public `/l/<token>` share page,
+never the original URL. Older cached links without a share page stay greyed out until refreshed
+in Links. Select a Links message to see **Open in Links** for its link page; open the main app
+to sign in if needed.
+
+On the iOS 27 Simulator, this flow works in the seeded iMessage conversation
+**+1 (555) 564-8583**, which `MessagesUITests` uses to check draft insertion without sending.
+New conversations stay SMS, with the iMessage app drawer disabled.
 
 ## Set up WorkOS (once)
 
@@ -150,7 +167,7 @@ WORKOS_CLIENT_ID=client_... \
 ```
 
 That adds swap on small boxes, installs Caddy and automatic security updates, creates a locked-down
-`links` service and a daily database backup (`/var/lib/links/backups`, newest 14 nightly snapshots), opens only
+`links` service and a daily database backup (`/var/lib/links/backups`, newest 14 nightly snapshots, plus a `photos/` copy of the current profile photos), opens only
 SSH/80/443, then builds the right binary for the VPS's CPU on your Mac and deploys it. Finally set
 `LINKS_SERVER_URL_Release = https:/$()/links.example.com` in `ios/Config.xcconfig`, and let yourself
 in: `sudo -u links sh -c 'set -a && . /etc/links/links.env && DATA_DIR=/var/lib/links /opt/links/links-server invite you@x.com'`.
@@ -166,7 +183,10 @@ runtime is inside the binary, so run `bun upgrade && deploy/deploy.sh …` about
 them the app still works, polling while it's open. To turn them on:
 
 1. In [Certificates, Identifiers & Profiles](https://developer.apple.com/account/resources/identifiers/list),
-   open the app's identifier (`LINKS_BUNDLE_ID`) and tick **Push Notifications**.
+   open the app's identifier (`LINKS_BUNDLE_ID`) and tick **Push Notifications** and **Communication
+   Notifications** (new-link pushes show the sender's photo). The notification service extension,
+   `LINKS_BUNDLE_ID.notifications`, which adds that photo and the link's thumbnail, needs its own
+   identifier with the App Group, like `.share` and `.widgets`.
 2. Under [Keys](https://developer.apple.com/account/resources/authkeys/list), add a key with
    **Apple Push Notifications service (APNs)**, for **Sandbox & Production** so one key covers Xcode
    builds and TestFlight/App Store builds. Download the `.p8` (only possible once) and note its Key ID.
@@ -215,8 +235,10 @@ editing it there, export it (Share → Export, without "Export for sharing exter
 **Grafana alerts:** `deploy/grafana/links-alerts.json` is the live "links-prod" rule group in the
 Links folder: **Links site down** (`links` or `caddy` unit not active for 3m, or the host stops
 sending metrics), **Links 5xx spike** (5 or more 5xx request lines in 5m), **Links disk filling
-up** (under 15% free on `/` for 10m) and **Links backup stalled** (no `backed up to` line from
-`links-backup` in 26h, so the daily backup stopped running or kept failing). They match
+up** (under 15% free on `/` for 10m), **Links backup stalled** (no `backed up to` line from
+`links-backup` in 26h, so the daily backup stopped running or kept failing) and **Links push
+notifications failing** (3 or more push failure log lines in 15m for 5m, so a one-off 429 rate
+limit doesn't page; successful sends aren't logged). They match
 `instance`/`host` `links.tpcomm.co` only, so test servers never fire them, and send to the
 "Links → Sherlog (Devin webhook)" contact point. After changing them in Grafana, export the group
 (Alert rules → links-prod → Export, JSON) over this file.
@@ -293,6 +315,8 @@ API endpoints except sign-in need `Authorization: Bearer <session token>`; pages
 
 | Method | Path | Body / notes |
 | --- | --- | --- |
+| GET | `/` | public browser landing page; opens the iPhone app, explains invites, and links to support and privacy; `APP_STORE_ID` adds an App Store link and Smart App Banner |
+| GET | `/app-preview.png` | public iPhone app screenshot with fictional sample data, embedded in the server binary for the landing page |
 | GET | `/auth/authorize` | `?code_challenge=&state=[&screen_hint=sign-up]` → redirects to AuthKit |
 | GET | `/auth/callback` | AuthKit's redirect; bounces to `sharedlinks://auth/callback?code=…` |
 | POST | `/api/auth/token` | `{code, code_verifier, invite?}` → `{token, user, claimable, group_id}`; `invite` is the token from an invite link, used up here or by `/api/invites/accept`; `group_id` is the chat it took them to (null without one) |
@@ -300,11 +324,13 @@ API endpoints except sign-in need `Authorization: Bearer <session token>`; pages
 | POST | `/api/devices` | `{token, env}`: this session's APNs device token (hex), `env` is `sandbox` or `production` → `{ok, push}` (`push`: whether the server sends any). Registering a token again moves it to this session |
 | DELETE | `/api/devices/:token` | forget one of your device tokens |
 | GET/PATCH/DELETE | `/api/me` | `{user, claimable, notifications}`; PATCH `{name}` and/or `{notifications: {watched?, reactions?}}` (booleans, both on to start: whether I get a push when someone watches or reacts to a link I sent; a watch and a reaction from one person within a minute go out as one); DELETE deletes the account, its sessions, watched marks and reactions, and the links it sent (with their notes and thumbnails, for everyone). Also the WorkOS user, given `WORKOS_API_KEY` |
+| PUT/DELETE | `/api/me/photo` | PUT's body is my profile photo itself, a JPEG or PNG up to 2 MB and 4096px a side (the app sends a 512px JPEG); it replaces the WorkOS picture as my `avatar` everywhere, at a new `/photos/:token` address each time. DELETE goes back to initials. Both return what `GET /api/me` does |
+| GET | `/photos/:token` | A profile photo, no sign-in needed (`AsyncImage` sends none): the address is random and stops working once its photo is replaced or removed, or its account deleted |
 | POST | `/api/me/claim` | `{id}` of a legacy person in my `claimable` (one `links-server claim` approved for my account) |
 | GET | `/api/state` | `{me, users, groups, links, blocked}`: `users` is only people I share a chat with, plus anyone named on a link in my chats and people I blocked; the chats I'm in (`{id, name, created_by, created_at, default, members, muted, muted_until}`; my effective mute and its Unix-seconds deadline, null when unmuted or indefinite) and their links (each with its `group_id`), without links I reported or that people I blocked sent, and without blocked people's watched marks and reactions; `?group_id=` for one chat's links |
 | POST | `/api/links` | `{url, note?, group_id?}`; `url` may be any text containing a link; without `group_id` (apps from before chats) it goes to the default chat, or my only chat if I left that → `{link, duplicate}` (a duplicate only within the same chat) |
 | POST | `/api/groups` | `{name?, members?}` (user ids; I'm added) → 201 `{group}`. An empty name means the app names it after its members; up to 50 people |
-| PATCH | `/api/groups/:id` | `{name?, muted?, muted_until?}` (at least one): rename the chat or change only my mute → `{group}`. `muted: true` mutes indefinitely with an omitted/null deadline, or until `muted_until` (finite future Unix seconds); `muted: false` clears the deadline. A deadline alone updates the existing mute's deadline. Muting suppresses new-link and watched/reaction alerts, not Queue counts or badges |
+| PATCH | `/api/groups/:id` | `{name?, muted?, muted_until?}` (at least one): rename the chat or change only my mute → `{group}`. `muted: true` mutes indefinitely with an omitted/null deadline, or until `muted_until` (finite future Unix seconds); `muted: false` clears the deadline. A deadline alone updates the existing mute's deadline. Muting suppresses new-link, comment and watched/reaction alerts, not Queue counts or badges |
 | POST | `/api/groups/:id/members` | `{members}`: any member adds people who are in Links → `{group}`. Nobody removes anyone else |
 | DELETE | `/api/groups/:id` | Leave the chat; the links I sent stay in it. The last one out deletes it and its links (never the default chat) |
 | POST | `/api/links/:id/seen` | `{seen: true/false}` |
@@ -334,7 +360,11 @@ Anyone with that URL can view its title and thumbnail and open the original URL,
 Each link also includes `comment_count` and `last_comment: {person, snippet, at} | null`, scoped to
 what the reader may see. The snippet is at most 120 Unicode characters; `at` is the comment's
 creation time in Unix seconds, not its edit time. Comments stay separate from the sender's note.
-Comments do not send push notifications or change widget/app badges; the app tracks read threads locally.
+New comments alert every current chat member except the author, on devices with live app sessions.
+Members who muted the chat, reported the link, or blocked its sender or the commenter get no alert.
+Alerts identify the commenter and include a shortened comment preview; tapping opens the link.
+Edits, deletions and reports stay silent. Comments do not change Queue counts or widget/app badges;
+the app tracks read threads locally.
 
 Admin: `links-server mint-session <email> [name]`, `links-server delete-user <email>` (what the app's Delete Account does),
 `links-server claim [<email> <legacy name>]` (list legacy people, or let that account claim one),
