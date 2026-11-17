@@ -311,7 +311,7 @@ API endpoints except sign-in need `Authorization: Bearer <session token>`; pages
 | GET | `/api/state` | `{me, users, groups, links, blocked}`: `users` is only people I share a chat with, plus anyone named on a link in my chats and people I blocked; the chats I'm in (`{id, name, created_by, created_at, default, members, muted, muted_until}`; my effective mute and its Unix-seconds deadline, null when unmuted or indefinite) and their links (each with its `group_id`), without links I reported or that people I blocked sent, and without blocked people's watched marks and reactions; `?group_id=` for one chat's links |
 | POST | `/api/links` | `{url, note?, group_id?}`; `url` may be any text containing a link; without `group_id` (apps from before chats) it goes to the default chat, or my only chat if I left that → `{link, duplicate}` (a duplicate only within the same chat) |
 | POST | `/api/groups` | `{name?, members?}` (user ids; I'm added) → 201 `{group}`. An empty name means the app names it after its members; up to 50 people |
-| PATCH | `/api/groups/:id` | `{name?, muted?, muted_until?}` (at least one): rename the chat or change only my mute → `{group}`. `muted: true` mutes indefinitely with an omitted/null deadline, or until `muted_until` (finite future Unix seconds); `muted: false` clears the deadline. A deadline alone updates the existing mute's deadline. Muting suppresses new-link and watched/reaction alerts, not Queue counts or badges |
+| PATCH | `/api/groups/:id` | `{name?, muted?, muted_until?}` (at least one): rename the chat or change only my mute → `{group}`. `muted: true` mutes indefinitely with an omitted/null deadline, or until `muted_until` (finite future Unix seconds); `muted: false` clears the deadline. A deadline alone updates the existing mute's deadline. Muting suppresses new-link, comment and watched/reaction alerts, not Queue counts or badges |
 | POST | `/api/groups/:id/members` | `{members}`: any member adds people who are in Links → `{group}`. Nobody removes anyone else |
 | DELETE | `/api/groups/:id` | Leave the chat; the links I sent stay in it. The last one out deletes it and its links (never the default chat) |
 | POST | `/api/links/:id/seen` | `{seen: true/false}` |
@@ -341,7 +341,11 @@ Anyone with that URL can view its title and thumbnail and open the original URL,
 Each link also includes `comment_count` and `last_comment: {person, snippet, at} | null`, scoped to
 what the reader may see. The snippet is at most 120 Unicode characters; `at` is the comment's
 creation time in Unix seconds, not its edit time. Comments stay separate from the sender's note.
-Comments do not send push notifications or change widget/app badges; the app tracks read threads locally.
+New comments alert every current chat member except the author, on devices with live app sessions.
+Members who muted the chat, reported the link, or blocked its sender or the commenter get no alert.
+Alerts identify the commenter and include a shortened comment preview; tapping opens the link.
+Edits, deletions and reports stay silent. Comments do not change Queue counts or widget/app badges;
+the app tracks read threads locally.
 
 Admin: `links-server mint-session <email> [name]`, `links-server delete-user <email>` (what the app's Delete Account does),
 `links-server claim [<email> <legacy name>]` (list legacy people, or let that account claim one),
