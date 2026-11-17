@@ -191,8 +191,10 @@ if (command === "mint-session") {
       if (columns.some((c) => c.name === "photo")) {
         for (const { photo } of snapshot.query("SELECT photo FROM users WHERE photo <> ''").all() as { photo: string }[]) keptPhotos.add(photo);
       }
-      for (const { copy } of snapshot.query("SELECT json_extract(snapshot, '$.photo_copy') AS copy FROM reports WHERE json_extract(snapshot, '$.photo_copy') IS NOT NULL")
-        .all() as { copy: string }[]) keptReports.add(copy);
+      if (snapshot.query("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'reports'").get()) {
+        for (const { copy } of snapshot.query("SELECT json_extract(snapshot, '$.photo_copy') AS copy FROM reports WHERE json_extract(snapshot, '$.photo_copy') IS NOT NULL")
+          .all() as { copy: string }[]) keptReports.add(copy);
+      }
     } finally {
       snapshot.close();
     }

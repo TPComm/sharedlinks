@@ -177,6 +177,13 @@ e2e("backup keeps photos named by retained snapshots", async () => {
     expect(existsSync(join(dir, "links-2000-01-01-pre-deploy.db"))).toBe(false);
     expect(existsSync(join(dir, "photos", photo))).toBe(false);
     expect(existsSync(join(dir, evidence))).toBe(false);
+    const legacyFile = join(dir, "links-2002-01-01-pre-reports.db");
+    const legacy = new Database(legacyFile);
+    legacy.exec("CREATE TABLE users (id TEXT)");
+    legacy.close();
+    const preReports = await cli(dataDir, "backup");
+    expect(preReports.code, preReports.logs()).toBe(0);
+    expect(existsSync(legacyFile)).toBe(true);
   } finally {
     await server.stop();
   }
