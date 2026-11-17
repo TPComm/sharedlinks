@@ -92,6 +92,7 @@ struct LinkList: View {
     @Environment(AppModel.self) private var model
     let filter: InboxFilter
     let query: String
+    @State private var celebrateQueueZero = false
 
     var body: some View {
         if filter == .watched && query.isEmpty {
@@ -122,6 +123,11 @@ struct LinkList: View {
         .environment(\.gestureTipsLinkID, filter == .toWatch ? links.first?.id : nil)
         .animation(.default, value: links.map(\.id))
         .refreshable { await model.refresh() }
+        .onChange(of: model.inbox.links(for: .toWatch, in: model.chat).count) { oldCount, newCount in
+            celebrateQueueZero = filter == .toWatch && oldCount > 0 && newCount == 0 && query.isEmpty
+        }
+        .onChange(of: model.chat) { celebrateQueueZero = false }
+        .sensoryFeedback(.success, trigger: celebrateQueueZero) { _, newValue in newValue }
         .overlay {
             if links.isEmpty { emptyState }
         }
@@ -164,8 +170,7 @@ struct LinkList: View {
         } else {
             switch filter {
             case .toWatch:
-                ContentUnavailableView("All Caught Up", systemImage: "checkmark.circle",
-                                       description: Text("You've seen everything you were sent."))
+                QueueZeroView(recap: model.inbox.queueZeroRecap(in: model.chat), celebrate: celebrateQueueZero)
             case .watched:
                 ContentUnavailableView("Nothing Seen Yet", systemImage: "popcorn",
                                        description: Text("Links you've seen show up here."))
