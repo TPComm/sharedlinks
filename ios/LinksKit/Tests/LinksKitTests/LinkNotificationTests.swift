@@ -65,6 +65,6 @@ struct LinkNotificationTests {
 
     @Test func registersTheActionsTheAppHandles() {
         #expect(LinkNotification.category == "NEW_LINK")
-        #expect(Set([LinkNotification.markWatchedAction, LinkNotification.commentAction]).count == 2)
+        #expect(Set([LinkNotification.markSeenAction, LinkNotification.commentAction]).count == 2)
     }
 }

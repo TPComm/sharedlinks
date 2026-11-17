@@ -26,7 +26,7 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
     static let newLinkCategory = UNNotificationCategory(
         identifier: LinkNotification.category,
         actions: [
-            UNNotificationAction(identifier: LinkNotification.markWatchedAction, title: "Mark as Watched",
+            UNNotificationAction(identifier: LinkNotification.markSeenAction, title: "Mark as Seen",
                                  icon: UNNotificationActionIcon(systemImageName: "checkmark.circle")),
             UNTextInputNotificationAction(identifier: LinkNotification.commentAction, title: "Comment",
                                           icon: UNNotificationActionIcon(systemImageName: "bubble"),
@@ -87,7 +87,7 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
         let client = APIClient()
         do {
             switch action {
-            case LinkNotification.markWatchedAction: _ = try await client.setSeen(linkID, true)
+            case LinkNotification.markSeenAction: _ = try await client.setSeen(linkID, true)
             case LinkNotification.commentAction:
                 let body = comment?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
                 if !body.isEmpty { _ = try await client.addComment(linkID, body: body) }
