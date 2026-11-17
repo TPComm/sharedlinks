@@ -177,6 +177,7 @@ struct ChatInfoView: View {
                     Section {
                         Text(model.inbox.title(of: group)).font(.headline)
                     }
+                    TonightsPickSection(group: group, openLink: openLink)
                     TasteMatchSection(group: group, openLink: openLink)
                     if group.muted != nil {
                         Section {

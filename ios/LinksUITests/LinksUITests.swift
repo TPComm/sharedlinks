@@ -332,15 +332,19 @@ final class LinksUITests: XCTestCase {
             try server.comments(link.id, as: server.friend).count == 1 ? true : nil
         }
         app.navigationBars.buttons.element(boundBy: 0).tap()
-        waitFor(row, labelContaining: "1 comment")
-        XCTAssertFalse(row.label.contains("· New"), row.label)
+        // Replying marks it Seen, so the thread has moved out of Queue.
+        app.tabBars.buttons["Seen"].tap()
+        let seenRow = waitForRow(link, in: "watched")
+        waitFor(seenRow, labelContaining: "1 comment")
+        XCTAssertFalse(seenRow.label.contains("· New"), seenRow.label)
         app.terminate()
         launch()
-        let readRow = waitForRow(link, in: "toWatch")
+        app.tabBars.buttons["Seen"].tap()
+        let readRow = waitForRow(link, in: "watched")
         XCTAssertFalse(readRow.label.contains("· New"), "read state lost after relaunch")
 
         try server.addComment(link.id, body: "Did you spot the cat?", as: server.friend)
-        app.collectionViews["links.toWatch"].swipeDown()
+        app.collectionViews["links.watched"].swipeDown()
         waitFor(readRow, labelContaining: "2 comments · New")
     }
 
@@ -861,10 +865,10 @@ final class LinksUITests: XCTestCase {
         let info = app.buttons["Chat Info"]
         for _ in 0..<5 where !info.isHittable { app.swipeUp() }
         info.tap()
-        let summary = app.staticTexts["tasteMatch.summary"]
+        let summary = scrolledTo(app.staticTexts["tasteMatch.summary"], gently: true)
         XCTAssert(summary.waitForExistence(timeout: 5))
         XCTAssertGreaterThan(summary.frame.width, 0)
-        scrolledTo(app.buttons["tasteMatch.link.\(link.id)"]).tap()
+        scrolledTo(app.buttons["tasteMatch.link.\(link.id)"], gently: true).tap()
         XCTAssert(app.scrollViews["linkPage.\(link.id)"].waitForExistence(timeout: 5))
     }
 
@@ -900,7 +904,7 @@ final class LinksUITests: XCTestCase {
         XCTAssertEqual(hour, start + 3600, accuracy: 60)
         XCTAssertEqual(try server.state(as: server.friend).group(chat.id)?.muted, false)
 
-        app.buttons["Change Duration…"].tap()
+        scrolledTo(app.buttons["Change Duration…"]).tap()
         app.buttons["Until Tomorrow"].tap()
         let tomorrow = try server.eventually("chat muted until tomorrow") {
             let until = try server.state(as: server.me).group(chat.id)?.mutedUntil
@@ -910,7 +914,7 @@ final class LinksUITests: XCTestCase {
             of: Calendar.current.date(byAdding: .day, value: 1, to: Date())!)!
         XCTAssertEqual(tomorrow, expected.timeIntervalSince1970, accuracy: 1)
 
-        app.buttons["Change Duration…"].tap()
+        scrolledTo(app.buttons["Change Duration…"]).tap()
         app.buttons["Until I Turn It Back On"].tap()
         try server.eventually("chat muted indefinitely") {
             let group = try server.state(as: server.me).group(chat.id)
@@ -923,7 +927,7 @@ final class LinksUITests: XCTestCase {
         pickChat(name)
         openChatPicker()
         app.buttons["Chat Info"].tap()
-        XCTAssert(toggle.waitForExistence(timeout: 5))
+        XCTAssert(scrolledTo(toggle).waitForExistence(timeout: 5))
         waitFor(toggle, value: "1")
         toggle.switches.firstMatch.tap()
         waitFor(toggle, value: "0")
@@ -1173,9 +1177,17 @@ final class LinksUITests: XCTestCase {
 
     /// The profile's list makes rows only as they scroll in, so the bottom ones need a swipe.
     @discardableResult
-    private func scrolledTo(_ element: XCUIElement) -> XCUIElement {
-        for _ in 0..<5 where !(element.exists && element.isHittable) {
-            app.swipeUp()
+    private func scrolledTo(_ element: XCUIElement, gently: Bool = false) -> XCUIElement {
+        for _ in 0..<(gently ? 15 : 5) where !(element.exists && element.isHittable) {
+            if gently {
+                // Short drags avoid flinging past a virtualized row at accessibility text sizes.
+                let list = app.collectionViews.firstMatch
+                list.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.75))
+                    .press(forDuration: 0.1, thenDragTo:
+                        list.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.45)))
+            } else {
+                app.swipeUp()
+            }
         }
         return element
     }
