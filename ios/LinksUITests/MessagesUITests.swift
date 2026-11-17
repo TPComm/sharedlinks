@@ -69,6 +69,16 @@ final class MessagesUITests: XCTestCase {
         if continueButton.waitForExistence(timeout: 5) { continueButton.tap() }
         let cancel = messages.navigationBars["CKComposeChat"].buttons["Cancel"]
         if cancel.exists && cancel.isHittable { cancel.tap() }
+        let transcript = messages.collectionViews["TranscriptCollectionView"]
+        if transcript.waitForExistence(timeout: 2) {
+            let back = messages.navigationBars.buttons.element(boundBy: 0)
+            guard back.waitForExistence(timeout: 5), back.isHittable else {
+                attachMessagesHost()
+                XCTFail("Messages couldn't return from the open conversation to its conversation list")
+                return
+            }
+            back.tap()
+        }
         let seeded = messages.cells.containing(NSPredicate(format: "label CONTAINS %@", "564-8583")).firstMatch
         guard seeded.waitForExistence(timeout: 20) else {
             attachMessagesHost()
