@@ -26,6 +26,12 @@ function avatarOf(u: UserRow, publicUrl: string): string | null {
 export const MAX_PHOTO_BYTES = 2_000_000;
 const MAX_PHOTO_SIDE = 4096;
 
+/** Ends with JPEG's end-of-image marker or PNG's IEND chunk, so a cut-off upload isn't kept. */
+function isComplete(b: Uint8Array): boolean {
+  const end = (tail: number[]) => b.length > tail.length && tail.every((x, i) => b[b.length - tail.length + i] === x);
+  return end([0xff, 0xd9]) || end([0x49, 0x45, 0x4e, 0x44, 0xae, 0x42, 0x60, 0x82]);
+}
+
 /** "image/jpeg" or "image/png" for a profile photo's bytes, else null. */
 export function photoType(b: Uint8Array): string | null {
   if (b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff) return "image/jpeg";
@@ -290,7 +296,7 @@ export class Accounts {
    */
   setPhoto(userId: string, bytes: Uint8Array, write: <T>(change: () => T) => T = (change) => change()) {
     if (bytes.length > MAX_PHOTO_BYTES) throw new BadRequest("That photo is too big.");
-    const size = photoType(bytes) ? imageSize(bytes) : null;
+    const size = photoType(bytes) && isComplete(bytes) ? imageSize(bytes) : null;
     if (!size) throw new BadRequest("That isn't a JPEG or PNG photo.");
     if (size.width > MAX_PHOTO_SIDE || size.height > MAX_PHOTO_SIDE) throw new BadRequest("That photo is too big.");
     const token = randomBytes(24).toString("base64url");
