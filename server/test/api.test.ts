@@ -3,6 +3,7 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { existsSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { createConnection } from "node:net";
 import { startServer } from "../src/app.ts";
 import { configFromEnv } from "../src/config.ts";
 import { canonical, expandShortLink, extractUrl, platformOf } from "../src/links.ts";
@@ -152,6 +153,57 @@ async function call(path: string, opts: { method?: string; token?: string; body?
 
 const signIn = (code: string, verifier = VERIFIER, invite?: string) =>
   call("/api/auth/token", { body: { code, code_verifier: verifier, ...(invite ? { invite } : {}) } });
+
+test("a keep-alive connection still accepts a note PATCH after 13 seconds idle", async () => {
+  const token = mint("idle@example.com", "Idle");
+  const added = await call("/api/links", { token, body: { url: `${origin}/plain?idle` } });
+  expect(added.status).toBe(201);
+  const url = new URL(api);
+  const socket = createConnection({ host: url.hostname, port: Number(url.port) });
+  socket.on("error", () => {});
+  const request = (method: string, path: string, body = "") => new Promise<{ status: number; body: any }>((resolve, reject) => {
+    let received = Buffer.alloc(0);
+    const cleanup = () => {
+      socket.off("data", data);
+      socket.off("error", failed);
+      socket.off("close", closed);
+      clearTimeout(timer);
+    };
+    const failed = (error: Error) => { cleanup(); reject(error); };
+    const closed = () => failed(new Error("Keep-alive connection closed before the response"));
+    const data = (chunk: Buffer) => {
+      received = Buffer.concat([received, chunk]);
+      const end = received.indexOf("\r\n\r\n");
+      if (end < 0) return;
+      const headers = received.subarray(0, end).toString();
+      const length = headers.match(/\r\ncontent-length: (\d+)/i);
+      if (!length) { failed(new Error("Expected Content-Length on JSON response")); return; }
+      if (received.length < end + 4 + Number(length[1])) return;
+      cleanup();
+      try {
+        resolve({ status: Number(headers.split(" ")[1]), body: JSON.parse(received.subarray(end + 4).toString()) });
+      } catch (error) { reject(error); }
+    };
+    const timer = setTimeout(() => failed(new Error("Timed out reading keep-alive response")), 3000);
+    socket.on("data", data);
+    socket.on("error", failed);
+    socket.on("close", closed);
+    socket.write(`${method} ${path} HTTP/1.1\r\nHost: ${url.host}\r\nAuthorization: Bearer ${token}\r\nConnection: keep-alive\r\nContent-Type: application/json\r\nContent-Length: ${Buffer.byteLength(body)}\r\n\r\n${body}`, (error) => {
+      if (error) failed(error);
+    });
+  });
+  try {
+    expect((await request("GET", "/api/state")).status).toBe(200);
+    await Bun.sleep(13_000);
+    const patched = await request("PATCH", `/api/links/${added.data.link.id}`, JSON.stringify({ note: "Still connected" }));
+    expect(patched.status).toBe(200);
+    expect(patched.body.link.note).toBe("Still connected");
+    const state = await call("/api/state", { token });
+    expect(state.data.links.find((link: { id: number }) => link.id === added.data.link.id).note).toBe("Still connected");
+  } finally {
+    socket.destroy();
+  }
+}, 20_000);
 
 describe("auth", () => {
   test("everything but sign-in needs a session", async () => {

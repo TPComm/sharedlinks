@@ -1090,6 +1090,9 @@ export function startServer(config: Config, opts: AppOptions = {}) {
   const server = Bun.serve({
     port: config.port,
     hostname: config.hostname,
+    // Outlast Caddy's 2m upstream keep-alive and URLSession reuse: an expired connection
+    // loses non-idempotent requests (502 through Caddy, "connection lost" directly).
+    idleTimeout: 255,
     // JSON bodies stop at readJson's 64 KB; only PUT /api/me/photo takes more.
     maxRequestBodySize: MAX_PHOTO_BYTES + 65536,
     routes: app.routes,
