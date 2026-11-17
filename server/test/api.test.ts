@@ -1,6 +1,6 @@
 import { Database } from "bun:sqlite";
 import { afterAll, beforeAll, describe, expect, spyOn, test } from "bun:test";
-import { existsSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { startServer } from "../src/app.ts";
@@ -25,6 +25,8 @@ test("startup removes orphaned photos and report copies, but keeps referenced fi
   for (const file of ["photos/kept", "photos/orphan", "photos/unfinished.part", "report-photos/evidence", "report-photos/orphan"]) {
     writeFileSync(join(dir, file), PNG);
   }
+  mkdirSync(join(dir, "photos", "directory.part"));
+  mkdirSync(join(dir, "report-photos", "directory"));
   const reopened = openDatabase(dir);
   reopened.close();
   expect(existsSync(join(dir, "photos/orphan"))).toBe(true);
@@ -33,8 +35,8 @@ test("startup removes orphaned photos and report copies, but keeps referenced fi
   let started: ReturnType<typeof startServer> | undefined;
   try {
     started = startServer(config);
-    expect(readdirSync(join(dir, "photos"))).toEqual(["kept"]);
-    expect(readdirSync(join(dir, "report-photos"))).toEqual(["evidence"]);
+    expect(readdirSync(join(dir, "photos")).sort()).toEqual(["directory.part", "kept"]);
+    expect(readdirSync(join(dir, "report-photos")).sort()).toEqual(["directory", "evidence"]);
     expect(log.mock.calls).toEqual([["removed 2 orphaned profile photo(s) and 1 report photo(s)"]]);
     started.app.push.close();
     started.server.stop(true);
@@ -44,8 +46,8 @@ test("startup removes orphaned photos and report copies, but keeps referenced fi
     log.mockClear();
     started = startServer(config);
     expect(log).not.toHaveBeenCalled();
-    expect(readdirSync(join(dir, "photos"))).toEqual(["kept"]);
-    expect(readdirSync(join(dir, "report-photos"))).toEqual(["evidence"]);
+    expect(readdirSync(join(dir, "photos")).sort()).toEqual(["directory.part", "kept"]);
+    expect(readdirSync(join(dir, "report-photos")).sort()).toEqual(["directory", "evidence"]);
   } finally {
     log.mockRestore();
     if (started) {

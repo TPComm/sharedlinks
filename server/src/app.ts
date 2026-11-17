@@ -1090,8 +1090,10 @@ export function startServer(config: Config, opts: AppOptions = {}) {
   const named = new Set((app.db.query("SELECT photo FROM users WHERE photo <> ''").all() as { photo: string }[]).map((r) => r.photo));
   const evidence = new Set((app.db.query("SELECT json_extract(snapshot, '$.photo_copy') AS copy FROM reports WHERE json_extract(snapshot, '$.photo_copy') IS NOT NULL")
     .all() as { copy: string }[]).map((r) => r.copy));
-  const photos = readdirSync(join(config.dataDir, "photos")).filter((f) => f.endsWith(".part") || !named.has(f));
-  const reported = readdirSync(join(config.dataDir, "report-photos")).filter((f) => !evidence.has(join("report-photos", f)));
+  const photos = readdirSync(join(config.dataDir, "photos"), { withFileTypes: true })
+    .filter((f) => f.isFile() && (f.name.endsWith(".part") || !named.has(f.name))).map((f) => f.name);
+  const reported = readdirSync(join(config.dataDir, "report-photos"), { withFileTypes: true })
+    .filter((f) => f.isFile() && !evidence.has(join("report-photos", f.name))).map((f) => f.name);
   for (const f of photos) rmSync(join(config.dataDir, "photos", f));
   for (const f of reported) rmSync(join(config.dataDir, "report-photos", f));
   if (photos.length || reported.length) console.log(`removed ${photos.length} orphaned profile photo(s) and ${reported.length} report photo(s)`);
