@@ -224,14 +224,8 @@ fi
 
 # Without the TEST_RUNNER_ values the tests skip themselves; here that would be a false pass.
 if [[ $status -eq 0 ]] && grep -q "^Test Case '.*' skipped" "$logs/xcodebuild.log"; then
-  messages_skip="Messages on this Simulator can't open iMessage apps: the app drawer is disabled (no iMessage daemon); run on a device"
-  skip_reasons="$(grep ' : Test skipped - ' "$logs/xcodebuild.log" || true)"
-  if [[ -z "$skip_reasons" ]] || printf '%s\n' "$skip_reasons" | grep -Fv "$messages_skip"; then
-    echo "error: UI tests were skipped, so the server URL or tokens didn't reach them" >&2
-    status=1
-  else
-    echo "warning: $messages_skip" >&2
-  fi
+  echo "error: UI tests were skipped, so the server URL or tokens didn't reach them" >&2
+  status=1
 fi
 if [[ $status -ne 0 ]]; then
   echo "--- server log (last 40 lines) ---" >&2

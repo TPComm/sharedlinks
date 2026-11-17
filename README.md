@@ -54,9 +54,9 @@ never the original URL. Older cached links without a share page stay greyed out 
 in Links. Select a Links message to see **Open in Links** for its link page; open the main app
 to sign in if needed.
 
-Here, iOS 27 Simulator Messages could not open iMessage apps: the drawer was disabled with an
-SMS-only recipient. `MessagesUITests` skips that host-limitation case; actual insertion still
-needs verification on a real device.
+On the iOS 27 Simulator, this flow works in the seeded iMessage conversation
+**+1 (555) 564-8583**, which `MessagesUITests` uses to check draft insertion without sending.
+New conversations stay SMS, with the iMessage app drawer disabled.
 
 ## Set up WorkOS (once)
 
