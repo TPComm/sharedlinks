@@ -29,6 +29,7 @@ const threadId = (groupId: number, isDefault: number) => (isDefault ? "links-inb
 const IN_CHAT = (r: string, l: string) =>
   `EXISTS (SELECT 1 FROM group_members WHERE group_id = ${l}.group_id AND user_id = ${r})`;
 const MAX_PAYLOAD = 4096;
+const MAX_AVATAR_URL = 1024;
 /** Provider tokens must be refreshed every 20–60 minutes. */
 const JWT_TTL_S = 50 * 60;
 const IDLE_PING_MS = 60 * 60 * 1000;
@@ -115,9 +116,10 @@ export class Pusher {
     const title = named ? `${link.name} in ${link.chat}` : link.name;
     // For the app's Notification Service Extension, which shows the sender's photo (as Messages
     // does) and attaches the thumbnail, fetched with the phone's own session.
+    // A photo URL too long to leave room for the alert in 4 KB is left out (the push still goes).
     const rich = {
       sender_name: link.name,
-      ...(link.avatar ? { sender_avatar: link.avatar } : {}),
+      ...(link.avatar && link.avatar.length <= MAX_AVATAR_URL ? { sender_avatar: link.avatar } : {}),
       ...(named ? { chat: link.chat } : {}),
       ...(link.thumb_type ? { thumb: `/thumbs/${linkId}${link.thumb_v ? `/${link.thumb_v}` : ""}` } : {}),
     };
