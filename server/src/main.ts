@@ -19,6 +19,7 @@
  *      SESSION_DAYS, APNS_TEAM_ID, APNS_TOPIC (the app's bundle id), APNS_KEY_ID + APNS_KEY_FILE (one
  *      .p8 key for Sandbox and Production); push is off without them
  */
+import { Database } from "bun:sqlite";
 import { copyFileSync, existsSync, mkdirSync, readdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { Accounts } from "./accounts.ts";
@@ -121,18 +122,38 @@ if (command === "mint-session") {
   const dir = rest[0] ?? join(config.dataDir, "backups");
   mkdirSync(dir, { recursive: true });
   const file = join(dir, `links-${new Date().toISOString().slice(0, 10)}.db`);
-  rmSync(file, { force: true });
-  const db = openDatabase(config.dataDir, config.legacyAllowedEmails);
-  db.run("VACUUM INTO ?", [file]);
-  db.close();
-  // Uploaded profile photos live outside SQLite and can't be fetched again. Each token's file never
-  // changes, so copy the new ones; a copy whose photo was replaced or removed goes, as deletion promises.
+  // Uploaded profile photos live outside SQLite and can't be fetched again; each token's file never
+  // changes. They're copied before the snapshot and again for the tokens it names, so a photo replaced
+  // in between is still saved; one that came and went in between means another try. A copy whose photo
+  // the snapshot no longer names goes, as deletion promises.
   const photos = join(config.dataDir, "photos");
   const saved = join(dir, "photos");
   mkdirSync(saved, { recursive: true });
-  const live = new Set(existsSync(photos) ? readdirSync(photos).filter((f) => !f.endsWith(".part")) : []);
-  for (const f of live) if (!existsSync(join(saved, f))) copyFileSync(join(photos, f), join(saved, f));
-  for (const f of readdirSync(saved)) if (!live.has(f)) rmSync(join(saved, f), { force: true });
+  const copyIn = (f: string) => {
+    try {
+      if (!existsSync(join(saved, f))) copyFileSync(join(photos, f), join(saved, f));
+    } catch {} // replaced meanwhile; the check below decides
+  };
+  const db = openDatabase(config.dataDir, config.legacyAllowedEmails);
+  let named: string[] = [];
+  let missing: string[] = [];
+  for (let attempt = 0; attempt < 3; attempt++) {
+    for (const f of existsSync(photos) ? readdirSync(photos) : []) if (!f.endsWith(".part")) copyIn(f);
+    rmSync(file, { force: true });
+    db.run("VACUUM INTO ?", [file]);
+    const snapshot = new Database(file, { readonly: true });
+    named = (snapshot.query("SELECT photo FROM users WHERE photo <> ''").all() as { photo: string }[]).map((r) => r.photo);
+    snapshot.close();
+    named.forEach(copyIn);
+    missing = named.filter((t) => !existsSync(join(saved, t)));
+    if (!missing.length) break;
+  }
+  db.close();
+  if (missing.length) {
+    console.error(`backup failed: ${missing.length} profile photo(s) changed while saving; run it again`);
+    process.exit(1);
+  }
+  for (const f of readdirSync(saved)) if (!named.includes(f)) rmSync(join(saved, f), { force: true });
   // Reports keep their photo copies (photo_copy) after the photo itself goes, so these are only added.
   const reported = join(config.dataDir, "report-photos");
   const savedReported = join(dir, "report-photos");
