@@ -46,6 +46,18 @@ New people get a short **welcome tour** after their first sign-in (Profile → S
 It walks through putting Links at the front of the share sheet, with a practice share that ticks
 itself off, and TipKit tips then point out the gestures once each.
 
+## Messages extension
+
+In Messages, open **+ → Links** (under **More** if needed), browse **Queue / Recent**, and tap
+a link to insert a draft, **not send it**. The draft uses the public `/l/<token>` share page,
+never the original URL. Older cached links without a share page stay greyed out until refreshed
+in Links. Select a Links message to see **Open in Links** for its link page; open the main app
+to sign in if needed.
+
+Here, iOS 27 Simulator Messages could not open iMessage apps: the drawer was disabled with an
+SMS-only recipient. `MessagesUITests` skips that host-limitation case; actual insertion still
+needs verification on a real device.
+
 ## Set up WorkOS (once)
 
 1. Create a WorkOS account and enable **AuthKit** (email + password, passkeys, Apple…). If you turn

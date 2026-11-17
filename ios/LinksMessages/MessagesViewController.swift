@@ -21,21 +21,34 @@ final class MessagesViewController: MSMessagesAppViewController {
 
     override func willBecomeActive(with conversation: MSConversation) {
         super.willBecomeActive(with: conversation)
-        model.selectedToken = nil
-        if let url = conversation.selectedMessage?.url, url.scheme?.lowercased() == "https",
-           case .link(let token) = DeepLink(url: url) {
-            model.selectedToken = token
-        }
+        updateSelectedMessage(conversation.selectedMessage)
         refreshTask?.cancel()
         refreshTask = Task { await model.picker.refresh() }
     }
 
+    override func didSelect(_ message: MSMessage, conversation: MSConversation) {
+        super.didSelect(message, conversation: conversation)
+        updateSelectedMessage(message)
+    }
+
+    override func willResignActive(with conversation: MSConversation) {
+        super.willResignActive(with: conversation)
+        updateSelectedMessage(nil)
+    }
+
+    private func updateSelectedMessage(_ message: MSMessage?) {
+        model.selectedToken = MessagesSelection.token(for: message?.url)
+    }
+
     private func insert(_ row: MessagesPickerRow) {
-        guard let url = row.payload.url, let conversation = activeConversation, !model.inserting else { return }
+        guard let url = row.payload.url, let conversation = activeConversation, !model.inserting,
+              let insertion = MessagesInsertion(row: row, token: SessionStore.token,
+                                                currentUser: SessionStore.currentUser) else { return }
         model.inserting = true
         model.insertError = nil
         Task {
-            let data = await ThumbnailStore.shared.data(for: row.link, client: APIClient())
+            defer { model.inserting = false }
+            let data = ThumbnailStore.cached(row.link)
             let layout = MSMessageTemplateLayout()
             layout.image = data.flatMap(UIImage.init(data:))
             layout.caption = row.payload.caption
@@ -43,13 +56,15 @@ final class MessagesViewController: MSMessagesAppViewController {
             let message = MSMessage(session: MSSession())
             message.layout = layout
             message.url = url
+            guard insertion.canInsert(token: SessionStore.token, currentUser: SessionStore.currentUser,
+                                      conversationMatches: activeConversation === conversation,
+                                      state: model.picker.state) else { return }
             do {
                 try await conversation.insert(message)
                 requestPresentationStyle(.compact)
             } catch {
                 model.insertError = error.localizedDescription
             }
-            model.inserting = false
         }
     }
 }
@@ -59,11 +74,6 @@ final class MessagesViewController: MSMessagesAppViewController {
     var selectedToken: String?
     var inserting = false
     var insertError: String?
-
-    func sender(of link: SharedLink) -> String {
-        guard let inbox = InboxSnapshot.load(), inbox.me == SessionStore.currentUser?.id else { return "Someone" }
-        return inbox.isMine(link) ? "You" : inbox.name(of: link.addedBy)
-    }
 }
 
 private struct MessagesPickerView: View {
@@ -101,7 +111,7 @@ private struct MessagesPickerView: View {
                                         MessagesThumbnail(link: row.link)
                                         VStack(alignment: .leading, spacing: 4) {
                                             Text(row.link.displayTitle).font(.headline).lineLimit(2)
-                                            Text("From \(model.sender(of: row.link)) · \(LinkFormat.ago(row.link.addedAt))")
+                                            Text("From \(row.sender) · \(LinkFormat.ago(row.link.addedAt))")
                                                 .font(.caption).foregroundStyle(.secondary)
                                             if let guidance = row.guidance { Text(guidance).font(.caption).foregroundStyle(.secondary) }
                                         }

@@ -10,6 +10,49 @@ private func messageLink(_ id: Int, mine: Bool = false, watched: Bool = false) -
                shareURL: URL(string: "https://links.example.com/l/token-\(id)")!)
 }
 
+@Test func messagesSelectionAcceptsOnlySharePagesOnOurHost() {
+    for scheme in ["http", "https"] {
+        #expect(MessagesSelection.token(for: URL(string: "\(scheme)://links.example.com/l/token-1"),
+                                        associatedDomain: "links.example.com") == "token-1")
+    }
+    for url in [nil, URL(string: "sharedlinks://l/token-1"), URL(string: "https://other.example/l/token-1"),
+                URL(string: "https://links.example.com/invite/token-1"), URL(string: "https://links.example.com/l/"),
+                URL(string: "https://links.example.com/l/token/extra"), URL(string: "https://links.example.com/l/bad%20token"),
+                URL(string: "https://links.example.com:443/l/token-1"), URL(string: "https://user@links.example.com/l/token-1")] {
+        #expect(MessagesSelection.token(for: url, associatedDomain: "links.example.com") == nil)
+    }
+    #expect(MessagesSelection.token(for: URL(string: "https://links.example.com/l/token-1"), associatedDomain: nil) == nil)
+}
+
+@Test func messagesInsertionRejectsStaleSessionConversationOrRow() throws {
+    let row = MessagesPickerRow(link: messageLink(1))
+    let user = LinkUser(id: "me", name: "Me")
+    let insertion = try #require(MessagesInsertion(row: row, token: "token", currentUser: user))
+    func loaded(_ links: [SharedLink]) -> MessagesPickerState {
+        .loaded(MessagesPickerContent(state: InboxState(me: "me", users: [], links: links)))
+    }
+    let state = loaded([row.link])
+    #expect(insertion.canInsert(token: "token", currentUser: user, conversationMatches: true, state: state))
+    #expect(!insertion.canInsert(token: nil, currentUser: nil, conversationMatches: true, state: state))
+    #expect(!insertion.canInsert(token: "new-token", currentUser: user, conversationMatches: true, state: state))
+    #expect(!insertion.canInsert(token: "token", currentUser: LinkUser(id: "other", name: "Other"),
+                                conversationMatches: true, state: state))
+    #expect(!insertion.canInsert(token: "token", currentUser: user, conversationMatches: false, state: state))
+    #expect(!insertion.canInsert(token: "token", currentUser: user, conversationMatches: true, state: loaded([])))
+    #expect(!insertion.canInsert(token: "token", currentUser: user, conversationMatches: true, state: loaded([messageLink(2)])))
+    var changed = row.link
+    changed.shareURL = URL(string: "https://links.example.com/l/replacement")!
+    #expect(!insertion.canInsert(token: "token", currentUser: user, conversationMatches: true, state: loaded([changed])))
+    changed.shareURL = nil
+    #expect(!insertion.canInsert(token: "token", currentUser: user, conversationMatches: true, state: loaded([changed])))
+    for state in [MessagesPickerState.signedOut, .loading, .empty(), .error("Offline")] {
+        #expect(!insertion.canInsert(token: "token", currentUser: user, conversationMatches: true, state: state))
+    }
+    #expect(MessagesInsertion(row: row, token: nil, currentUser: user) == nil)
+    #expect(MessagesInsertion(row: row, token: "token", currentUser: nil) == nil)
+    #expect(MessagesInsertion(row: MessagesPickerRow(link: changed), token: "token", currentUser: user) == nil)
+}
+
 @Test func messagesSectionsUseQueueAndRecentAcrossChats() {
     let queue = [messageLink(1), messageLink(2)]
     let recent = (3...30).map { messageLink($0, mine: $0 % 2 == 0, watched: true) }
@@ -19,6 +62,19 @@ private func messageLink(_ id: Int, mine: Bool = false, watched: Bool = false) -
     #expect(content.sections[0].rows.map(\.id) == inbox.links(for: .toWatch).map(\.id))
     #expect(content.sections[1].rows.map(\.id) == Array((11...30).reversed()))
     #expect(MessagesPickerContent(state: .empty).isEmpty)
+}
+
+@Test func messagesContentResolvesSendersFromItsInbox() {
+    let friend = messageLink(1)
+    let mine = messageLink(2, mine: true)
+    let inbox = InboxState(me: "me", users: [LinkUser(id: "friend", name: "Friend")], links: [friend, mine])
+    let rows = MessagesPickerContent(state: inbox).sections.flatMap(\.rows)
+    #expect(rows.first { $0.id == friend.id }?.sender == "Friend")
+    #expect(rows.first { $0.id == mine.id }?.sender == "You")
+    let renamed = InboxState(me: "me", users: [LinkUser(id: "friend", name: "Renamed")], links: [friend])
+    #expect(MessagesPickerContent(state: renamed).sections.first?.rows.first?.sender == "Renamed")
+    #expect(MessagesPickerContent(state: InboxState(me: "me", users: [], links: [friend]))
+        .sections.first?.rows.first?.sender == "Someone")
 }
 
 @Test func messagesPayloadUsesOnlyValidSharePage() {

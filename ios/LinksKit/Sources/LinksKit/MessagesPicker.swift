@@ -1,6 +1,42 @@
 import Foundation
 import Observation
 
+public enum MessagesSelection {
+    public static func token(for url: URL?, associatedDomain: String? = LinksConfig.associatedDomain) -> String? {
+        guard let url, ["http", "https"].contains(url.scheme?.lowercased()),
+              var components = URLComponents(url: url, resolvingAgainstBaseURL: false),
+              components.user == nil, components.password == nil else { return nil }
+        components.scheme = "https"
+        guard let page = components.url,
+              case .link(let token) = DeepLink(url: page, associatedDomain: associatedDomain) else { return nil }
+        return token
+    }
+}
+
+public struct MessagesInsertion: Sendable {
+    private let token: String
+    private let user: LinkUser
+    private let linkID: Int
+    private let shareURL: URL
+
+    public init?(row: MessagesPickerRow, token: String?, currentUser: LinkUser?) {
+        guard let token, let currentUser, let url = row.payload.url else { return nil }
+        self.token = token
+        user = currentUser
+        linkID = row.id
+        shareURL = url
+    }
+
+    public func canInsert(token: String?, currentUser: LinkUser?, conversationMatches: Bool,
+                          state: MessagesPickerState) -> Bool {
+        guard token == self.token, currentUser == user, conversationMatches,
+              case .loaded(let content, _) = state else { return false }
+        return content.sections.contains { section in
+            section.rows.contains { $0.id == linkID && $0.payload.url == shareURL }
+        }
+    }
+}
+
 public struct MessagesPayload: Sendable, Hashable {
     public let caption: String
     public let subcaption: String
@@ -19,12 +55,16 @@ public struct MessagesPayload: Sendable, Hashable {
 
 public struct MessagesPickerRow: Sendable, Hashable, Identifiable {
     public let link: SharedLink
+    public let sender: String
     public var id: Int { link.id }
     public var payload: MessagesPayload { MessagesPayload(link: link) }
     public var canSend: Bool { payload.url != nil }
     public var guidance: String? { canSend ? nil : "Open Links to refresh this link" }
 
-    public init(link: SharedLink) { self.link = link }
+    public init(link: SharedLink, sender: String = "Someone") {
+        self.link = link
+        self.sender = sender
+    }
 }
 
 public struct MessagesPickerSection: Sendable, Hashable, Identifiable {
@@ -44,7 +84,9 @@ public struct MessagesPickerContent: Sendable, Hashable {
             $0.addedAt == $1.addedAt ? $0.id > $1.id : $0.addedAt > $1.addedAt
         }.prefix(max(0, recentLimit))
         sections = [("Queue", queue), ("Recent", Array(recent))].compactMap { title, links in
-            links.isEmpty ? nil : MessagesPickerSection(title: title, rows: links.map(MessagesPickerRow.init))
+            links.isEmpty ? nil : MessagesPickerSection(title: title, rows: links.map {
+                MessagesPickerRow(link: $0, sender: state.isMine($0) ? "You" : state.name(of: $0.addedBy))
+            })
         }
     }
 }
