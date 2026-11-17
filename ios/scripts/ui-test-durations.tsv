@@ -1,4 +1,6 @@
 # Median passing case seconds from main CI, 2026-11-14–16 (and the PR61 reference).
+# Missing weights and >25% drift checked against main CI, 2026-11-14–17, and PR148 run 44028529703,
+# using median passing case seconds on image 20261104.0337.1 only.
 # These weights only steer balance; stale values are harmless. Unknown tests use the median.
 LinksUITests/LinksUITests/testAFriendsLinkHasNoNoteEditing	28.975
 LinksUITests/LinksUITests/testAddingALinkInTheAppSendsIt	52.898
@@ -6,6 +8,11 @@ LinksUITests/LinksUITests/testBlockingAndUnblockingSomeone	32.954
 LinksUITests/LinksUITests/testCancellingAnInviteThatsAlreadyGoneSaysSoAndDropsIt	26.000
 LinksUITests/LinksUITests/testChatInfoSavesMuteDurationsAndKeepsLinksVisible	47.582
 LinksUITests/LinksUITests/testChatListSwipeMutesAndUnmutesOneChat	24.692
+LinksUITests/LinksUITests/testChatTasteMatchAtLargestTextSizeOpensTheLinkPage	32.476
+LinksUITests/LinksUITests/testChatTasteMatchCountsAllAndOpensTheLatestThreeLinkPages	57.372
+LinksUITests/LinksUITests/testChatTasteMatchNeedsTheWholeGroupAndRefreshesReactionChanges	37.546
+LinksUITests/LinksUITests/testChatTasteMatchOpensFromTheChatsList	26.436
+LinksUITests/LinksUITests/testChatTasteMatchShowsAnEmptyStateForOneSidedLoves	26.490
 LinksUITests/LinksUITests/testComingBackFromWatchingLandsOnTheLinksPage	31.446
 LinksUITests/LinksUITests/testCommentThreadCRUDAndUnreadState	68.339
 LinksUITests/LinksUITests/testCommentThreadRefreshesAfterForegrounding	21.035
@@ -20,6 +27,7 @@ LinksUITests/LinksUITests/testMarkingWatchedMovesItToWatchedAndTellsTheServer	20
 LinksUITests/LinksUITests/testNotificationTogglesSaveEachSetting	35.808
 LinksUITests/LinksUITests/testReactingAndEditingTheNote	32.448
 LinksUITests/LinksUITests/testReactingFromTheFeed	23.192
+LinksUITests/LinksUITests/testRemovingTheProfilePhotoGoesBackToInitials	21.079
 LinksUITests/LinksUITests/testRenamingAddingPeopleToAndLeavingAChat	48.009
 LinksUITests/LinksUITests/testReportingACommentHidesOnlyThatComment	24.099
 LinksUITests/LinksUITests/testReportingALinkHidesItForMeOnly	21.278
@@ -40,4 +48,5 @@ LinksUITests/LinksUITests/testThrowbackAppearsWhenTheFirstFavoriteBecomesOldEnou
 LinksUITests/LinksUITests/testThrowbackOpensThePageWithoutChangingSeenStatus	22.811
 LinksUITests/LinksUITests/testWidgetDeepLinkOpensTheNewLinkSheet	25.890
 LinksUITests/LinksUITests/testWidgetLinkOpensTheLinksPage	26.976
+LinksUITests/MessagesUITests/testQueueLinkInsertsADraftWithoutSending	50.845
 LinksUITests/TourUITests/testTheTourShowsOnceAndComesBackFromTheProfile	120.536
