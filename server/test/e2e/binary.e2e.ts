@@ -529,6 +529,21 @@ describe("a day with Links", () => {
     const kept = readdirSync(join(dataDir, "backups"));
     expect(kept.filter((f) => /^links-\d{4}-\d{2}-\d{2}\.db$/.test(f))).toHaveLength(1);
     expect(kept.filter((f) => !/^links-\d{4}-\d{2}-\d{2}\.db$/.test(f)).sort()).toEqual(["links-2000-01-02-pre-b.db", ...odd, "photos", "report-photos"].sort());
+
+    // A report whose photo copy is gone fails the backup rather than saving it without its evidence.
+    const live2 = new Database(join(dataDir, "links.db"));
+    try {
+      const { lastInsertRowid } = live2.run(
+        "INSERT INTO reports (reporter, user_id, reason, details, snapshot, created_at) VALUES (?, ?, 'spam', '', ?, ?)",
+        [bob.id, alice.id, JSON.stringify({ name: "Ally A", photo_copy: "report-photos/missing" }), Date.now()],
+      );
+      const lost = await cli(dataDir, "backup", dir);
+      expect(lost.code, lost.logs()).not.toBe(0);
+      expect(lost.stderr).toContain("report-photos/missing");
+      live2.run("DELETE FROM reports WHERE id = ?", [lastInsertRowid]);
+    } finally {
+      live2.close();
+    }
   });
 
   e2e("exits 0 promptly on SIGTERM, and keeps everything across a restart", async () => {
