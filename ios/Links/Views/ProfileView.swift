@@ -49,6 +49,7 @@ struct ProfileSheet: View {
     @State private var retryingRename = false
     @State private var pickedPhoto: PhotosPickerItem?
     @State private var savingPhoto = false
+    @State private var choosingPhoto = false
 
     /// Spells out what goes and what stays, since none of it can come back.
     private var deleteWarning: String {
@@ -286,9 +287,6 @@ struct ProfileSheet: View {
 
     /// Straight to the photo picker; once there's a photo, a menu that can also remove it (#97).
     @ViewBuilder private var photoRow: some View {
-        let picker = PhotosPicker(selection: $pickedPhoto, matching: .images, preferredItemEncoding: .compatible) {
-            Label("Choose Photo", systemImage: "photo.on.rectangle")
-        }
         Group {
             if model.me?.avatar == nil {
                 PhotosPicker(selection: $pickedPhoto, matching: .images, preferredItemEncoding: .compatible) {
@@ -301,7 +299,8 @@ struct ProfileSheet: View {
                 }
             } else {
                 Menu {
-                    picker
+                    // A PhotosPicker inside a Menu goes away with the menu before it can present.
+                    Button("Choose Photo", systemImage: "photo.on.rectangle") { choosingPhoto = true }
                     Button("Remove Photo", systemImage: "trash", role: .destructive) {
                         savePhoto { try await model.removePhoto() }
                     }
@@ -312,6 +311,8 @@ struct ProfileSheet: View {
         }
         .disabled(savingPhoto)
         .accessibilityIdentifier("profile.photo")
+        .photosPicker(isPresented: $choosingPhoto, selection: $pickedPhoto, matching: .images,
+                      preferredItemEncoding: .compatible)
     }
 
     private func savePhoto(_ save: @escaping () async throws -> Void) {
