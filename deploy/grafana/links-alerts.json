@@ -266,6 +266,71 @@
           },
           "title": "Links backup stalled",
           "uid": "links-backup-stalled"
+        },
+        {
+          "annotations": {
+            "description": "Counts the server's APNs failure log lines (push <token>\u2026: APNs <env> said <status> <reason>), connection/timeout errors (push: \u2026 or push <token>\u2026: \u2026), and \u2026; forgetting the token warnings for BadDeviceToken/DeviceTokenNotForTopic from links.service on host links.tpcomm.co; fires at 3 or more in 15m for 5m, so a one-off 429 rate limit doesn't page. Successful sends aren't logged. Scoped to host=links.tpcomm.co, so test hosts never fire it.",
+            "runbook_url": "https://wittypine1276.grafana.net/d/links-overview",
+            "summary": "Links (links.tpcomm.co) logged {{ $values.A }} push notification failures in the last 15 minutes."
+          },
+          "condition": "B",
+          "data": [
+            {
+              "datasourceUid": "grafanacloud-logs",
+              "model": {
+                "expr": "sum(count_over_time({job=\"links\", host=\"links.tpcomm.co\", systemd_unit=\"links.service\"} |~ \"^push[ :]\" [15m]))",
+                "intervalMs": 1000,
+                "maxDataPoints": 43200,
+                "queryType": "instant",
+                "refId": "A"
+              },
+              "queryType": "instant",
+              "refId": "A",
+              "relativeTimeRange": {
+                "from": 900,
+                "to": 0
+              }
+            },
+            {
+              "datasourceUid": "__expr__",
+              "model": {
+                "conditions": [
+                  {
+                    "evaluator": {
+                      "params": [
+                        2
+                      ],
+                      "type": "gt"
+                    }
+                  }
+                ],
+                "expression": "A",
+                "intervalMs": 1000,
+                "maxDataPoints": 43200,
+                "refId": "B",
+                "type": "threshold"
+              },
+              "refId": "B",
+              "relativeTimeRange": {
+                "from": 0,
+                "to": 0
+              }
+            }
+          ],
+          "execErrState": "Error",
+          "for": "5m",
+          "isPaused": false,
+          "labels": {
+            "severity": "warning",
+            "team": "links"
+          },
+          "noDataState": "OK",
+          "notification_settings": {
+            "receiver": "Links \u2192 Sherlog (Devin webhook)",
+            "repeat_interval": "4h"
+          },
+          "title": "Links push notifications failing",
+          "uid": "links-push-failing"
         }
       ]
     }

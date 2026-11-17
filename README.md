@@ -220,8 +220,10 @@ editing it there, export it (Share → Export, without "Export for sharing exter
 **Grafana alerts:** `deploy/grafana/links-alerts.json` is the live "links-prod" rule group in the
 Links folder: **Links site down** (`links` or `caddy` unit not active for 3m, or the host stops
 sending metrics), **Links 5xx spike** (5 or more 5xx request lines in 5m), **Links disk filling
-up** (under 15% free on `/` for 10m) and **Links backup stalled** (no `backed up to` line from
-`links-backup` in 26h, so the daily backup stopped running or kept failing). They match
+up** (under 15% free on `/` for 10m), **Links backup stalled** (no `backed up to` line from
+`links-backup` in 26h, so the daily backup stopped running or kept failing) and **Links push
+notifications failing** (3 or more push failure log lines in 15m for 5m, so a one-off 429 rate
+limit doesn't page; successful sends aren't logged). They match
 `instance`/`host` `links.tpcomm.co` only, so test servers never fire them, and send to the
 "Links → Sherlog (Devin webhook)" contact point. After changing them in Grafana, export the group
 (Alert rules → links-prod → Export, JSON) over this file.
