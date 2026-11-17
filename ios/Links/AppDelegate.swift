@@ -97,11 +97,29 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
                 WidgetCenter.shared.reloadAllTimelines()
             case LinkNotification.commentAction:
                 let body = comment?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-                if !body.isEmpty { _ = try await client.addComment(linkID, body: body) }
+                guard !body.isEmpty else { break }
+                do {
+                    _ = try await client.addComment(linkID, body: body)
+                } catch {
+                    await unsentComment(body, on: linkID)
+                    throw error
+                }
             default: break
             }
         } catch {
             print("Couldn't \(action) link \(linkID): \(error.localizedDescription)")
         }
+    }
+
+    /// A reply typed into a notification that didn't reach the server (offline, signed out,
+    /// rejected): put it back in front of the person, text and all; tapping opens the link's page.
+    static func unsentComment(_ body: String, on linkID: Int) async {
+        let content = UNMutableNotificationContent()
+        content.title = "Your comment didn't send"
+        content.body = body
+        content.userInfo = ["link_id": linkID]
+        content.sound = .default
+        let request = UNNotificationRequest(identifier: "unsent-comment-\(UUID().uuidString)", content: content, trigger: nil)
+        try? await UNUserNotificationCenter.current().add(request)
     }
 }
