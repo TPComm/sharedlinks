@@ -160,7 +160,7 @@ function privacyPage(email: string, sessionDays: number): string {
   return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Links Privacy Policy</title><style>body{font:17px/1.5 -apple-system,system-ui,sans-serif;max-width:36em;margin:3em auto;padding:0 1em}h2{font-size:1.1em;margin-top:1.6em}</style></head>
 <body><h1>Links Privacy Policy</h1>
-<p>Last updated 15 November 2026.</p>
+<p>Last updated 17 November 2026.</p>
 <p>Links is a private inbox for the links a few friends send each other. This policy covers the Links app and this server, which keeps what the app shows. Questions or requests: ${contact}.</p>
 
 <h2>What Links keeps, and why</h2>
@@ -179,7 +179,7 @@ function privacyPage(email: string, sessionDays: number): string {
 <ul>
 <li><b>The people in your chats</b> see your name and photo. People only lists people you share a chat with. Anyone with a link's share URL can see its title, thumbnail and original URL. Notes, who sent it, comments, reactions and activity stay private to the chat. Your name and photo can still appear on links in a chat you've left, or under Blocked People for someone who blocked you. Reports and blocks are private: only the person who runs the server reads reports.</li>
 <li><b>WorkOS</b> runs sign-in. It keeps your email, your sign-in details and the sign-ins you make, and gets the app's name and version and your iOS version when you sign in, plus, like any website, your IP address and browser details while you sign in. See the <a href="https://workos.com/legal/privacy">WorkOS privacy policy</a>.</li>
-<li><b>Apple</b> delivers push notifications. For each one, the server sends Apple your device's push token and what the notification shows: who sent a link, reacted or commented, the chat's name, the link's title and note (shortened if long), the reaction or shortened comment text, and how many links are in your Queue tab, along with Links' own numbers for the link, its sender, its chat and the comment. See the <a href="https://www.apple.com/legal/privacy/">Apple privacy policy</a>.</li>
+<li><b>Apple</b> delivers push notifications. For each one, the server sends Apple your device's push token and what the notification shows: who sent a link, reacted or commented, the chat's name, the link's title and note (shortened if long), the reaction or shortened comment text, and how many links are in your Queue tab, along with a link to the sender's profile photo for a new link (anyone holding that link can open the photo), and Links' own numbers for the link, its sender, its chat and the comment. See the <a href="https://www.apple.com/legal/privacy/">Apple privacy policy</a>.</li>
 <li><b>Grafana Cloud</b> (Grafana Labs) keeps a copy of the server logs, the web server's and the daily backup's own messages, and the server health figures, so problems can be spotted and fixed. See the <a href="https://grafana.com/legal/privacy-policy/">Grafana Labs privacy policy</a>.</li>
 <li><b>The company that hosts this server</b> stores it on its computers.</li>
 </ul>
