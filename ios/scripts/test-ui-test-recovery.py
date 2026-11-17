@@ -1,4 +1,5 @@
 import pathlib
+import json
 import re
 import subprocess
 import sys
@@ -9,9 +10,113 @@ import unittest
 PARSER = pathlib.Path(__file__).with_name("ui-test-recoverable-failures.sh")
 SELECTION = pathlib.Path(__file__).with_name("ui-test-selection.sh")
 REAL_LOG = pathlib.Path(sys.argv.pop(1)) if len(sys.argv) > 1 else None
+KILLED_LOG = PARSER.with_name("ui-test-killed-runner.txt").read_text()
+KILLED_RESULT = PARSER.with_name("ui-test-killed-runner-result.json")
+NOTIFICATION = "LinksUITests/LinksUITests/testNotificationTogglesSaveEachSetting\n"
 
 
 class RecoveryTests(unittest.TestCase):
+    def result_failures(self, result):
+        return subprocess.run(
+            [sys.executable, str(PARSER.with_name("ui-test-result-failures.py"))],
+            input=json.dumps(result), capture_output=True, text=True, check=True
+        ).stdout
+
+    def test_run_43858784250_requires_result_evidence(self):
+        result = self.parse(KILLED_LOG, NOTIFICATION)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(result.stdout, "")
+        evidence = self.result_failures(json.loads(KILLED_RESULT.read_text()))
+        result = self.parse(KILLED_LOG + evidence, NOTIFICATION)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout, "crash LinksUITests/testNotificationTogglesSaveEachSetting\n")
+
+    def test_killed_process_reruns_incomplete_and_unstarted_only(self):
+        selection = NOTIFICATION + "LinksUITests/OtherUITests/testLater\n" + \
+            "LinksUITests/LinksUITests/testRenamingAddingPeopleToAndLeavingAChat\n"
+        for evidence in ("Lost connection to test process\n", "Test crashed with signal term.\n"):
+            log = KILLED_LOG.replace("Restarting after unexpected exit", evidence + "Restarting after unexpected exit")
+            result = self.parse(log, selection)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(result.stdout, "crash LinksUITests/testNotificationTogglesSaveEachSetting\n"
+                             "crash OtherUITests/testLater\n")
+
+    def test_scoped_lost_process_issue_recovers_the_incomplete_case(self):
+        result = json.loads(KILLED_RESULT.read_text())
+        result["issues"]["testFailureSummaries"]["_values"][0]["message"]["_value"] = "Lost connection to test process"
+        evidence = self.result_failures(result)
+        parsed = self.parse(KILLED_LOG + evidence, NOTIFICATION)
+        self.assertEqual(parsed.returncode, 0, parsed.stderr)
+        self.assertEqual(parsed.stdout, "crash LinksUITests/testNotificationTogglesSaveEachSetting\n")
+        for problem in ("XCTAssertTrue failed", "Timed out while evaluating UI query"):
+            parsed = self.parse(KILLED_LOG + evidence + self.failure(problem, "testNotificationTogglesSaveEachSetting"),
+                                NOTIFICATION)
+            self.assertNotEqual(parsed.returncode, 0)
+            self.assertEqual(parsed.stdout, "")
+
+    def test_killed_evidence_cannot_authorize_another_interrupted_case(self):
+        for message in ("Lost connection to test process", "Test crashed with signal term."):
+            evidence = f"xcresult: error: -[LinksUITests.LinksUITests testOther] : {message}\n"
+            parsed = self.parse(KILLED_LOG + evidence, NOTIFICATION)
+            self.assertNotEqual(parsed.returncode, 0)
+            self.assertEqual(parsed.stdout, "")
+        evidence = self.result_failures(json.loads(KILLED_RESULT.read_text()))
+        log = KILLED_LOG + "Test Case '-[LinksUITests.LinksUITests testOther]' started.\n" + evidence
+        parsed = self.parse(log, NOTIFICATION + "LinksUITests/LinksUITests/testOther\n")
+        self.assertNotEqual(parsed.returncode, 0)
+        self.assertEqual(parsed.stdout, "")
+
+    def test_killed_marker_without_interrupted_selected_test_stays_red(self):
+        for log in ("", KILLED_LOG):
+            result = self.parse(log + "Lost connection to test process\n",
+                                "LinksUITests/LinksUITests/testNeverStarted\n")
+            self.assertNotEqual(result.returncode, 0)
+            self.assertEqual(result.stdout, "")
+
+    def test_completed_killed_case_recovers_with_its_own_evidence(self):
+        selection = "LinksUITests/LinksUITests/testExample\nLinksUITests/LinksUITests/testLater\n"
+        for message in ("Lost connection to test process", "Test crashed with signal term."):
+            log = "Test Case '-[LinksUITests.LinksUITests testExample]' started.\n" + self.failure(message)
+            parsed = self.parse(log, selection)
+            self.assertEqual(parsed.returncode, 0, parsed.stderr)
+            self.assertEqual(parsed.stdout, "crash LinksUITests/testExample\ncrash LinksUITests/testLater\n")
+            for name in ("testExample", "testOther"):
+                for problem in ("XCTAssertTrue failed", "Test crashed with signal segv.", "Unknown failure"):
+                    parsed = self.parse(log + self.failure(problem, name), selection)
+                    self.assertNotEqual(parsed.returncode, 0)
+                    self.assertEqual(parsed.stdout, "")
+            parsed = self.parse(log + "Test Case '-[LinksUITests.LinksUITests testOther]' failed (1 seconds).\n")
+            self.assertNotEqual(parsed.returncode, 0)
+            self.assertEqual(parsed.stdout, "")
+
+    def test_killed_marker_does_not_hide_assertions_or_real_signals(self):
+        for problem in ("XCTAssertTrue failed", "Timed out while evaluating UI query",
+                        "Test crashed with signal segv.", "Test crashed with signal abrt."):
+            for name in ("testNotificationTogglesSaveEachSetting", "testOther"):
+                log = KILLED_LOG + "Lost connection to test process\n" + \
+                    f"file.swift:1: error: -[LinksUITests.LinksUITests {name}] : {problem}\n"
+                result = self.parse(log, NOTIFICATION)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertEqual(result.stdout, "")
+        for signal in ("SIGSEGV", "SIGABRT", "EXC_BAD_ACCESS"):
+            result = self.parse(KILLED_LOG + f"Lost connection to test process\n{signal}\n", NOTIFICATION)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertEqual(result.stdout, "")
+
+    def test_result_failures_preserve_assertions_and_unknown_issues(self):
+        self.assertEqual(self.result_failures({}), "")
+        result = json.loads(KILLED_RESULT.read_text())
+        issues = result["issues"]["testFailureSummaries"]["_values"]
+        issues.append({"testCaseName": {"_value": "OtherUITests.testOther()"},
+                       "message": {"_value": "XCTAssertEqual failed"}})
+        parsed = self.parse(KILLED_LOG + self.result_failures(result), NOTIFICATION)
+        self.assertNotEqual(parsed.returncode, 0)
+        self.assertEqual(parsed.stdout, "")
+        issues[-1] = {"message": {"_value": "Unknown failure"}}
+        parsed = self.parse(KILLED_LOG + self.result_failures(result), NOTIFICATION)
+        self.assertNotEqual(parsed.returncode, 0)
+        self.assertEqual(parsed.stdout, "")
+
     def test_skip_guard(self):
         script = PARSER.with_name("ui-tests.sh").read_text()
         guard = script.split("# Without the TEST_RUNNER_", 1)[1].split('if [[ $status -ne 0 ]]', 1)[0]
