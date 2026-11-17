@@ -90,6 +90,19 @@ public struct APIClient: Sendable {
         try await send("POST", "api/me/claim", json: ["id": legacyID])
     }
 
+    /// Makes a `ProfilePhoto.jpeg` my avatar (#97), in place of the WorkOS picture.
+    public func setPhoto(_ jpeg: Data) async throws -> MeResponse {
+        var upload = request("PUT", "api/me/photo")
+        upload.setValue("image/jpeg", forHTTPHeaderField: "Content-Type")
+        upload.httpBody = jpeg
+        let (data, response) = try await perform(upload)
+        try check(response, data)
+        return try Self.decoder.decode(MeResponse.self, from: data)
+    }
+
+    /// Back to initials, hiding the WorkOS picture too.
+    public func removePhoto() async throws -> MeResponse { try await send("DELETE", "api/me/photo") }
+
     /// Deletes the account; the links it sent stay, from `LinkUser.deletedID`. Every session ends.
     public func deleteAccount() async throws {
         let _: [String: Bool] = try await send("DELETE", "api/me")

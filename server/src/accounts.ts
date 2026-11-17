@@ -1,10 +1,12 @@
 import type { Database } from "bun:sqlite";
-import { rmSync } from "node:fs";
+import { randomBytes } from "node:crypto";
+import { renameSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { Config } from "./config.ts";
 import { defaultGroup, deleteEmptyGroups, LEGACY, now, type InviteRow, type UserRow } from "./db.ts";
 import { BadRequest, clip } from "./links.ts";
 import { screener } from "./moderation.ts";
+import { imageSize } from "./previews.ts";
 
 export class AuthError extends Error {
   constructor(message: string, readonly status = 401) {
@@ -12,7 +14,24 @@ export class AuthError extends Error {
   }
 }
 
-export const publicUser = (u: UserRow) => ({ id: u.id, name: u.name, avatar: u.avatar });
+/** `publicUrl` makes an uploaded photo's address; without one, only WorkOS pictures show. */
+export const publicUser = (u: UserRow, publicUrl = "") => ({ id: u.id, name: u.name, avatar: avatarOf(u, publicUrl) });
+
+function avatarOf(u: UserRow, publicUrl: string): string | null {
+  if (u.photo === null || u.photo === undefined) return u.avatar;
+  return u.photo && publicUrl ? `${publicUrl}/photos/${u.photo}` : null;
+}
+
+/** The app sends a 512px JPEG; this leaves room for other clients without storing camera originals. */
+export const MAX_PHOTO_BYTES = 2_000_000;
+const MAX_PHOTO_SIDE = 4096;
+
+/** "image/jpeg" or "image/png" for a profile photo's bytes, else null. */
+export function photoType(b: Uint8Array): string | null {
+  if (b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff) return "image/jpeg";
+  if (b[0] === 0x89 && b[1] === 0x50 && b[2] === 0x4e && b[3] === 0x47) return "image/png";
+  return null;
+}
 
 export function cleanName(name: unknown): string {
   const cleaned = clip(name, 30);
@@ -121,8 +140,8 @@ export class Accounts {
   mePayload(userId: string) {
     const user = this.db.query("SELECT * FROM users WHERE id = ?").get(userId) as UserRow;
     return {
-      user: { ...publicUser(user), email: user.email },
-      claimable: this.claimable(user).map(publicUser),
+      user: { ...publicUser(user, this.config.publicUrl), email: user.email },
+      claimable: this.claimable(user).map((u) => publicUser(u, this.config.publicUrl)),
       notifications: { watched: !!user.push_watched, reactions: !!user.push_reactions },
     };
   }
@@ -265,6 +284,55 @@ export class Accounts {
   }
 
   /**
+   * Replace this person's photo with `bytes` (a JPEG or PNG), stored under `photos/` by a new random
+   * token, so the address changes with every upload and phones never show a cached old one.
+   * `write` runs the database change (the caller's asUser, so a deleted account gets no photo).
+   */
+  setPhoto(userId: string, bytes: Uint8Array, write: <T>(change: () => T) => T = (change) => change()) {
+    if (bytes.length > MAX_PHOTO_BYTES) throw new BadRequest("That photo is too big.");
+    const size = photoType(bytes) ? imageSize(bytes) : null;
+    if (!size) throw new BadRequest("That isn't a JPEG or PNG photo.");
+    if (size.width > MAX_PHOTO_SIDE || size.height > MAX_PHOTO_SIDE) throw new BadRequest("That photo is too big.");
+    const token = randomBytes(24).toString("base64url");
+    const path = this.photoPath(token);
+    writeFileSync(`${path}.part`, bytes);
+    renameSync(`${path}.part`, path);
+    let old: string | null;
+    try {
+      old = write(() => this.swapPhoto(userId, token));
+    } catch (e) {
+      rmSync(path, { force: true });
+      throw e;
+    }
+    this.removePhotoFile(old);
+  }
+
+  /** Back to initials: "" also hides the WorkOS picture, which the next sign-in would bring back. */
+  removePhoto(userId: string, write: <T>(change: () => T) => T = (change) => change()) {
+    this.removePhotoFile(write(() => this.swapPhoto(userId, "")));
+  }
+
+  /** The current photo's token, for GET /photos/:token; null once it's replaced, removed or its account deleted. */
+  photoOwner(token: string): string | null {
+    if (!token) return null;
+    return (this.db.query("SELECT id FROM users WHERE photo = ?").get(token) as { id: string } | null)?.id ?? null;
+  }
+
+  photoPath(token: string) {
+    return join(this.config.dataDir, "photos", token);
+  }
+
+  private swapPhoto(userId: string, photo: string): string | null {
+    const old = this.db.query("SELECT photo FROM users WHERE id = ?").get(userId) as { photo: string | null } | null;
+    this.db.run("UPDATE users SET photo = ? WHERE id = ?", [photo, userId]);
+    return old?.photo ?? null;
+  }
+
+  private removePhotoFile(token: string | null) {
+    if (token) rmSync(this.photoPath(token), { force: true });
+  }
+
+  /**
    * Delete an account (App Store guideline 5.1.1(v)), in one transaction: the user, their sessions,
    * their seen marks and reactions, and the links they sent with their notes (for everyone, so
    * others' marks and reactions on them go too), then those links' thumbnails. Then the WorkOS user
@@ -272,12 +340,14 @@ export class Accounts {
    */
   async deleteUser(userId: string): Promise<{ links: number; workos: "deleted" | "skipped" | "failed" }> {
     const sent = this.db.transaction(() => {
+      const photo = (this.db.query("SELECT photo FROM users WHERE id = ?").get(userId) as { photo: string | null } | null)?.photo ?? null;
       const ids = this.db.query("DELETE FROM links WHERE added_by = ? RETURNING id").all(userId) as { id: number }[];
       this.db.run("DELETE FROM seen WHERE person = ?", [userId]);
       this.db.run("DELETE FROM reactions WHERE person = ?", [userId]);
       this.db.run("DELETE FROM users WHERE id = ?", [userId]); // sessions and memberships cascade
-      return { ids, orphaned: deleteEmptyGroups(this.db) };
+      return { ids, orphaned: deleteEmptyGroups(this.db), photo };
     })();
+    this.removePhotoFile(sent.photo);
     for (const id of [...sent.ids.map((r) => r.id), ...sent.orphaned]) {
       rmSync(join(this.config.dataDir, "thumbs", String(id)), { force: true });
     }

@@ -9,12 +9,14 @@ enum Endpoint: String, CaseIterable, Sendable {
     case exchangeWithInvite, invites, createInvite, createEmailInvite, createChatInvite, revokeInvite, acceptInvite
     case addToGroup, createGroup, renameGroup, addMembers, leaveGroup
     case muteWatched, muteReactions, notifyBoth
+    case setPhoto, removePhoto
 
     var method: String {
         switch self {
         case .me, .state, .thumbnail, .invites: "GET"
+        case .setPhoto: "PUT"
         case .rename, .note, .renameGroup, .muteWatched, .muteReactions, .notifyBoth: "PATCH"
-        case .delete, .deleteAccount, .unblock, .revokeInvite, .leaveGroup: "DELETE"
+        case .delete, .deleteAccount, .unblock, .revokeInvite, .leaveGroup, .removePhoto: "DELETE"
         default: "POST"
         }
     }
@@ -25,6 +27,7 @@ enum Endpoint: String, CaseIterable, Sendable {
         case .signOut: "/api/auth/logout"
         case .me, .rename, .deleteAccount, .muteWatched, .muteReactions, .notifyBoth: "/api/me"
         case .claim: "/api/me/claim"
+        case .setPhoto, .removePhoto: "/api/me/photo"
         case .state: "/api/state"
         case .add, .addToGroup: "/api/links"
         case .createGroup: "/api/groups"
@@ -70,9 +73,13 @@ enum Endpoint: String, CaseIterable, Sendable {
         case .reportLink: #"{"link_id":7,"reason":"offensive"}"#
         case .reportPerson: #"{"reason":"harassment","user_id":"user_01SAM"}"#
         case .block: #"{"user_id":"user_01SAM"}"#
-        case .signOut, .me, .deleteAccount, .state, .delete, .thumbnail, .unblock, .invites, .revokeInvite, .leaveGroup: nil
+        case .signOut, .me, .deleteAccount, .state, .delete, .thumbnail, .unblock, .invites, .revokeInvite, .leaveGroup,
+             .setPhoto, .removePhoto: nil
         }
     }
+
+    /// The photo PUT /api/me/photo sends as is, not as JSON.
+    var upload: Data? { self == .setPhoto ? Data([0xFF, 0xD8, 0xFF]) : nil }
 
     var reply: Reply {
         switch self {
@@ -83,7 +90,7 @@ enum Endpoint: String, CaseIterable, Sendable {
         case .signOut, .delete, .deleteAccount, .leaveGroup: .json(#"{"ok": true}"#)
         case .createGroup: .json(#"{"group": \#(Fixture.group())}"#, status: 201)
         case .renameGroup, .addMembers, .acceptInvite: .json(#"{"group": \#(Fixture.group())}"#)
-        case .me, .rename, .claim: .json(Fixture.me)
+        case .me, .rename, .claim, .setPhoto, .removePhoto: .json(Fixture.me)
         case .muteWatched, .muteReactions, .notifyBoth: .json(Fixture.meWithNotifications())
         case .state: .json(#"{"me": "user_01SAM", "users": [\#(Fixture.sam)], "links": [\#(Fixture.link())]}"#)
         case .add, .addToGroup: .json(#"{"link": \#(Fixture.link()), "duplicate": false}"#, status: 201)
@@ -139,6 +146,8 @@ enum Endpoint: String, CaseIterable, Sendable {
         case .renameGroup: #expect(try await client.renameGroup(5, to: "Cinema").name == "Film club")
         case .addMembers: _ = try await client.addMembers(["user_01AL", "user_01BO"], to: 5)
         case .leaveGroup: try await client.leaveGroup(5)
+        case .setPhoto: _ = try await client.setPhoto(Data([0xFF, 0xD8, 0xFF]))
+        case .removePhoto: _ = try await client.removePhoto()
         }
     }
 }
@@ -159,6 +168,9 @@ struct APIClientRequestTests {
         if let body = endpoint.body {
             #expect(request.header("Content-Type") == "application/json")
             #expect(request.canonicalJSON == body)
+        } else if let upload = endpoint.upload {
+            #expect(request.header("Content-Type") == "image/jpeg")
+            #expect(request.body == upload)
         } else {
             #expect(request.body == nil || request.body?.isEmpty == true)
             #expect(request.header("Content-Type") == nil)
