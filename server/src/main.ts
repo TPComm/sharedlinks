@@ -157,7 +157,9 @@ if (command === "mint-session") {
   const savedReported = join(dir, "report-photos");
   mkdirSync(savedReported, { recursive: true });
   for (const f of existsSync(reported) ? readdirSync(reported) : []) {
-    if (!existsSync(join(savedReported, f))) copyFileSync(join(reported, f), join(savedReported, f));
+    try {
+      if (!existsSync(join(savedReported, f))) copyFileSync(join(reported, f), join(savedReported, f));
+    } catch {} // deleted meanwhile; the check below decides
   }
   const lost = evidence.filter((copy) => !existsSync(join(dir, copy)));
   if (missing.length || lost.length) {
