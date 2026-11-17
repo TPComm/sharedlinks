@@ -1503,13 +1503,122 @@
     },
     {
       "type": "row",
+      "title": "Push notifications",
+      "id": 38,
+      "collapsed": false,
+      "panels": [],
+      "gridPos": {
+        "x": 0,
+        "y": 27,
+        "w": 24,
+        "h": 1
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Push failures",
+      "description": "Push failure log lines per interval, matching the push-failing alert. Successful pushes are not logged. No data means no failures were logged.",
+      "datasource": {
+        "type": "loki",
+        "uid": "${loki}"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "loki",
+            "uid": "${loki}"
+          },
+          "expr": "sum(count_over_time({job=\"links\", host=\"$host\", systemd_unit=\"links.service\"} |~ \"^push[ :]\" [$__auto]))",
+          "queryType": "range",
+          "legendFormat": "Push failures"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "drawStyle": "bars",
+            "lineWidth": 1,
+            "fillOpacity": 80,
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": {
+              "mode": "normal",
+              "group": "A"
+            }
+          },
+          "color": {
+            "mode": "palette-classic"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "id": 39,
+      "gridPos": {
+        "x": 0,
+        "y": 28,
+        "w": 12,
+        "h": 9
+      }
+    },
+    {
+      "type": "logs",
+      "title": "Recent push failures",
+      "description": "Push failure log lines, including APNs rejections and warnings when invalid tokens are forgotten. Successful pushes are not logged.",
+      "datasource": {
+        "type": "loki",
+        "uid": "${loki}"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "loki",
+            "uid": "${loki}"
+          },
+          "expr": "{job=\"links\", host=\"$host\", systemd_unit=\"links.service\"} |~ \"^push[ :]\"",
+          "queryType": "range"
+        }
+      ],
+      "options": {
+        "showTime": true,
+        "showLabels": false,
+        "showCommonLabels": false,
+        "wrapLogMessage": true,
+        "prettifyLogMessage": false,
+        "enableLogDetails": true,
+        "dedupStrategy": "none",
+        "sortOrder": "Descending"
+      },
+      "id": 40,
+      "gridPos": {
+        "x": 12,
+        "y": 28,
+        "w": 12,
+        "h": 9
+      }
+    },
+    {
+      "type": "row",
       "title": "Host",
       "id": 23,
       "collapsed": false,
       "panels": [],
       "gridPos": {
         "x": 0,
-        "y": 27,
+        "y": 37,
         "w": 24,
         "h": 1
       }
@@ -1568,7 +1677,7 @@
       "id": 24,
       "gridPos": {
         "x": 0,
-        "y": 28,
+        "y": 38,
         "w": 8,
         "h": 8
       },
@@ -1685,7 +1794,7 @@
       "id": 25,
       "gridPos": {
         "x": 8,
-        "y": 28,
+        "y": 38,
         "w": 8,
         "h": 8
       },
@@ -1802,7 +1911,7 @@
       "id": 26,
       "gridPos": {
         "x": 16,
-        "y": 28,
+        "y": 38,
         "w": 8,
         "h": 8
       },
@@ -1863,7 +1972,7 @@
       "id": 27,
       "gridPos": {
         "x": 0,
-        "y": 36,
+        "y": 46,
         "w": 8,
         "h": 8
       },
@@ -1931,7 +2040,7 @@
       "id": 28,
       "gridPos": {
         "x": 8,
-        "y": 36,
+        "y": 46,
         "w": 8,
         "h": 8
       },
@@ -1999,7 +2108,7 @@
       "id": 29,
       "gridPos": {
         "x": 16,
-        "y": 36,
+        "y": 46,
         "w": 8,
         "h": 8
       },
@@ -2013,7 +2122,7 @@
       "panels": [],
       "gridPos": {
         "x": 0,
-        "y": 44,
+        "y": 54,
         "w": 24,
         "h": 1
       }
@@ -2093,7 +2202,7 @@
       "id": 31,
       "gridPos": {
         "x": 0,
-        "y": 45,
+        "y": 55,
         "w": 12,
         "h": 8
       },
@@ -2154,7 +2263,7 @@
       "id": 32,
       "gridPos": {
         "x": 12,
-        "y": 45,
+        "y": 55,
         "w": 12,
         "h": 8
       },
@@ -2168,7 +2277,7 @@
       "panels": [],
       "gridPos": {
         "x": 0,
-        "y": 53,
+        "y": 63,
         "w": 24,
         "h": 1
       }
@@ -2227,7 +2336,7 @@
       "id": 34,
       "gridPos": {
         "x": 0,
-        "y": 54,
+        "y": 64,
         "w": 24,
         "h": 6
       }
@@ -2264,7 +2373,7 @@
       "id": 35,
       "gridPos": {
         "x": 0,
-        "y": 60,
+        "y": 70,
         "w": 24,
         "h": 12
       }
@@ -2301,7 +2410,7 @@
       "id": 36,
       "gridPos": {
         "x": 0,
-        "y": 72,
+        "y": 82,
         "w": 12,
         "h": 9
       }
@@ -2338,7 +2447,7 @@
       "id": 37,
       "gridPos": {
         "x": 12,
-        "y": 72,
+        "y": 82,
         "w": 12,
         "h": 9
       }
