@@ -497,6 +497,8 @@ describe("a day with Links", () => {
     // A copy of a photo that has since been replaced or removed goes too.
     mkdirSync(join(dir, "photos"));
     writeFileSync(join(dir, "photos", "gone"), "old");
+    mkdirSync(join(dir, "report-photos"));
+    writeFileSync(join(dir, "report-photos", "gone"), "old");
     const days = [new Date().toISOString().slice(0, 10)];
     const run = await cli(dataDir, "backup", dir);
     days.push(new Date().toISOString().slice(0, 10)); // in case it ran across midnight UTC
@@ -506,6 +508,7 @@ describe("a day with Links", () => {
     // The three oldest dated snapshots and the old labelled ones go; anything else in the folder stays.
     expect(readdirSync(dir).sort()).toEqual([...old.slice(3), ...recent, basename(file), "links-latest.db", "notes.txt", "photos", "report-photos"].sort());
     expect(readdirSync(join(dir, "photos"))).toEqual(readdirSync(join(dataDir, "photos")));
+    expect(readdirSync(join(dir, "report-photos"))).toEqual([]);
 
     const live = (await call("/api/state", { token: alice.token })).data;
     const snapshot = new Database(file, { readonly: true });

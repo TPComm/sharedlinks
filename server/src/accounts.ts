@@ -360,13 +360,22 @@ export class Accounts {
   async deleteUser(userId: string): Promise<{ links: number; workos: "deleted" | "skipped" | "failed" }> {
     const sent = this.db.transaction(() => {
       const photo = (this.db.query("SELECT photo FROM users WHERE id = ?").get(userId) as { photo: string | null } | null)?.photo ?? null;
+      const copies = this.db.query("SELECT DISTINCT json_extract(snapshot, '$.photo_copy') AS copy FROM reports WHERE (user_id = ? OR reporter = ?) AND json_extract(snapshot, '$.photo_copy') IS NOT NULL")
+        .all(userId, userId) as { copy: string }[];
       const ids = this.db.query("DELETE FROM links WHERE added_by = ? RETURNING id").all(userId) as { id: number }[];
       this.db.run("DELETE FROM seen WHERE person = ?", [userId]);
       this.db.run("DELETE FROM reactions WHERE person = ?", [userId]);
       this.db.run("DELETE FROM users WHERE id = ?", [userId]); // sessions and memberships cascade
-      return { ids, orphaned: deleteEmptyGroups(this.db), photo };
+      return { ids, orphaned: deleteEmptyGroups(this.db), photo, copies };
     })();
     this.removePhotoFile(sent.photo);
+    this.db.transaction(() => {
+      for (const { copy } of sent.copies) {
+        if (!this.db.query("SELECT 1 FROM reports WHERE json_extract(snapshot, '$.photo_copy') = ?").get(copy)) {
+          rmSync(join(this.config.dataDir, copy), { force: true });
+        }
+      }
+    }).immediate();
     for (const id of [...sent.ids.map((r) => r.id), ...sent.orphaned]) {
       rmSync(join(this.config.dataDir, "thumbs", String(id)), { force: true });
     }
