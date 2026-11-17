@@ -1339,6 +1339,24 @@ describe("universal links", () => {
 });
 
 describe("deleting an account", () => {
+  test("keeps a shared report photo until its last reporter deletes their account", async () => {
+    const subject = mint("photo-subject@test.com", "Subject");
+    const first = mint("photo-first@test.com", "First");
+    const second = mint("photo-second@test.com", "Second");
+    const photo = await fetch(api + "/api/me/photo", { method: "PUT", body: PNG, headers: { Authorization: `Bearer ${subject}` } });
+    const user = ((await photo.json()) as any).user;
+    const copy = join(dataDir, "report-photos", new URL(user.avatar).pathname.split("/")[2]!);
+    for (const token of [first, second]) {
+      expect((await call("/api/reports", { token, body: { user_id: user.id, reason: "spam" } })).status).toBe(201);
+    }
+    expect(existsSync(copy)).toBe(true);
+    expect((await call("/api/me", { method: "DELETE", token: first })).status).toBe(200);
+    expect(existsSync(copy)).toBe(true);
+    expect((await call("/api/me", { method: "DELETE", token: second })).status).toBe(200);
+    expect(existsSync(copy)).toBe(false);
+    expect((await call("/api/me", { method: "DELETE", token: subject })).status).toBe(200);
+  });
+
   test("removes the person, every session, their marks and reactions, and the links they sent", async () => {
     const jane = await signIn("domain");
     const otherPhone = await signIn("domain");
@@ -1372,7 +1390,7 @@ describe("deleting an account", () => {
     expect((await call("/api/me", { method: "DELETE", token })).data).toEqual({ ok: true });
     expect((await fetch(api + photoPath)).status).toBe(404);
     expect(existsSync(join(dataDir, photoPath))).toBe(false);
-    expect(existsSync(reportCopy)).toBe(true);
+    expect(existsSync(reportCopy)).toBe(false);
 
     // Every session is gone, with the 401 the app reads as "signed out".
     for (const t of [token, otherPhone.data.token]) {
