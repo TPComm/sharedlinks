@@ -631,6 +631,25 @@ final class LinksUITests: XCTestCase {
         XCTAssert(email.waitForNonExistence(timeout: 5), "Done didn't close the profile")
     }
 
+    /// The photo picker runs out of process, so the photo goes up through the API; this checks the
+    /// profile shows it and can take it away again.
+    func testRemovingTheProfilePhotoGoesBackToInitials() throws {
+        let api = server!
+        try api.setPhoto(as: api.me)
+        addTeardownBlock { try? api.removePhoto(as: api.me) }
+        launch()
+        app.buttons["account"].tap()
+        let photo = app.buttons["profile.photo"]
+        XCTAssert(photo.waitForExistence(timeout: 5), "no photo row on the profile")
+        XCTAssertEqual(photo.label, "Change Profile Photo")
+        photo.tap()
+        let remove = app.buttons["Remove Photo"]
+        XCTAssert(remove.waitForExistence(timeout: 5), "no Remove Photo in the photo menu")
+        remove.tap()
+        try api.eventually("the photo removed") { try api.avatar(as: api.me) == nil ? true : nil }
+        XCTAssert(app.buttons["Add Profile Photo"].waitForExistence(timeout: 10), "the profile still offers to change the photo")
+    }
+
     func testNotificationTogglesSaveEachSetting() throws {
         let api = server!
         guard try api.notifications(as: api.me) != nil else {

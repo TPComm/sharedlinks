@@ -176,6 +176,28 @@ struct LinksServer: Sendable {
         _ = try send("PATCH", "api/me", json: ["notifications": ["watched": watched, "reactions": reactions]], as: token)
     }
 
+    /// A 1x1 PNG as whoever's token asks's profile photo.
+    func setPhoto(as token: String) throws {
+        var upload = request("PUT", "api/me/photo", json: nil, as: token)
+        upload.setValue("image/png", forHTTPHeaderField: "Content-Type")
+        upload.httpBody = Data(base64Encoded: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==")
+        let (data, status) = try load(upload)
+        guard status == 200 else { throw Failure(description: "PUT /api/me/photo: \(status) \(String(decoding: data, as: UTF8.self))") }
+    }
+
+    func removePhoto(as token: String) throws {
+        _ = try send("DELETE", "api/me/photo", as: token)
+    }
+
+    /// The avatar URL in GET /api/me; nil for initials.
+    func avatar(as token: String) throws -> String? {
+        struct Me: Decodable {
+            struct User: Decodable { let avatar: String? }
+            let user: User
+        }
+        return try JSONDecoder().decode(Me.self, from: try send("GET", "api/me", as: token)).user.avatar
+    }
+
     /// An invite from whoever's token asks, for `email`; returns its id.
     func invite(email: String, as token: String) throws -> Int {
         struct Made: Decodable {
