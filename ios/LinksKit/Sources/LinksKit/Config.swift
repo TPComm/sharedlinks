@@ -11,6 +11,10 @@ public enum LinksConfig {
            let url = URL(string: raw) {
             return url
         }
+        if let raw = sharedDefaults.string(forKey: "links.uiTests.serverURL"),
+           let url = URL(string: raw) {
+            return url
+        }
         #endif
         let raw = Bundle.main.object(forInfoDictionaryKey: "LinksServerURL") as? String ?? ""
         return URL(string: raw.trimmingCharacters(in: .whitespaces)) ?? URL(string: "http://localhost:8000")!
