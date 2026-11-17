@@ -215,6 +215,10 @@ struct ProfileSheet: View {
                 Text("This is what your friends see next to the links you send.")
             }
             .failureAlert($failure)
+            // Presented from the list, not the photo row: a save re-renders that row (and swaps Add
+            // for the Change menu), which dropped a picker presented from inside it.
+            .photosPicker(isPresented: $choosingPhoto, selection: $pickedPhoto, matching: .images,
+                          preferredItemEncoding: .compatible)
             .onChange(of: pickedPhoto) { _, item in
                 guard let item else { return }
                 pickedPhoto = nil
@@ -289,17 +293,9 @@ struct ProfileSheet: View {
     @ViewBuilder private var photoRow: some View {
         Group {
             if model.me?.avatar == nil {
-                PhotosPicker(selection: $pickedPhoto, matching: .images, preferredItemEncoding: .compatible) {
-                    // Built in place: PhotosPicker's label closure isn't main-actor isolated, unlike rowLabel.
-                    Label {
-                        Text("Add Profile Photo").foregroundStyle(Color.primary)
-                    } icon: {
-                        Image(systemName: "camera")
-                    }
-                }
+                row("Add Profile Photo", systemImage: "camera") { choosingPhoto = true }
             } else {
                 Menu {
-                    // A PhotosPicker inside a Menu goes away with the menu before it can present.
                     Button("Choose Photo", systemImage: "photo.on.rectangle") { choosingPhoto = true }
                     Button("Remove Photo", systemImage: "trash", role: .destructive) {
                         savePhoto { try await model.removePhoto() }
@@ -311,8 +307,6 @@ struct ProfileSheet: View {
         }
         .disabled(savingPhoto)
         .accessibilityIdentifier("profile.photo")
-        .photosPicker(isPresented: $choosingPhoto, selection: $pickedPhoto, matching: .images,
-                      preferredItemEncoding: .compatible)
     }
 
     private func savePhoto(_ save: @escaping () async throws -> Void) {
