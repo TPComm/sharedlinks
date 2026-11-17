@@ -198,6 +198,21 @@ describe("pushes", () => {
     expect(Buffer.from(await thumb.arrayBuffer())).toEqual(PNG);
   });
 
+  test("a sender photo URL too long for the 4 KB push is left out rather than losing the alert", async () => {
+    app.db.run("UPDATE users SET avatar = ? WHERE id = 'user_01SAM'", [`https://photos.test/${"x".repeat(4000)}.png`]);
+    try {
+      await call("/api/links", { token: sam, body: { url: `${fakeOrigin.url.origin}/plain?n=longphoto` } });
+      await settle();
+      expect(sent.length).toBeGreaterThan(0);
+      for (const s of sent) {
+        expect(s.body.sender_name).toBe("Sam");
+        expect(s.body.sender_avatar).toBeUndefined();
+      }
+    } finally {
+      app.db.run("UPDATE users SET avatar = ? WHERE id = 'user_01SAM'", ["https://photos.test/sam.png"]);
+    }
+  });
+
   test("a link in a chat alerts only its members, threaded by chat and titled with its name", async () => {
     const alexId = (await call("/api/state", { token: alex })).data.me;
     const chat = (await call("/api/groups", { token: sam, body: { name: "Movie night", members: [alexId] } })).data.group;
