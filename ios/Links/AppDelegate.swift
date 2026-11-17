@@ -2,6 +2,7 @@ import LinksKit
 import SwiftUI
 import UIKit
 import UserNotifications
+import WidgetKit
 
 /// Push notifications: registers with APNs and passes what the system says on to RootView, which
 /// hands it to AppModel (registering the device, refreshing, opening a tapped link's page).
@@ -87,7 +88,13 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
         let client = APIClient()
         do {
             switch action {
-            case LinkNotification.markSeenAction: _ = try await client.setSeen(linkID, true)
+            case LinkNotification.markSeenAction:
+                // As the widget's button does: the widgets read the snapshot, not the server.
+                let link = try await client.setSeen(linkID, true)
+                InboxSnapshot.update { state in
+                    if let i = state.links.firstIndex(where: { $0.id == link.id }) { state.links[i] = link }
+                }
+                WidgetCenter.shared.reloadAllTimelines()
             case LinkNotification.commentAction:
                 let body = comment?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
                 if !body.isEmpty { _ = try await client.addComment(linkID, body: body) }
