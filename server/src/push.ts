@@ -7,9 +7,9 @@
 import type { Database } from "bun:sqlite";
 import { readFileSync } from "node:fs";
 import http2 from "node:http2";
-import type { Accounts } from "./accounts.ts";
+import { type Accounts, publicUser } from "./accounts.ts";
 import type { ApnsEnv, Config } from "./config.ts";
-import { now } from "./db.ts";
+import { now, type UserRow } from "./db.ts";
 import { clip, clipText } from "./links.ts";
 
 /** Same nouns as `Platform.noun` in ios/LinksKit/Sources/LinksKit/Models.swift, mid-sentence. */
@@ -96,11 +96,11 @@ export class Pusher {
   /** A new link: alert everyone who can see it except its sender. Skipped if it's gone by now. */
   async newLink(linkId: number) {
     const link = this.db.query(
-      `SELECT l.title, l.note, l.platform, l.added_by, l.group_id, l.thumb_type, l.thumb_v, u.name, u.avatar,
+      `SELECT l.title, l.note, l.platform, l.added_by, l.group_id, l.thumb_type, l.thumb_v, u.name,
               g.name AS chat, g.is_default
          FROM links l JOIN users u ON u.id = l.added_by JOIN groups g ON g.id = l.group_id WHERE l.id = ?`,
     ).get(linkId) as { title: string | null; note: string; platform: string; added_by: string; group_id: number;
-                       thumb_type: string | null; thumb_v: number | null; name: string; avatar: string | null;
+                       thumb_type: string | null; thumb_v: number | null; name: string;
                        chat: string; is_default: number } | null;
     if (!link) return;
     const recipients = this.db.query(
@@ -117,9 +117,12 @@ export class Pusher {
     // For the app's Notification Service Extension, which shows the sender's photo (as Messages
     // does) and attaches the thumbnail, fetched with the phone's own session.
     // A photo URL too long to leave room for the alert in 4 KB is left out (the push still goes).
+    // Their uploaded photo, else their WorkOS picture, as the app shows them.
+    const sender = this.db.query("SELECT * FROM users WHERE id = ?").get(link.added_by) as UserRow;
+    const avatar = publicUser(sender, this.config.publicUrl).avatar;
     const rich = {
       sender_name: link.name,
-      ...(link.avatar && link.avatar.length <= MAX_AVATAR_URL ? { sender_avatar: link.avatar } : {}),
+      ...(avatar && avatar.length <= MAX_AVATAR_URL ? { sender_avatar: avatar } : {}),
       ...(named ? { chat: link.chat } : {}),
       ...(link.thumb_type ? { thumb: `/thumbs/${linkId}${link.thumb_v ? `/${link.thumb_v}` : ""}` } : {}),
     };
