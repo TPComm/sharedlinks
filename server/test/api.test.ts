@@ -1659,6 +1659,17 @@ describe("comment threads", () => {
     expect(await summary(link.id, ann)).toMatchObject({ comment_count: 0, last_comment: null });
   });
 
+  test("commenting marks the link seen for the commenter", async () => {
+    const link = await send();
+    expect((await summary(link.id, ann)).seen).toEqual({});
+    const comment = (await post(link.id, bo, "Saw it")).data.comment;
+    expect((await summary(link.id, ann)).seen).toEqual({ [boId]: comment.created_at });
+    // A later comment keeps the first seen time, and unmarking still works.
+    await post(link.id, bo, "Again");
+    expect((await summary(link.id, bo)).seen).toEqual({ [boId]: comment.created_at });
+    expect(Object.keys((await call(`/api/links/${link.id}/seen`, { token: bo, body: { seen: false } })).data.link.seen)).toEqual([]);
+  });
+
   test("comments require a session, a visible link and current chat membership", async () => {
     const group = (await call("/api/groups", { token: ann, body: { members: [boId] } })).data.group;
     const link = await send(group.id);

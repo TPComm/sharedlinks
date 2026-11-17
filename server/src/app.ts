@@ -959,11 +959,16 @@ export function createApp(config: Config, opts: AppOptions = {}) {
         const body = commentBody((await readJson(req)).body);
         const comment = asUser(me, () => {
           stillSees(id, me);
-          const { lastInsertRowid } = db.run("INSERT INTO comments (link_id, person, body, created_at) VALUES (?, ?, ?, ?)", [id, me, body, now()]);
-          return db.query("SELECT * FROM comments WHERE id = ?").get(lastInsertRowid) as CommentRow;
+          const at = now();
+          const { lastInsertRowid } = db.run("INSERT INTO comments (link_id, person, body, created_at) VALUES (?, ?, ?, ?)", [id, me, body, at]);
+          // Replying means they've seen it. No "saw your link" push: the comment alert covers it.
+          const nowSeen = db.run("INSERT OR IGNORE INTO seen (link_id, person, seen_at) VALUES (?, ?, ?)", [id, me, at]).changes > 0;
+          const row = db.query("SELECT * FROM comments WHERE id = ?").get(lastInsertRowid) as CommentRow;
+          return { row, leftToWatch: nowSeen && (db.query("SELECT added_by FROM links WHERE id = ?").get(id) as { added_by: string }).added_by !== me };
         });
-        if (push.enabled) track(Promise.resolve().then(() => push.newComment(comment.id)));
-        return json({ comment }, 201);
+        if (comment.leftToWatch) push.badges([me]);
+        if (push.enabled) track(Promise.resolve().then(() => push.newComment(comment.row.id)));
+        return json({ comment: comment.row }, 201);
       }),
     },
     "/api/comments/:id": {
