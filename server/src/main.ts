@@ -137,23 +137,21 @@ if (command === "mint-session") {
   const db = openDatabase(config.dataDir, config.legacyAllowedEmails);
   let named: string[] = [];
   let missing: string[] = [];
+  let evidence: string[] = [];
   for (let attempt = 0; attempt < 3; attempt++) {
     for (const f of existsSync(photos) ? readdirSync(photos) : []) if (!f.endsWith(".part")) copyIn(f);
     rmSync(file, { force: true });
     db.run("VACUUM INTO ?", [file]);
     const snapshot = new Database(file, { readonly: true });
     named = (snapshot.query("SELECT photo FROM users WHERE photo <> ''").all() as { photo: string }[]).map((r) => r.photo);
+    evidence = (snapshot.query("SELECT json_extract(snapshot, '$.photo_copy') AS copy FROM reports WHERE json_extract(snapshot, '$.photo_copy') IS NOT NULL")
+      .all() as { copy: string }[]).map((r) => r.copy);
     snapshot.close();
     named.forEach(copyIn);
     missing = named.filter((t) => !existsSync(join(saved, t)));
     if (!missing.length) break;
   }
   db.close();
-  if (missing.length) {
-    console.error(`backup failed: ${missing.length} profile photo(s) changed while saving; run it again`);
-    process.exit(1);
-  }
-  for (const f of readdirSync(saved)) if (!named.includes(f)) rmSync(join(saved, f), { force: true });
   // Reports keep their photo copies (photo_copy) after the photo itself goes, so these are only added.
   const reported = join(config.dataDir, "report-photos");
   const savedReported = join(dir, "report-photos");
@@ -161,6 +159,13 @@ if (command === "mint-session") {
   for (const f of existsSync(reported) ? readdirSync(reported) : []) {
     if (!existsSync(join(savedReported, f))) copyFileSync(join(reported, f), join(savedReported, f));
   }
+  const lost = evidence.filter((copy) => !existsSync(join(dir, copy)));
+  if (missing.length || lost.length) {
+    if (missing.length) console.error(`backup failed: ${missing.length} profile photo(s) changed while saving; run it again`);
+    if (lost.length) console.error(`backup failed: report photo(s) missing from ${config.dataDir}: ${lost.join(", ")}`);
+    process.exit(1);
+  }
+  for (const f of readdirSync(saved)) if (!named.includes(f)) rmSync(join(saved, f), { force: true });
   const names = readdirSync(dir);
   const old = names.filter((f) => /^links-\d{4}-\d{2}-\d{2}\.db$/.test(f)).sort().slice(0, -14);
   // Labelled copies (links-YYYY-MM-DD-pre-deploy.db) go after 14 days too, as the privacy page promises,
