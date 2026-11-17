@@ -5,7 +5,7 @@ import Foundation
 public struct LinkNotification: Equatable, Sendable {
     /// The category the server sets on new-link pushes, which the app registers its actions under.
     public static let category = "NEW_LINK"
-    public static let markWatchedAction = "MARK_WATCHED"
+    public static let markSeenAction = "MARK_SEEN"
     public static let commentAction = "COMMENT"
 
     public var linkID: Int
