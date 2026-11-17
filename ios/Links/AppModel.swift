@@ -236,22 +236,31 @@ final class AppModel {
     /// Uploads `data` from the photo picker as my avatar (#97), squared and shrunk first. Throws,
     /// like `rename`, for the profile to show.
     func setPhoto(_ data: Data) async throws {
+        let session = sessionID
         guard let jpeg = await Task.detached(operation: { ProfilePhoto.jpeg(from: data) }).value else {
             throw APIError.server("That photo couldn't be opened. Try another one.")
         }
-        try await savePhoto { try await $0.setPhoto(jpeg) }
+        guard session == sessionID else { return }
+        try await savePhoto(session) { try await $0.setPhoto(jpeg) }
     }
 
     func removePhoto() async throws {
-        try await savePhoto { try await $0.removePhoto() }
+        try await savePhoto(sessionID) { try await $0.removePhoto() }
     }
 
-    private func savePhoto(_ save: (APIClient) async throws -> MeResponse) async throws {
+    /// A reply that lands after Sign Out (still available while a photo saves) is dropped, so it
+    /// can't put the old account back.
+    private func savePhoto(_ session: UUID, _ save: (APIClient) async throws -> MeResponse) async throws {
         do {
-            setAccount(try await save(client).user)
+            let me = try await save(client)
+            guard session == sessionID else { return }
+            setAccount(me.user)
         } catch APIError.signedOut {
-            endSession()
+            if session == sessionID { endSession() }
             return
+        } catch {
+            guard session == sessionID else { return }
+            throw error
         }
         await refresh() // my avatar on the links I sent
     }
