@@ -384,7 +384,7 @@ describe("pushes", () => {
     expect(sent[0]!.body).toEqual({ aps: { badge: unwatched.length - 2 } });
   });
 
-  test("comment CRUD and reports send no pushes and leave To Watch unchanged", async () => {
+  test("new comments alert other members; edits, deletes and reports stay silent", async () => {
     const { data } = await call("/api/links", { token: sam, body: { url: `${fakeOrigin.url.origin}/video?n=comments` } });
     const id = data.link.id;
     await settle();
@@ -398,6 +398,14 @@ describe("pushes", () => {
     const made = await call(`/api/links/${id}/comments`, { token: sam, body: { body: "A reply" } });
     expect(made.status).toBe(201);
     const comment = made.data.comment.id;
+    await settle();
+    expect(sent.map((s) => s.token).sort()).toEqual([ALEX, KIM].sort());
+    expect(sent[0]!.body).toMatchObject({
+      aps: { alert: { title: "Sam", body: "commented\nA reply" }, "thread-id": "links-inbox", sound: "default" },
+      link_id: id, group_id: data.link.group_id, comment_id: comment,
+    });
+    expect(sent.find((s) => s.token === ALEX)!.body.aps.badge).toBe(before);
+    sent = [];
     await quiet();
     expect((await call(`/api/comments/${comment}`, { method: "PATCH", token: sam, body: { body: "Edited reply" } })).status).toBe(200);
     await quiet();
@@ -410,6 +418,59 @@ describe("pushes", () => {
     await quiet();
     expect((await call("/api/reports", { token: alex, body: { user_id: "user_01SAM", reason: "spam" } })).status).toBe(201);
     await quiet();
+  });
+
+  test("comment recipients respect chat membership, blocks, reports and mute", async () => {
+    const chat = (await call("/api/groups", { token: sam, body: { name: "Replies", members: ["user_01ALEX", "user_01KIM"] } })).data.group;
+    const link = (await call("/api/links", { token: sam, body: { url: `${fakeOrigin.url.origin}/video?n=comment-filters`, group_id: chat.id } })).data.link;
+    await settle();
+    const reply = async () => {
+      sent = [];
+      expect((await call(`/api/links/${link.id}/comments`, { token: alex, body: { body: "Hello" } })).status).toBe(201);
+      await settle();
+      return sent.map((s) => s.token).sort();
+    };
+    expect(await reply()).toEqual([SAM, KIM].sort());
+    expect(sent[0]!.body.aps["thread-id"]).toBe(`links-group-${chat.id}`);
+    expect(sent[0]!.body.aps.alert.title).toBe("Alex in Replies");
+    await call(`/api/groups/${chat.id}`, { token: kim, method: "PATCH", body: { muted: true } });
+    expect(await reply()).toEqual([SAM]);
+    await call(`/api/groups/${chat.id}`, { token: kim, method: "PATCH", body: { muted: false } });
+    for (const blocked of ["user_01SAM", "user_01ALEX"]) {
+      await call("/api/blocks", { token: kim, body: { user_id: blocked } });
+      await settle();
+      expect(await reply()).toEqual([SAM]);
+      await call(`/api/blocks/${blocked}`, { token: kim, method: "DELETE" });
+      await settle();
+    }
+    await call("/api/reports", { token: kim, body: { link_id: link.id, reason: "spam" } });
+    await settle();
+    expect(await reply()).toEqual([SAM]);
+    await call(`/api/groups/${chat.id}`, { token: sam, method: "DELETE" });
+    await settle();
+    expect(await reply()).toEqual([]);
+    await app.push.newComment(Number.MAX_SAFE_INTEGER);
+    expect(sent).toEqual([]);
+  });
+
+  test("comment previews clip Unicode and rejected comments send nothing", async () => {
+    const link = (await call("/api/links", { token: sam, body: { url: `${fakeOrigin.url.origin}/video?n=unicode-comments` } })).data.link;
+    await settle();
+    sent = [];
+    for (const body of ["", 123, null]) {
+      expect((await call(`/api/links/${link.id}/comments`, { token: alex, body: { body } })).status).toBe(400);
+    }
+    await settle();
+    expect(sent).toEqual([]);
+    const made = await call(`/api/links/${link.id}/comments`, { token: alex, body: { body: "😀".repeat(1000) } });
+    expect(made.status).toBe(201);
+    await settle();
+    expect(sent.map((s) => s.token).sort()).toEqual([SAM, KIM].sort());
+    for (const s of sent) {
+      expect(Buffer.byteLength(JSON.stringify(s.body))).toBeLessThanOrEqual(4096);
+      expect(s.body.aps.alert.body).toBe(`commented\n${"😀".repeat(200)}`);
+      expect(s.body.comment_id).toBe(made.data.comment.id);
+    }
   });
 
   test("reporting a link still updates only the reporter's badge, once", async () => {

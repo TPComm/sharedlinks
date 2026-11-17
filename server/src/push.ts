@@ -121,6 +121,31 @@ export class Pusher {
     }))));
   }
 
+  async newComment(commentId: number) {
+    if (!this.enabled) return;
+    const comment = this.db.query(`SELECT c.body, c.person, c.link_id, l.added_by, l.group_id,
+      u.name, g.name AS chat, g.is_default FROM comments c
+      JOIN links l ON l.id = c.link_id JOIN users u ON u.id = c.person
+      JOIN groups g ON g.id = l.group_id WHERE c.id = ?`).get(commentId) as {
+        body: string; person: string; link_id: number; added_by: string; group_id: number;
+        name: string; chat: string; is_default: number;
+      } | null;
+    if (!comment) return;
+    const recipients = this.db.query(`SELECT m.user_id FROM group_members m WHERE m.group_id = ?1 AND m.user_id != ?2
+      AND NOT EXISTS (SELECT 1 FROM blocks WHERE blocker = m.user_id AND blocked IN (?2, ?3))
+      AND NOT EXISTS (SELECT 1 FROM reports WHERE reporter = m.user_id AND (link_id = ?4 OR comment_id = ?5))`)
+      .all(comment.group_id, comment.person, comment.added_by, comment.link_id, commentId) as { user_id: string }[];
+    const title = !comment.is_default && comment.chat ? `${comment.name} in ${comment.chat}` : comment.name;
+    await Promise.all(recipients.filter(({ user_id }) => !this.isMuted(comment.group_id, user_id))
+      .map(({ user_id }) => this.toPerson(user_id, "alert", (badge) => this.fit({
+        aps: {
+          alert: { title, body: ["commented", null, comment.body] as const },
+          badge, sound: "default", "thread-id": threadId(comment.group_id, comment.is_default),
+        },
+        link_id: comment.link_id, group_id: comment.group_id, comment_id: commentId,
+      }))));
+  }
+
   /**
    * Someone watched or reacted to a link: a passive alert (no sound, screen stays off) for its
    * sender, if they want that kind. Both from one person within `activityDelayMs` go out as one
