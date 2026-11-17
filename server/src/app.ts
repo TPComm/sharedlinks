@@ -29,8 +29,10 @@ const redirect = (location: string) =>
   new Response(null, { status: 302, headers: { Location: location, "Cache-Control": "no-store" } });
 
 async function readJson(req: Request): Promise<Record<string, any>> {
-  const text = await req.text();
-  if (text.length > 65536) throw new TooLarge("Request too large.");
+  // Bytes, not characters: the server-wide cap is the photo's, so this is JSON's only one.
+  const body = new Uint8Array(await req.arrayBuffer());
+  if (body.length > 65536) throw new TooLarge("Request too large.");
+  const text = new TextDecoder().decode(body);
   if (!text.trim()) return {};
   try {
     const value = JSON.parse(text);
@@ -536,7 +538,8 @@ export function createApp(config: Config, opts: AppOptions = {}) {
       if (!user || !sees(me, id)) throw new NotFound("That person isn't in Links anymore.");
       return {
         link_id: null, comment_id: null, user_id: id, label: `person ${id}`,
-        snapshot: { name: user.name, avatar: publicUser(user, config.publicUrl).avatar, email: user.email },
+        snapshot: { name: user.name, avatar: publicUser(user, config.publicUrl).avatar, email: user.email,
+                    ...(user.photo ? { photo_copy: accounts.keepPhotoForReport(user.photo) } : {}) },
       };
     }
     if (!Number.isSafeInteger(data.comment_id)) throw new NotFound("That comment was deleted.");

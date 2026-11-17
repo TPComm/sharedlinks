@@ -379,6 +379,9 @@ describe("a day with Links", () => {
   e2e("refuses request bodies over 64 KB", async () => {
     const res = await call("/api/links", { token: alice.token, body: JSON.stringify({ text: "x".repeat(70_000) }) });
     expect(res.status).toBe(413);
+    // 30,000 three-byte characters: under 64K characters, but about 90 KB.
+    const wide = await call("/api/links", { token: alice.token, body: JSON.stringify({ text: "界".repeat(30_000) }) });
+    expect(wide.status).toBe(413);
   });
 
   e2e("deletes a link for everyone, and never reuses its id", async () => {

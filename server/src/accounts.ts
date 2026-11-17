@@ -1,6 +1,6 @@
 import type { Database } from "bun:sqlite";
 import { randomBytes } from "node:crypto";
-import { renameSync, rmSync, writeFileSync } from "node:fs";
+import { copyFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { Config } from "./config.ts";
 import { defaultGroup, deleteEmptyGroups, LEGACY, now, type InviteRow, type UserRow } from "./db.ts";
@@ -322,6 +322,17 @@ export class Accounts {
   photoOwner(token: string): string | null {
     if (!token) return null;
     return (this.db.query("SELECT id FROM users WHERE photo = ?").get(token) as { id: string } | null)?.id ?? null;
+  }
+
+  /** A copy of a reported person's photo for the report (`photo_copy`, under DATA_DIR), kept after they change it. */
+  keepPhotoForReport(token: string): string | null {
+    const copy = join("report-photos", token);
+    try {
+      copyFileSync(this.photoPath(token), join(this.config.dataDir, copy));
+      return copy;
+    } catch {
+      return null;
+    }
   }
 
   photoPath(token: string) {
