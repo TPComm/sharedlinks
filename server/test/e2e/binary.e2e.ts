@@ -8,7 +8,7 @@
  */
 import { Database } from "bun:sqlite";
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import {
@@ -126,6 +126,61 @@ const printed = (server: Server, stream: "stdout" | "stderr", text: string) =>
   until(`${server.name} to print ${JSON.stringify(text)}`, () => server[stream].includes(text), 5000, server);
 
 const linkIn = (state: any, id: number) => state.links.find((l: any) => l.id === id);
+
+e2e("backup keeps photos named by retained snapshots", async () => {
+  const dataDir = join(tmp, "retained-photos");
+  const minted = await cli(dataDir, "mint-session", "photos@example.com", "Photos");
+  expect(minted.code, minted.logs()).toBe(0);
+  const token = minted.stdout.trim();
+  const server = await startServer("photo backups", binary, { cwd, env: env({ DATA_DIR: dataDir }) });
+  const dir = join(dataDir, "backups");
+  const png = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==", "base64");
+  const upload = async () => {
+    const res = await fetch(`${server.url}/api/me/photo`, {
+      method: "PUT", headers: { Authorization: `Bearer ${token}`, "Content-Type": "image/png" }, body: png,
+    });
+    expect(res.status).toBe(200);
+    return ((await res.json()) as any).user.avatar.split("/").pop() as string;
+  };
+  try {
+    const photo = await upload();
+    const live = new Database(join(dataDir, "links.db"));
+    const user = live.query("SELECT id FROM users WHERE email = 'photos@example.com'").get() as { id: string };
+    const evidence = join("report-photos", photo);
+    copyFileSync(join(dataDir, "photos", photo), join(dataDir, evidence));
+    live.run("INSERT INTO reports (reporter, user_id, reason, details, snapshot, created_at) VALUES (?, ?, 'spam', '', ?, ?)",
+      [user.id, user.id, JSON.stringify({ photo_copy: evidence }), Date.now()]);
+    const first = await cli(dataDir, "backup");
+    expect(first.code, first.logs()).toBe(0);
+    const file = first.stdout.match(/^backed up to (.+)\n$/)![1]!;
+    copyFileSync(file, join(dir, "links-2000-01-01.db"));
+    copyFileSync(file, join(dir, "links-2000-01-01-pre-deploy.db"));
+    live.run("DELETE FROM reports");
+    live.close();
+    rmSync(join(dataDir, evidence));
+    await upload();
+    const second = await cli(dataDir, "backup");
+    expect(second.code, second.logs()).toBe(0);
+    expect(existsSync(join(dir, "photos", photo))).toBe(true);
+    expect(existsSync(join(dir, evidence))).toBe(true);
+    // Once the nightly ages out, the newest labelled snapshot still needs both copies.
+    const current = second.stdout.match(/^backed up to (.+)\n$/)![1]!;
+    for (let day = 1; day <= 14; day++) copyFileSync(current, join(dir, `links-2001-01-${String(day).padStart(2, "0")}.db`));
+    const labelled = await cli(dataDir, "backup");
+    expect(labelled.code, labelled.logs()).toBe(0);
+    expect(existsSync(join(dir, "links-2000-01-01.db"))).toBe(false);
+    expect(existsSync(join(dir, "photos", photo))).toBe(true);
+    expect(existsSync(join(dir, evidence))).toBe(true);
+    copyFileSync(current, join(dir, "links-2001-01-01-pre-deploy.db"));
+    const expired = await cli(dataDir, "backup");
+    expect(expired.code, expired.logs()).toBe(0);
+    expect(existsSync(join(dir, "links-2000-01-01-pre-deploy.db"))).toBe(false);
+    expect(existsSync(join(dir, "photos", photo))).toBe(false);
+    expect(existsSync(join(dir, evidence))).toBe(false);
+  } finally {
+    await server.stop();
+  }
+});
 
 beforeAll(async () => {
   binary = await locateBinary(tmp);
@@ -493,7 +548,13 @@ describe("a day with Links", () => {
     const daysAgo = (n: number) => new Date(Date.now() - n * 86_400_000).toISOString().slice(0, 10);
     const recent = [`links-${daysAgo(12)}-pre-deploy.db`, `links-${daysAgo(1)}-pre-deploy.db`];
     const labelled = ["links-2000-01-01-pre-deploy.db", `links-${daysAgo(15)}-pre-v2.db`, ...recent];
-    for (const name of [...old, ...labelled, "links-latest.db", "notes.txt"]) writeFileSync(join(dir, name), "old");
+    const makeOldSnapshot = (file: string) => {
+      const db = new Database(file);
+      db.exec("CREATE TABLE users (id TEXT); CREATE TABLE reports (snapshot TEXT); INSERT INTO reports VALUES ('{}')");
+      db.close();
+    };
+    for (const name of [...old, ...labelled]) makeOldSnapshot(join(dir, name));
+    for (const name of ["links-latest.db", "notes.txt"]) writeFileSync(join(dir, name), "old");
     // A copy of a photo that has since been replaced or removed goes too.
     mkdirSync(join(dir, "photos"));
     writeFileSync(join(dir, "photos", "gone"), "old");
@@ -526,7 +587,7 @@ describe("a day with Links", () => {
     // names with an impossible or future date are left alone and don't take its place.
     mkdirSync(join(dataDir, "backups"));
     const odd = ["links-2000-13-40-x.db", "links-2999-01-01-future.db"];
-    for (const name of ["links-2000-01-01-pre-a.db", "links-2000-01-02-pre-b.db", ...odd]) writeFileSync(join(dataDir, "backups", name), "old");
+    for (const name of ["links-2000-01-01-pre-a.db", "links-2000-01-02-pre-b.db", ...odd]) makeOldSnapshot(join(dataDir, "backups", name));
     const fallback = await cli(dataDir, "backup");
     expect(fallback.code, fallback.logs()).toBe(0);
     const kept = readdirSync(join(dataDir, "backups"));
