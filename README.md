@@ -38,7 +38,7 @@ It needs at least two people, uses only links visible to you, and updates as rea
 membership change. Browsing a match does not mark it seen.
 
 Each link's page also has a comment thread: read and reply below the reactions and receipts,
-edit or delete your own comments, or report someone else's. The list shows comment counts and
+edit or delete your own comments, or report someone else's. Commenting marks the link seen. The list shows comment counts and
 highlights new replies; read positions stay on this device, separate for each account. The
 sender's original note stays separate from the conversation.
 
@@ -336,7 +336,7 @@ API endpoints except sign-in need `Authorization: Bearer <session token>`; pages
 | POST | `/api/links/:id/seen` | `{seen: true/false}` |
 | POST | `/api/links/:id/react` | `{emoji}` (`null` removes) |
 | PATCH / DELETE | `/api/links/:id` | `{note}` (sender only) / –; 403 if the sender blocked you |
-| GET/POST | `/api/links/:id/comments` | Chat members only. GET → `{comments}` oldest first (ties by id); POST `{body}` (nonempty text, trimmed and clipped to 1000 Unicode characters) → 201 `{comment}`. Comments are `{id, link_id, person, body, created_at, edited_at}`; blocked authors and reported comments are hidden for the reader |
+| GET/POST | `/api/links/:id/comments` | Chat members only. GET → `{comments}` oldest first (ties by id); POST `{body}` (nonempty text, trimmed and clipped to 1000 Unicode characters) → 201 `{comment}`, and marks the link seen for the commenter. Comments are `{id, link_id, person, body, created_at, edited_at}`; blocked authors and reported comments are hidden for the reader |
 | PATCH/DELETE | `/api/comments/:id` | Author only, while still in the chat. PATCH `{body}` → `{comment}` (sets `edited_at`); DELETE → `{ok:true}`. Deleting a link or account cascades its comments |
 | POST | `/api/reports` | `{link_id \| comment_id \| user_id, reason, details?}`; reason is `spam`, `offensive`, `harassment` or `other` → 201 |
 | POST | `/api/blocks` | `{user_id}` → `{blocked}` |
