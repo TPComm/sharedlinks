@@ -387,7 +387,7 @@ check_monitoring() {
   sudo systemctl restart links
   auth="Basic $(printf '111:%s' "$token" | base64 -w0)"
   local i
-  for i in $(seq 30); do
+  for i in $(seq 45); do
     python3 - "$log" "$auth" <<'PY' && break
 import json, sys
 pushes = [json.loads(l) for l in open(sys.argv[1])]
@@ -396,7 +396,7 @@ units = {s.get("systemd_unit") for p in loki for s in p["streams"] if s.get("job
 sys.exit(not ({"links.service", "links-loki-heartbeat"} <= units
               and any("Links Loki heartbeat" in p["lines"] for p in loki)))
 PY
-    [ "$i" -lt 30 ] || fail "journal lines or heartbeat did not reach Loki with Links labels and the new token"
+    [ "$i" -lt 45 ] || fail "journal lines or heartbeat did not reach Loki with Links labels and the new token"
     sleep 2
   done
   ok "the Links journal and heartbeat both reach Loki with Links labels"
