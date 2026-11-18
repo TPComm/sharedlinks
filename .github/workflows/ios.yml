@@ -46,8 +46,8 @@ jobs:
             echo relevant=false >>"$GITHUB_OUTPUT"
           fi
 
-  # Two macOS jobs per run leave room under the org cap of five for another run's producer.
-  # Both slices boot after products are ready, avoiding early runtime initialization on new hosts.
+  # Three independent macOS jobs leave two slots under the org cap of five for another run.
+  # Each slice builds before booting to avoid resource contention on the runner.
   ui-tests:
     name: UI tests (${{ matrix.shard }} of ${{ strategy.job-total }})
     needs: changes
@@ -56,18 +56,15 @@ jobs:
     # The only hosted image with Xcode 27.
     runs-on: xcode-27
     timeout-minutes: 50
-    permissions:
-      contents: read
-      actions: read
     strategy:
       fail-fast: false
       matrix:
-        shard: [1, 2]
+        shard: [1, 2, 3]
     env:
       # The image defaults to Xcode 27.1; use 27.2, the same build as local development.
       DEVELOPER_DIR: /Applications/Xcode_27.2.app/Contents/Developer
-      # Runs 43883495133/43892731734: slice 2 booted 15s/3s later; no material slice-1-only overhead.
-      LINKS_UI_TEST_FIRST_SHARD_OVERHEAD: 0
+      # Slice 1 also runs LinksKit and the UI test script checks (~80–100s on recent main runs).
+      LINKS_UI_TEST_FIRST_SHARD_OVERHEAD: 100
     steps:
       - uses: actions/checkout@v7
 
@@ -78,7 +75,6 @@ jobs:
           python3 ios/scripts/test-ui-test-planning.py
 
       - name: Xcode version and Simulator runtimes
-        if: matrix.shard == 1
         run: |
           xcodebuild -version
           xcrun simctl list runtimes
@@ -88,11 +84,10 @@ jobs:
         working-directory: ios/LinksKit
         run: swift test
 
-      # Compile the app, Share Extension, widgets and UI tests for the Simulator, once: the UI
-      # test step runs these products. Signed ad hoc (the Simulator default), since the app needs
-      # its App Group entitlement for the keychain. arm64 only, which halves the work.
+      # Compile the app, its extensions and UI tests for the Simulator on each runner. Signed ad
+      # hoc (the Simulator default), since the app needs its App Group entitlement for the keychain.
+      # arm64 only, which halves the work.
       - name: Build Links and its UI tests
-        if: matrix.shard == 1
         working-directory: ios
         run: >-
           xcodebuild build-for-testing
@@ -113,68 +108,10 @@ jobs:
             plutil -lint "$bundle/PrivacyInfo.xcprivacy"
           done
 
-      # tar preserves executable bits and the .xctestrun alongside the bundles.
-      - name: Package UI test products
-        if: matrix.shard == 1
-        run: tar -czf ios-test-products.tar.gz -C ios/build/Build Products
-
-      - uses: actions/upload-artifact@v4
-        if: matrix.shard == 1
-        with:
-          name: ios-test-products
-          path: ios-test-products.tar.gz
-          retention-days: 1
-          overwrite: true
-
       - uses: oven-sh/setup-bun@v2
         with:
           # Same Bun as server.yml and local development.
           bun-version: 1.4.4
-
-      - name: Wait for UI test products
-        if: matrix.shard == 2
-        timeout-minutes: 26
-        env:
-          GH_TOKEN: ${{ github.token }}
-          GH_REPO: ${{ github.repository }}
-          RUN_ID: ${{ github.run_id }}
-        run: |
-          deadline=$((SECONDS + 1500))
-          while (( SECONDS < deadline )); do
-            artifact=$(gh api "repos/$GH_REPO/actions/runs/$RUN_ID/artifacts?per_page=100" \
-              --jq '.artifacts[] | select(.name == "ios-test-products" and .expired == false) | .id')
-            if [[ -n "$artifact" ]]; then
-              echo "UI test products ready after $SECONDS seconds"
-              exit 0
-            fi
-            conclusion=$(gh api "repos/$GH_REPO/actions/runs/$RUN_ID/jobs?per_page=100" \
-              --jq '.jobs[] | select(.name == "UI tests (1 of 2)") | .conclusion // ([.steps[]? | select(.conclusion == "failure" or .conclusion == "cancelled") | .conclusion][0]) // "pending"')
-            case "$conclusion" in
-              failure|cancelled|timed_out|skipped|action_required|startup_failure)
-                echo "error: producer slice ended with $conclusion before publishing UI test products" >&2
-                exit 1
-                ;;
-            esac
-            if [[ "$conclusion" == success ]]; then
-              echo 'error: producer slice succeeded without UI test products' >&2
-              exit 1
-            fi
-            sleep 10
-          done
-          echo 'error: timed out waiting for UI test products' >&2
-          exit 1
-
-      - uses: actions/download-artifact@v4
-        if: matrix.shard == 2
-        with:
-          name: ios-test-products
-          path: ios-test-products
-
-      - name: Restore UI test products
-        if: matrix.shard == 2
-        run: |
-          mkdir -p ios/build/Build
-          tar -xzf ios-test-products/ios-test-products.tar.gz -C ios/build/Build
 
       - name: Boot UI test Simulator
         run: |
