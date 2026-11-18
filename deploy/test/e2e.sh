@@ -383,22 +383,23 @@ check_monitoring() {
   if sudo ss -ltnH 'sport = :2020' | grep -v '127.0.0.1:2020' | grep -q .; then fail "Fluent Bit's HTTP port listens beyond loopback"; fi
   ok "Fluent Bit runs as uid $uid under an 80M cap, with the token root-only"
 
-  # Logs only ship once a unit logs, so make Links log something.
+  # Journal logs only ship once a unit logs, so make Links log something.
   sudo systemctl restart links
   auth="Basic $(printf '111:%s' "$token" | base64 -w0)"
   local i
-  for i in $(seq 30); do
+  for i in $(seq 45); do
     python3 - "$log" "$auth" <<'PY' && break
 import json, sys
 pushes = [json.loads(l) for l in open(sys.argv[1])]
-sys.exit(not any(p["auth"] == sys.argv[2] and p["path"] == "/loki/api/v1/push"
-                 and any(s.get("systemd_unit") == "links.service" and s.get("job") == "links" and s.get("host")
-                         for s in p["streams"]) for p in pushes))
+loki = [p for p in pushes if p["auth"] == sys.argv[2] and p["path"] == "/loki/api/v1/push"]
+units = {s.get("systemd_unit") for p in loki for s in p["streams"] if s.get("job") == "links" and s.get("host")}
+sys.exit(not ({"links.service", "links-loki-heartbeat"} <= units
+              and any("Links Loki heartbeat" in p["lines"] for p in loki)))
 PY
-    [ "$i" -lt 30 ] || fail "no links.service journal lines reached Loki with job=links, a host and the new token"
+    [ "$i" -lt 45 ] || fail "journal lines or heartbeat did not reach Loki with Links labels and the new token"
     sleep 2
   done
-  ok "the Links journal reaches Loki, labelled job=links, host and systemd_unit"
+  ok "the Links journal and heartbeat both reach Loki with Links labels"
 
   # The unit states come from systemd over D-Bus, which a sandbox can cut off without an error.
   auth="Basic $(printf '222:%s' "$token" | base64 -w0)"
