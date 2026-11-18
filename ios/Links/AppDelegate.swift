@@ -99,14 +99,13 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
                 let body = comment?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
                 guard !body.isEmpty else { break }
                 do {
-                    _ = try await client.addComment(linkID, body: body)
+                    try await NotificationComment.send(body, on: linkID, client: client) {
+                        WidgetCenter.shared.reloadAllTimelines()
+                    }
                 } catch {
                     await unsentComment(body, on: linkID)
                     throw error
                 }
-                // Commenting marks the link seen on the server (#169), so the widgets' Queue changes too.
-                if let fresh = try? await client.state() { InboxSnapshot.save(fresh) }
-                WidgetCenter.shared.reloadAllTimelines()
             default: break
             }
         } catch {
