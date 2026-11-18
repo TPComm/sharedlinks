@@ -104,6 +104,9 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
                     await unsentComment(body, on: linkID)
                     throw error
                 }
+                // Commenting marks the link seen on the server (#169), so the widgets' Queue changes too.
+                if let fresh = try? await client.state() { InboxSnapshot.save(fresh) }
+                WidgetCenter.shared.reloadAllTimelines()
             default: break
             }
         } catch {
