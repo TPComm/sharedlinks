@@ -135,7 +135,8 @@ class XctestrunTests(unittest.TestCase):
 
 class ScriptTests(unittest.TestCase):
     def run_script(self, action, artifact=True, recovery=False, booted=True,
-                   launch_failures=0, expected_status=0, shard=None):
+                   launch_failures=0, expected_status=0, shard=None, boot_during_setup=False,
+                   boot_failure=False):
         with tempfile.TemporaryDirectory(prefix="links script ") as directory:
             root = pathlib.Path(directory)
             products = root / "build/Build/Products"
@@ -146,12 +147,18 @@ class ScriptTests(unittest.TestCase):
             commands.mkdir()
             mock = commands / "mock"
             mock.write_text("#!/usr/bin/env python3\n" + r'''
-import json, os, pathlib, plistlib, signal, sys
+import json, os, pathlib, plistlib, signal, sys, time
 root = pathlib.Path(os.environ["MOCK_ROOT"])
 command = pathlib.Path(sys.argv[0]).name
 args = sys.argv[1:]
 if command == "bun":
     if "-e" in args:
+        if os.environ["LINKS_UI_TEST_BOOT_DURING_SETUP"] == "1" and os.environ["MOCK_BOOT_FAILURE"] == "0":
+            deadline = time.monotonic() + 5
+            while not (root / "boot-started").exists():
+                if time.monotonic() >= deadline:
+                    sys.exit("Server setup started before boot")
+                time.sleep(0.01)
         print("49123")
     elif "mint-session" in args:
         counter = root / "mint-count"
@@ -172,8 +179,22 @@ elif command == "xcrun":
         print(f"    Links UI Tests (AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE) ({state})")
     if args[:2] == ["simctl", "erase"]:
         (root / "erased").touch()
+    if args[:2] == ["simctl", "create"]:
+        print("AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE")
     if args[:2] == ["simctl", "boot"]:
+        if os.environ["MOCK_BOOT_FAILURE"] == "1":
+            sys.exit(2)
+        if os.environ["LINKS_UI_TEST_BOOT_DURING_SETUP"] == "1":
+            (root / "boot-started").touch()
+            deadline = time.monotonic() + 5
+            counter = root / "mint-count"
+            while not counter.exists() or counter.read_text() != "4":
+                if time.monotonic() >= deadline:
+                    sys.exit("Boot did not overlap session setup")
+                time.sleep(0.01)
         (root / "booted").touch()
+    if args[:2] == ["simctl", "bootstatus"] and os.environ["LINKS_UI_TEST_BOOT_DURING_SETUP"] == "1":
+        assert (root / "booted").exists()
     if args[:2] == ["simctl", "launch"]:
         counter = root / "launch-count"
         value = int(counter.read_text()) + 1 if counter.exists() else 1
@@ -213,7 +234,9 @@ elif command == "xcodebuild":
             environment = dict(os.environ, HOME=str(root), PATH=str(commands) + os.pathsep + os.environ["PATH"],
                                MOCK_ROOT=str(root), MOCK_BOOTED=str(int(booted)),
                                MOCK_LAUNCH_FAILURES=str(launch_failures),
+                               MOCK_BOOT_FAILURE=str(int(boot_failure)),
                                MOCK_RECOVERY="2" if recovery == "killed" else str(int(recovery)),
+                               LINKS_UI_TEST_BOOT_DURING_SETUP=str(int(boot_during_setup)),
                                LINKS_UI_TEST_DERIVED_DATA=str(root / "build"), LINKS_UI_TEST_ACTION=action)
             environment.pop("LINKS_UI_TEST_SHARD", None)
             args = ["bash", str(SCRIPTS / "ui-tests.sh")]
@@ -259,6 +282,22 @@ elif command == "xcodebuild":
         self.assertIn("Simulator warm-up reset=no", result.stdout)
         self.assertFalse(any(args[:2] == ["simctl", "erase"] for args in commands))
         self.assertEqual(sum(args[:2] == ["simctl", "launch"] for args in commands), 1)
+
+    def test_ci_boot_overlaps_sessions_and_waits_before_warm_up(self):
+        invocations, commands, result = self.run_script("test-without-building", boot_during_setup=True)
+        self.assertEqual([args[1] for args in commands if args[0] == "simctl"],
+                         ["create", "boot", "bootstatus", "install", "launch", "terminate"])
+        self.assertIn("Simulator warm-up reset=no", result.stdout)
+        self.assertEqual(len(invocations), 1)
+        target = invocations[0]["plist"]["LinksUITests"]["EnvironmentVariables"]
+        self.assertEqual(target["LINKS_DELETABLE_TOKEN"], "fixture-4")
+
+    def test_ci_boot_failure_prevents_warm_up_and_tests(self):
+        invocations, commands, result = self.run_script("test-without-building", boot_during_setup=True,
+                                                        boot_failure=True, expected_status=2)
+        self.assertEqual([args[1] for args in commands if args[0] == "simctl"], ["create", "boot"])
+        self.assertIn("error: Simulator boot failed (exit 2)", result.stderr)
+        self.assertFalse(invocations)
 
     def test_warm_up_recovers_after_one_reset(self):
         invocations, commands, result = self.run_script("test-without-building", launch_failures=6)
