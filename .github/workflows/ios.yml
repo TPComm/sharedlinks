@@ -113,13 +113,22 @@ jobs:
           # Same Bun as server.yml and local development.
           bun-version: 1.4.4
 
-      # Only after the build: boot the Simulator alongside the server and session setup.
-      # A runner crash can mean another boot, so leave room for recovery.
+      - name: Boot UI test Simulator
+        run: |
+          started=$SECONDS
+          udid=$(xcrun simctl create "Links UI Tests" 'iPhone 17')
+          echo "Created Simulator Links UI Tests ($udid)"
+          xcrun simctl boot "$udid"
+          xcrun simctl bootstatus "$udid" -b
+          echo "Simulator boot and bootstatus completed in $((SECONDS - started))s"
+
+      # Starts the server from source with an empty database and drives the app in the "Links UI
+      # Tests" Simulator through this slice of the tests. A runner crash can mean another boot,
+      # so leave room for recovery rather than kill a passing run.
       - name: UI tests
         timeout-minutes: 40
         env:
           LINKS_UI_TEST_ACTION: test-without-building
-          LINKS_UI_TEST_BOOT_DURING_SETUP: "1"
           LINKS_UI_TEST_SHARD: ${{ matrix.shard }}/${{ strategy.job-total }}
           LINKS_UI_TEST_LOGS: ${{ github.workspace }}/ios/diagnostics/ui-test-logs
         run: ios/scripts/ui-tests.sh

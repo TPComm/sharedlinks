@@ -11,8 +11,6 @@
 #   LINKS_UI_TEST_DERIVED_DATA  derived data folder (default: ios/build)
 #   LINKS_UI_TEST_ACTION        xcodebuild action (default: test; CI builds first, then runs
 #                               test-without-building)
-#   LINKS_UI_TEST_BOOT_DURING_SETUP  1: use a fresh CI Simulator and boot while preparing the
-#                                   server and sessions (only with test-without-building)
 #   LINKS_UI_TEST_LOGS          keep the server and xcodebuild logs here (default: a temp folder,
 #                               deleted at exit)
 #   LINKS_UI_TEST_SHARD         K/N: run the Kth duration-weighted slice across N runners
@@ -28,16 +26,11 @@ tmp="$(mktemp -d "${TMPDIR:-/tmp}/links-ui-tests.XXXXXX")"
 logs="${LINKS_UI_TEST_LOGS:-$tmp}"
 mkdir -p "$logs"
 server_pid=""
-boot_pid=""
 shutdown_udid=""
 xctestrun_copy=""
 
 cleanup() {
   if [[ -n "$xctestrun_copy" ]]; then rm -f "$xctestrun_copy"; fi
-  if [[ -n "$boot_pid" ]]; then
-    kill "$boot_pid" 2>/dev/null || true
-    wait "$boot_pid" 2>/dev/null || true
-  fi
   if [[ -n "$server_pid" ]]; then
     kill "$server_pid" 2>/dev/null || true
     wait "$server_pid" 2>/dev/null || true
@@ -51,21 +44,7 @@ trap 'exit 130' INT TERM
 
 command -v bun >/dev/null || { echo "error: bun isn't installed (https://bun.sh)" >&2; exit 1; }
 
-destination="${LINKS_UI_TEST_DESTINATION:-}"
-name="Links UI Tests"
-if [[ -z "$destination" && "${LINKS_UI_TEST_BOOT_DURING_SETUP:-0}" == 1 &&
-      "${LINKS_UI_TEST_ACTION:-test}" == test-without-building ]]; then
-  phase=$SECONDS
-  udid="$(xcrun simctl create "$name" "${LINKS_UI_TEST_DEVICE_TYPE:-iPhone 17}")"
-  echo "Created Simulator \"$name\" ($udid) in $((SECONDS - phase))s"
-  destination="platform=iOS Simulator,id=$udid"
-  echo "Starting Simulator boot alongside server setup"
-  xcrun simctl boot "$udid" &
-  boot_pid=$!
-fi
-
 # -- server: a free port (8000 is usually the dev server), a throwaway database.
-phase=$SECONDS
 port="$(bun -e 'const s = Bun.serve({ port: 0, hostname: "127.0.0.1", fetch: () => new Response() }); console.log(s.port); s.stop(true)')"
 url="http://127.0.0.1:$port"
 # server/.env skipped: settings from it would leak into the tests. Minted accounts are in already.
@@ -84,20 +63,20 @@ for _ in $(seq 1 100); do
   sleep 0.1
 done
 curl -fsS "$url/healthz" >/dev/null || { echo "error: the server didn't answer on $url" >&2; exit 1; }
-echo "Links server for UI tests: $url (ready in $((SECONDS - phase))s)"
+echo "Links server for UI tests: $url"
 
 mint() { (cd "$server_dir" && env "${server_env[@]}" bun --no-env-file src/main.ts mint-session "$@"); }
-phase=$SECONDS
 me_token="$(mint me@e2e.test Me)"
 friend_token="$(mint friend@e2e.test Friend)"
 # A second session of "me" for the sign-out test, which ends the session it signs out of.
 spare_token="$(mint me@e2e.test)"
 # Someone else, for the test that deletes their account.
 deletable_token="$(mint deletable@e2e.test Deletable)"
-echo "UI test sessions minted in $((SECONDS - phase))s"
 
 # -- destination: a Simulator of our own, so tests never take over the one you're using.
+destination="${LINKS_UI_TEST_DESTINATION:-}"
 if [[ -z "$destination" ]]; then
+  name="Links UI Tests"
   udid="$(xcrun simctl list devices available | sed -n "s/^ *$name (\([0-9A-F-]*\)).*/\1/p" | head -1)"
   if [[ -z "$udid" ]]; then
     # Without a runtime argument simctl picks the newest one that supports the device type.
@@ -119,7 +98,7 @@ products="$derived_data/Build/Products"
 app="$products/Debug-iphonesimulator/Links.app"
 warm_up_once() {
   local phase=$SECONDS attempt
-  if [[ "${1:-}" != boot-requested ]] && ! xcrun simctl list devices | grep -q "$udid) (Booted)"; then
+  if ! xcrun simctl list devices | grep -q "$udid) (Booted)"; then
     if ! xcrun simctl boot "$udid"; then
       echo "warning: Simulator boot failed after $((SECONDS - phase))s" >&2
       return 1
@@ -152,7 +131,7 @@ warm_up_once() {
 warm_up() {
   [[ -n "${udid:-}" && "${LINKS_UI_TEST_ACTION:-test}" == test-without-building && -d "$app" ]] || return 0
   local started=$SECONDS phase
-  if warm_up_once "$@"; then
+  if warm_up_once; then
     echo "Simulator warm-up reset=no"
   else
     echo "Simulator warm-up reset=yes"
@@ -172,20 +151,7 @@ warm_up() {
   fi
   echo "Simulator booted and Links launched once in $((SECONDS - started))s"
 }
-if [[ -n "$boot_pid" ]]; then
-  phase=$SECONDS
-  boot_status=0
-  wait "$boot_pid" || boot_status=$?
-  boot_pid=""
-  echo "Simulator boot wait after session setup completed in $((SECONDS - phase))s"
-  if (( boot_status != 0 )); then
-    echo "error: Simulator boot failed (exit $boot_status)" >&2
-    exit "$boot_status"
-  fi
-  warm_up boot-requested
-else
-  warm_up
-fi
+warm_up
 
 # The last slice runs everything the others don't, so a test the scan misses still runs.
 shard_args=()
@@ -250,7 +216,6 @@ run_tests() {
     if [[ -n "$xctestrun" ]]; then
       python3 "$ios/scripts/ui-test-xctestrun.py" "$xctestrun" "$xctestrun_copy" || exit 1
     fi
-    echo "Starting xcodebuild ${LINKS_UI_TEST_ACTION:-test}"
     xcodebuild "${LINKS_UI_TEST_ACTION:-test}" \
       "${project_args[@]}" \
       -destination "$destination" \
