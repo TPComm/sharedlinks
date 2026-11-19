@@ -54,7 +54,7 @@ private struct MonthlyRecapSheet: View {
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } }
                 ToolbarItem(placement: .bottomBar) {
-                    if let shareImage {
+                    if recap.linkCount > 0, let shareImage {
                         ShareLink(item: shareImage, preview: SharePreview("Month in Links", image: shareImage)) {
                             Label("Share recap", systemImage: "square.and.arrow.up")
                         }
