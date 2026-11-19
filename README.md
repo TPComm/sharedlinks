@@ -37,6 +37,11 @@ with ❤️, 😂 or 🔥, and opens the three most recently shared matches on t
 It needs at least two people, uses only links visible to you, and updates as reactions and chat
 membership change. Browsing a match does not mark it seen.
 
+**Chat Info → Month in Links** recaps the current calendar month’s visible links: how many were
+shared, the most-reacted-to link, the top current sharer, and the current member with the fastest
+median share-to-Seen time (at least two receipts). Seen marks are not measured watch time. Open
+the most-loved link without marking it Seen, or share the recap as an image.
+
 Each link's page also has a comment thread: read and reply below the reactions and receipts,
 edit or delete your own comments, or report someone else's. Commenting marks the link seen. The list shows comment counts and
 highlights new replies; read positions stay on this device, separate for each account. The
