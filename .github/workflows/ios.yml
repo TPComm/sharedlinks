@@ -7,7 +7,7 @@ on:
   pull_request:
   push:
     branches: [main]
-    # The UI tests run the app against server/, so on main server changes count as well.
+    # Keep this in sync with the PR changes filter: UI tests run against server/ too.
     paths: ["ios/**", "assets/icon/**", "server/**", ".github/workflows/ios.yml"]
 
 concurrency:
@@ -35,12 +35,11 @@ jobs:
       # changes. (The list is saved first because grep -q in a pipe would cut git off and fail it.)
       # --no-renames lists both sides of a move, so moving a file out of the area counts too.
       # The app icon lives outside ios/ (assets/icon/SharedLinks.icon), so changes there count too.
-      # A PR that only touches server/ skips the macOS jobs: server.yml and deploy-e2e.yml check it
-      # on Linux, and the push to main still runs the UI tests on it.
+      # UI tests start server/, so server changes must exercise the app/server contract before merge.
       - id: diff
         run: |
           files=$(git diff --name-only --no-renames HEAD^1 HEAD)
-          if grep -qE '^(ios/|assets/icon/|\.github/workflows/ios\.yml$)' <<<"$files"; then
+          if grep -qE '^(ios/|assets/icon/|server/|\.github/workflows/ios\.yml$)' <<<"$files"; then
             echo relevant=true >>"$GITHUB_OUTPUT"
           else
             echo relevant=false >>"$GITHUB_OUTPUT"
@@ -193,6 +192,7 @@ jobs:
         env:
           LINKS_UI_TEST_ACTION: test-without-building
           LINKS_UI_TEST_SHARD: ${{ matrix.shard }}/${{ strategy.job-total }}
+          LINKS_UI_TEST_LOGS: ${{ github.workspace }}/ios/diagnostics/ui-test-logs
         run: ios/scripts/ui-tests.sh
 
       - name: Collect UI test diagnostics
