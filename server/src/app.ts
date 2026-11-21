@@ -959,11 +959,16 @@ export function createApp(config: Config, opts: AppOptions = {}) {
         const body = commentBody((await readJson(req)).body);
         const comment = asUser(me, () => {
           stillSees(id, me);
-          const { lastInsertRowid } = db.run("INSERT INTO comments (link_id, person, body, created_at) VALUES (?, ?, ?, ?)", [id, me, body, now()]);
-          return db.query("SELECT * FROM comments WHERE id = ?").get(lastInsertRowid) as CommentRow;
+          const at = now();
+          const { lastInsertRowid } = db.run("INSERT INTO comments (link_id, person, body, created_at) VALUES (?, ?, ?, ?)", [id, me, body, at]);
+          // Replying means they've seen it. No "saw your link" push: the comment alert covers it.
+          const nowSeen = db.run("INSERT OR IGNORE INTO seen (link_id, person, seen_at) VALUES (?, ?, ?)", [id, me, at]).changes > 0;
+          const row = db.query("SELECT * FROM comments WHERE id = ?").get(lastInsertRowid) as CommentRow;
+          return { row, leftToWatch: nowSeen && (db.query("SELECT added_by FROM links WHERE id = ?").get(id) as { added_by: string }).added_by !== me };
         });
-        if (push.enabled) track(Promise.resolve().then(() => push.newComment(comment.id)));
-        return json({ comment }, 201);
+        if (comment.leftToWatch) push.badges([me]);
+        if (push.enabled) track(Promise.resolve().then(() => push.newComment(comment.row.id)));
+        return json({ comment: comment.row }, 201);
       }),
     },
     "/api/comments/:id": {
@@ -1100,6 +1105,9 @@ export function startServer(config: Config, opts: AppOptions = {}) {
   const server = Bun.serve({
     port: config.port,
     hostname: config.hostname,
+    // Outlast Caddy's 2m upstream keep-alive and URLSession reuse: an expired connection
+    // loses non-idempotent requests (502 through Caddy, "connection lost" directly).
+    idleTimeout: 255,
     // JSON bodies stop at readJson's 64 KB; only PUT /api/me/photo takes more.
     maxRequestBodySize: MAX_PHOTO_BYTES + 65536,
     routes: app.routes,

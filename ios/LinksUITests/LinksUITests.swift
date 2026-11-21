@@ -289,6 +289,8 @@ final class LinksUITests: XCTestCase {
         let note = "Sender note stays separate \(shortID())"
         let link = try seed(by: server.friend, note: note)
         let friendComment = try server.addComment(link.id, body: "That ending!", as: server.friend)
+        let me = try server.state(as: server.me).me
+        XCTAssertNil(try server.state(as: server.me).link(link.id)?.seen[me])
         launch()
         let row = waitForRow(link, in: "toWatch")
         waitFor(row, labelContaining: "1 comment · New")
@@ -310,6 +312,7 @@ final class LinksUITests: XCTestCase {
         let posted = try server.eventually("new comment") {
             try server.comments(link.id, as: server.friend).first { $0.body == "I watched it twice" }
         }
+        let seenAt = try XCTUnwrap(server.state(as: server.me).link(link.id)?.seen[me])
         let edit = app.buttons["comment.edit.\(posted.id)"]
         for _ in 0..<4 where !edit.isHittable { page.swipeUp() }
         XCTAssert(edit.waitForExistence(timeout: 10))
@@ -332,15 +335,21 @@ final class LinksUITests: XCTestCase {
             try server.comments(link.id, as: server.friend).count == 1 ? true : nil
         }
         app.navigationBars.buttons.element(boundBy: 0).tap()
-        waitFor(row, labelContaining: "1 comment")
-        XCTAssertFalse(row.label.contains("· New"), row.label)
+        // Commenting marks the link seen; editing or deleting the comment doesn't undo it.
+        XCTAssertEqual(try server.state(as: server.me).link(link.id)?.seen[me], seenAt)
+        XCTAssert(row.waitForNonExistence(timeout: 10), "commented link stayed in Queue")
+        app.tabBars.buttons["Seen"].tap()
+        let seenRow = waitForRow(link, in: "watched")
+        waitFor(seenRow, labelContaining: "1 comment")
+        XCTAssertFalse(seenRow.label.contains("· New"), seenRow.label)
         app.terminate()
         launch()
-        let readRow = waitForRow(link, in: "toWatch")
+        app.tabBars.buttons["Seen"].tap()
+        let readRow = waitForRow(link, in: "watched")
         XCTAssertFalse(readRow.label.contains("· New"), "read state lost after relaunch")
 
         try server.addComment(link.id, body: "Did you spot the cat?", as: server.friend)
-        app.collectionViews["links.toWatch"].swipeDown()
+        app.collectionViews["links.watched"].swipeDown()
         waitFor(readRow, labelContaining: "2 comments · New")
     }
 

@@ -1,0 +1,12 @@
+{
+  "issues": {
+    "testFailureSummaries": {
+      "_values": [
+        {
+          "testCaseName": {"_value": "LinksUITests.testNotificationTogglesSaveEachSetting()"},
+          "message": {"_value": "Test crashed with signal term."}
+        }
+      ]
+    }
+  }
+}
