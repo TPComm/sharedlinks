@@ -331,6 +331,71 @@
           },
           "title": "Links push notifications failing",
           "uid": "links-push-failing"
+        },
+        {
+          "annotations": {
+            "description": "Fluent Bit sends a heartbeat every minute through the same Loki output as the Links journal. This rule fires when no heartbeat from links.tpcomm.co arrives in 5m and the gap persists for 3m, or when Loki cannot be queried for 3m. Normal application and backup log volume does not affect it.",
+            "runbook_url": "https://wittypine1276.grafana.net/d/links-overview",
+            "summary": "Links (links.tpcomm.co) Loki heartbeat is missing or cannot be queried."
+          },
+          "condition": "B",
+          "data": [
+            {
+              "datasourceUid": "grafanacloud-logs",
+              "model": {
+                "expr": "sum(count_over_time({job=\"links\", host=\"links.tpcomm.co\", systemd_unit=\"links-loki-heartbeat\"} |= \"Links Loki heartbeat\" [5m])) or vector(0)",
+                "intervalMs": 1000,
+                "maxDataPoints": 43200,
+                "queryType": "instant",
+                "refId": "A"
+              },
+              "queryType": "instant",
+              "refId": "A",
+              "relativeTimeRange": {
+                "from": 300,
+                "to": 0
+              }
+            },
+            {
+              "datasourceUid": "__expr__",
+              "model": {
+                "conditions": [
+                  {
+                    "evaluator": {
+                      "params": [
+                        1
+                      ],
+                      "type": "lt"
+                    }
+                  }
+                ],
+                "expression": "A",
+                "intervalMs": 1000,
+                "maxDataPoints": 43200,
+                "refId": "B",
+                "type": "threshold"
+              },
+              "refId": "B",
+              "relativeTimeRange": {
+                "from": 0,
+                "to": 0
+              }
+            }
+          ],
+          "execErrState": "Alerting",
+          "for": "3m",
+          "isPaused": false,
+          "labels": {
+            "severity": "warning",
+            "team": "links"
+          },
+          "noDataState": "Alerting",
+          "notification_settings": {
+            "receiver": "Links \u2192 Sherlog (Devin webhook)",
+            "repeat_interval": "4h"
+          },
+          "title": "Links Loki heartbeat missing",
+          "uid": "links-loki-heartbeat-missing"
         }
       ]
     }
