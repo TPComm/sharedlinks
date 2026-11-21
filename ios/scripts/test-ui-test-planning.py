@@ -135,7 +135,7 @@ class XctestrunTests(unittest.TestCase):
 
 class ScriptTests(unittest.TestCase):
     def run_script(self, action, artifact=True, recovery=False, booted=True,
-                   launch_failures=0, expected_status=0):
+                   launch_failures=0, expected_status=0, shard=None):
         with tempfile.TemporaryDirectory(prefix="links script ") as directory:
             root = pathlib.Path(directory)
             products = root / "build/Build/Products"
@@ -216,8 +216,12 @@ elif command == "xcodebuild":
                                MOCK_RECOVERY="2" if recovery == "killed" else str(int(recovery)),
                                LINKS_UI_TEST_DERIVED_DATA=str(root / "build"), LINKS_UI_TEST_ACTION=action)
             environment.pop("LINKS_UI_TEST_SHARD", None)
-            result = subprocess.run(["bash", str(SCRIPTS / "ui-tests.sh"),
-                                     "-only-testing:LinksUITests/LinksUITests/testSignedInLaunchShowsTheInbox"],
+            args = ["bash", str(SCRIPTS / "ui-tests.sh")]
+            if shard is None:
+                args.append("-only-testing:LinksUITests/LinksUITests/testSignedInLaunchShowsTheInbox")
+            else:
+                environment.update(LINKS_UI_TEST_SHARD=shard, LINKS_UI_TEST_FIRST_SHARD_OVERHEAD="100")
+            result = subprocess.run(args,
                                     env=environment, capture_output=True, text=True, timeout=30)
             self.assertEqual(result.returncode, expected_status, result.stdout + result.stderr)
             log = root / "xcodebuild.jsonl"
@@ -225,6 +229,29 @@ elif command == "xcodebuild":
             simctl = [json.loads(line) for line in (root / "simctl.jsonl").read_text().splitlines()]
             self.assertEqual(list(products.glob(".links-ui-tests-*.xctestrun")), [])
             return invocations, simctl, result
+
+    def test_three_slices_select_each_case_once_and_leave_unscanned_cases_to_the_last(self):
+        tests = set(SHARDS.scan(SCRIPTS.parent / "LinksUITests"))
+        unscanned = "LinksUITests/OtherTests/testUnscanned"
+        remaining = tests | {unscanned}
+        for shard in range(1, 4):
+            invocations, _, result = self.run_script("test-without-building", shard=f"{shard}/3")
+            self.assertIn(f"UI test slice {shard}/3: planned", result.stderr)
+            self.assertEqual(len(invocations), 1)
+            args = invocations[0]["args"]
+            only = {arg.removeprefix("-only-testing:") for arg in args if arg.startswith("-only-testing:")}
+            skip = {arg.removeprefix("-skip-testing:") for arg in args if arg.startswith("-skip-testing:")}
+            if shard < 3:
+                self.assertFalse(skip)
+                selected = only
+            else:
+                self.assertFalse(only)
+                selected = (tests | {unscanned}) - skip
+                self.assertIn(unscanned, selected)
+            self.assertTrue(selected)
+            self.assertLessEqual(selected, remaining)
+            remaining -= selected
+        self.assertFalse(remaining)
 
     def test_healthy_warm_up_does_not_reset(self):
         invocations, commands, result = self.run_script("test-without-building")
