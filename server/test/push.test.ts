@@ -485,9 +485,13 @@ describe("pushes", () => {
       sent = [];
       expect((await call(`/api/links/${link.id}/comments`, { token: alex, body: { body: "Hello" } })).status).toBe(201);
       await settle();
-      return sent.map((s) => s.token).sort();
+      return sent.filter((s) => s.body.aps.alert).map((s) => s.token).sort();
     };
+    const before = app.push.toWatch("user_01ALEX");
     expect(await reply()).toEqual([SAM, KIM].sort());
+    // Commenting took it out of Alex's To Watch, so Alex's badge drops; later replies leave it.
+    expect(sent.filter((s) => s.token === ALEX).map((s) => s.body)).toEqual([{ aps: { badge: before - 1 } }]);
+    sent = sent.filter((s) => s.token !== ALEX);
     expect(sent[0]!.body.aps["thread-id"]).toBe(`links-group-${chat.id}`);
     expect(sent[0]!.body.aps.alert.title).toBe("Alex in Replies");
     await call(`/api/groups/${chat.id}`, { token: kim, method: "PATCH", body: { muted: true } });
@@ -522,6 +526,7 @@ describe("pushes", () => {
     const made = await call(`/api/links/${link.id}/comments`, { token: alex, body: { body: "😀".repeat(1000) } });
     expect(made.status).toBe(201);
     await settle();
+    sent = sent.filter((s) => s.body.aps.alert);
     expect(sent.map((s) => s.token).sort()).toEqual([SAM, KIM].sort());
     for (const s of sent) {
       expect(Buffer.byteLength(JSON.stringify(s.body))).toBeLessThanOrEqual(4096);

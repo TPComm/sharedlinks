@@ -1,0 +1,12 @@
+# Trimmed console output from run 43858784250, UI tests (2 of 2).
+Test Case '-[LinksUITests.LinksUITests testMarkingWatchedMovesItToWatchedAndTellsTheServer]' passed (17.547 seconds).
+Test Case '-[LinksUITests.LinksUITests testNotificationTogglesSaveEachSetting]' started.
+    t =    20.92s     Wait for com.tpcomm.links to idle
+Restarting after unexpected exit, crash, or test timeout; summary will include totals from previous launches.
+Test Case '-[LinksUITests.LinksUITests testRenamingAddingPeopleToAndLeavingAChat]' started.
+Test Case '-[LinksUITests.LinksUITests testRenamingAddingPeopleToAndLeavingAChat]' passed (68.505 seconds).
+Test session results, code coverage, and logs:
+    /fixture/Test-Links.xcresult
+Failing tests:
+    LinksUITests.testNotificationTogglesSaveEachSetting()
+** TEST EXECUTE FAILED **

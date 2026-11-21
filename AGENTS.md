@@ -23,14 +23,17 @@ minted session tokens.
 ## CI is tuned for speed
 
 The repo is public, so GitHub-hosted runners cost nothing, macOS included. On a PR that touches
-`ios/`, `assets/icon/` or `.github/workflows/ios.yml`, the iOS workflow splits the UI tests across
-two macOS runners (`LINKS_UI_TEST_SHARD` in `ios/scripts/ui-tests.sh`), the first also running the
-LinksKit tests; it takes ~10 minutes, and the other workflows finish well before it.
+`ios/`, `server/`, `assets/icon/` or `.github/workflows/ios.yml`, the iOS workflow splits the UI tests
+across two macOS runners (`LINKS_UI_TEST_SHARD` in `ios/scripts/ui-tests.sh`). Slice 1 runs LinksKit tests
+and builds before booting; slice 2 waits for its compiled test products before booting. Duration
+weights give slice 1 fewer test-seconds to allow for its build, without a separate build job that
+could queue behind artifact-waiting slices under the org's five-job macOS cap.
 
 - Still build and test iOS changes on a Mac before pushing: a red CI run costs you that wait.
-- The org runs at most 5 macOS jobs at once, so a second iOS run queues behind the first.
-- Keep server-only and iOS changes in separate PRs where that's natural, so server PRs skip the
-  macOS jobs.
+- The org runs at most 5 macOS jobs at once. Two full iOS runs use four slots; a third cannot run
+  both slices until a slot frees up. Server PRs now compete for those same slots, not extra shards.
+- Server PRs run iOS too: the UI tests start the real server, and Linux tests alone can't catch
+  app/server contract changes. Docs-only changes outside the watched paths still skip macOS.
 
 ## main is protected
 
