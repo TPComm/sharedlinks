@@ -364,14 +364,15 @@ describe("a day with Links", () => {
     const seen = (await call(`/api/links/${shared}/seen`, { token: bob.token, body: {} })).data.link.seen;
     expect(Object.keys(seen)).toEqual([bob.id]);
     expect(Math.abs(seen[bob.id] - Date.now() / 1000)).toBeLessThan(60);
-    const react = (emoji: string) => call(`/api/links/${shared}/react`, { token: bob.token, body: { emoji } });
+    const react = (emoji: string | null) => call(`/api/links/${shared}/react`, { token: bob.token, body: { emoji } });
     expect((await react("🔥")).data.link.reactions).toEqual({ [bob.id]: "🔥" });
-    expect((await react("💩")).data.link.reactions).toEqual({}); // not one of the six: clears it
-    expect((await react("😂")).data.link.reactions).toEqual({ [bob.id]: "😂" });
+    expect((await react(null)).data.link.reactions).toEqual({});
+    expect((await react("👩🏽‍💻")).data.link.reactions).toEqual({ [bob.id]: "👩🏽‍💻" });
+    expect((await react("no")).status).toBe(400);
 
     const mine = linkIn((await call("/api/state", { token: alice.token })).data, shared);
     expect(Object.keys(mine.seen)).toEqual([bob.id]);
-    expect(mine.reactions).toEqual({ [bob.id]: "😂" });
+    expect(mine.reactions).toEqual({ [bob.id]: "👩🏽‍💻" });
 
     const note = "watch till the end\n(trust me)";
     expect((await call(`/api/links/${shared}`, { method: "PATCH", token: alice.token, body: { note } })).data.link.note).toBe(note);

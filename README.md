@@ -29,6 +29,9 @@ has seen it, and mark it seen when you're back. Coming back from TikTok lands on
 even if iOS closed the app meanwhile. Long-press **Open in TikTok** still goes straight there and
 marks it seen in one go.
 
+Tap **+** after the quick reactions to react with an emoji from your keyboard. Tap your current
+reaction again to remove it.
+
 The **Throwback** card in Seen resurfaces links from at least a week ago that you and a friend
 loved, with a different starting pick each day.
 
@@ -355,7 +358,7 @@ API endpoints except sign-in need `Authorization: Bearer <session token>`; pages
 | POST | `/api/groups/:id/members` | `{members}`: any member adds people who are in Links → `{group}`. Nobody removes anyone else |
 | DELETE | `/api/groups/:id` | Leave the chat; the links I sent stay in it. The last one out deletes it and its links (never the default chat) |
 | POST | `/api/links/:id/seen` | `{seen: true/false}` |
-| POST | `/api/links/:id/react` | `{emoji}` (`null` removes) |
+| POST | `/api/links/:id/react` | `{emoji}`: one standard Unicode emoji sequence (up to 64 UTF-8 bytes); `null` removes. Invalid values return 400 without changing the reaction |
 | PATCH / DELETE | `/api/links/:id` | `{note}` (sender only) / –; 403 if the sender blocked you |
 | GET/POST | `/api/links/:id/comments` | Chat members only. GET → `{comments}` oldest first (ties by id); POST `{body}` (nonempty text, trimmed and clipped to 1000 Unicode characters) → 201 `{comment}`, and marks the link seen for the commenter. Comments are `{id, link_id, person, body, created_at, edited_at}`; blocked authors and reported comments are hidden for the reader |
 | PATCH/DELETE | `/api/comments/:id` | Author only, while still in the chat. PATCH `{body}` → `{comment}` (sets `edited_at`); DELETE → `{ok:true}`. Deleting a link or account cascades its comments |

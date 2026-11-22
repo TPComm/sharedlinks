@@ -609,6 +609,45 @@ final class LinksUITests: XCTestCase {
         XCTAssertEqual(react.label, "React")
     }
 
+    func testCustomReactionFromTheFeedShowsOnThePageAndInSent() throws {
+        let link = try seed(by: server.friend)
+        let emoji = "👩🏽‍💻"
+        let me = try server.state(as: server.me).me
+        launch()
+        let row = waitForRow(link, in: "toWatch")
+        app.buttons["react.\(link.id)"].tap()
+        let choose = app.buttons["reaction.custom"]
+        XCTAssert(choose.waitForExistence(timeout: 5))
+        choose.tap()
+
+        let field = app.textFields["reaction.emoji"]
+        let confirm = app.buttons["reaction.confirm"]
+        XCTAssert(field.waitForExistence(timeout: 5))
+        XCTAssertFalse(confirm.isEnabled)
+        field.typeText(emoji)
+        XCTAssert(confirm.isEnabled)
+        confirm.tap()
+
+        waitFor(row, labelContaining: "\(emoji) You")
+        try server.eventually("custom reaction saved") {
+            try server.state(as: server.friend).link(link.id)?.reactions[me] == emoji ? true : nil
+        }
+        row.tap()
+        XCTAssert(page(link).waitForExistence(timeout: 5))
+        let remove = app.buttons["reaction.currentCustom"]
+        XCTAssert(remove.exists)
+        XCTAssertEqual(remove.label, "Remove your reaction, \(emoji)")
+
+        app.terminate()
+        launch(as: server.friend)
+        app.tabBars.buttons["Sent"].tap()
+        let sent = waitForRow(link, in: "sent")
+        waitFor(sent, labelContaining: "\(emoji) ")
+        sent.tap()
+        XCTAssert(page(link).staticTexts.matching(NSPredicate(format: "label BEGINSWITH %@", "\(emoji) "))
+            .firstMatch.waitForExistence(timeout: 5))
+    }
+
     func testDeletingALinkRemovesItForEveryone() throws {
         let link = try seed(by: server.me)
         launch()

@@ -19,7 +19,7 @@ private func favoritesInbox(_ links: [SharedLink]) -> InboxState {
     var inbox = favoritesInbox([favorite(1, age: week), favorite(2, age: week - 1)])
     #expect(inbox.throwbacks(now: throwbackNow).map(\.id) == [1])
     for reactions in [["friend": "❤️"], ["me": "👎", "friend": "❤️"],
-                      ["me": "❤️", "friend": "😮"], ["me": "🔥"]] {
+                      ["me": "❤️", "friend": "😮"], ["me": "❤️", "friend": "🫶"], ["me": "🔥"]] {
         inbox.links[0].reactions = reactions
         #expect(inbox.throwbacks(now: throwbackNow).isEmpty)
     }

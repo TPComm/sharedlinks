@@ -15,6 +15,7 @@ struct LinkRow: View {
     @State private var confirmingDelete = false
     @State private var reporting = false
     @State private var blocking = false
+    @State private var choosingReaction = false
     /// The react button grows with Dynamic Type (to a point) and stays centred on the top line.
     @ScaledMetric(relativeTo: .footnote) private var scaledReactGlyph: CGFloat = 20
     @ScaledMetric(relativeTo: .footnote) private var topLineCenter: CGFloat = 9
@@ -90,6 +91,9 @@ struct LinkRow: View {
         // The preview is hosted in its own view graph, which doesn't inherit AppModel; without
         // it ThumbnailView's @Environment lookup crashes on every long-press.
         .contextMenu { menu } preview: { LinkPreviewCard(link: link).environment(model) }
+        .customReactionPicker(isPresented: $choosingReaction) { emoji in
+            Task { await model.react(link, emoji) }
+        }
         .linkDeleteConfirmation(link, isPresented: $confirmingDelete) { Task { await model.delete(link) } }
         .linkNoteEditor(link, isPresented: $editingNote, draft: $noteDraft)
         .linkModeration(link, reporting: $reporting, blocking: $blocking) { work in Task { await work() } }
@@ -224,6 +228,7 @@ struct LinkRow: View {
             ForEach(reactionEmojis, id: \.self) { Text($0).tag($0) }
         }
         .pickerStyle(.palette)
+        Button("Choose Emoji…", systemImage: "plus") { choosingReaction = true }
         if let current = link.reactions[inbox.me] {
             Button("Remove \(current)", systemImage: "face.smiling") { Task { await model.react(link, current) } }
         }
@@ -383,44 +388,6 @@ private struct ReactButton: View {
             }
             .presentationCompactAdaptation(.popover)
         }
-    }
-}
-
-/// A tapback-style row of reactionEmojis. Picking the current one again removes it.
-/// In a row's popover, and inline on a link's page.
-struct ReactionBar: View {
-    let current: String?
-    let pick: (String) -> Void
-
-    var body: some View {
-        HStack(spacing: 2) {
-            ForEach(reactionEmojis, id: \.self) { emoji in
-                Button {
-                    pick(emoji)
-                } label: {
-                    Text(emoji)
-                        .font(.system(size: 28))
-                        .frame(width: 46, height: 46)
-                        .background(emoji == current ? Color.accentColor.opacity(0.22) : .clear, in: .circle)
-                        .contentShape(.circle)
-                }
-                .buttonStyle(PopButtonStyle())
-                .accessibilityAddTraits(emoji == current ? .isSelected : [])
-                .accessibilityHint(emoji == current ? "Removes your reaction" : "")
-                .accessibilityIdentifier("reaction.\(emoji)")
-            }
-        }
-        .padding(.horizontal, 8)
-        .padding(.vertical, 4)
-    }
-}
-
-/// Grows a little under the finger, like Messages' tapbacks.
-private struct PopButtonStyle: ButtonStyle {
-    func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .scaleEffect(configuration.isPressed ? 1.25 : 1)
-            .animation(.spring(duration: 0.2, bounce: 0.5), value: configuration.isPressed)
     }
 }
 

@@ -203,7 +203,6 @@ private struct LinkPage: View {
                 picks += 1
                 Task { await model.react(link, emoji) }
             }
-            .background(Color(uiColor: .secondarySystemBackground), in: .capsule)
             if !others.isEmpty {
                 Text(others.map { "\($0.value) \(inbox.name(of: $0.key))" }.joined(separator: "    "))
                     .font(.subheadline)

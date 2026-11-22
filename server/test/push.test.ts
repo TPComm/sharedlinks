@@ -355,14 +355,14 @@ describe("pushes", () => {
     const { data } = await call("/api/links", { token: sam, body: { url: `${fakeOrigin.url.origin}/video?n=react` } });
     await settle();
     sent = [];
-    await call(`/api/links/${data.link.id}/react`, { token: alex, body: { emoji: "😂" } });
-    await call(`/api/links/${data.link.id}/react`, { token: alex, body: { emoji: "😂" } }); // unchanged: no second push
+    await call(`/api/links/${data.link.id}/react`, { token: alex, body: { emoji: "👩🏽‍💻" } });
+    await call(`/api/links/${data.link.id}/react`, { token: alex, body: { emoji: "👩🏽‍💻" } }); // unchanged: no second push
     await call(`/api/links/${data.link.id}/react`, { token: sam, body: { emoji: "🔥" } });
     await settle();
     expect(sent.length).toBe(1);
     expect(sent[0]!.token).toBe(SAM);
     expect(sent[0]!.headers["apns-priority"]).toBe("10");
-    expect(sent[0]!.body.aps).toMatchObject({ alert: { title: "Alex", body: "reacted 😂 to your link: Cats & Dogs" }, "interruption-level": "passive" });
+    expect(sent[0]!.body.aps).toMatchObject({ alert: { title: "Alex", body: "reacted 👩🏽‍💻 to your link: Cats & Dogs" }, "interruption-level": "passive" });
     expect(sent[0]!.body.aps.sound).toBeUndefined();
   });
 
