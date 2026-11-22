@@ -205,6 +205,80 @@ async function call(path: string, opts: { method?: string; token?: string; body?
   return { status: res.status, data, headers: res.headers };
 }
 
+test("nudges are sender-only, private, limited per person and skip ineligible members", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "links-nudges-"));
+  const { app, server } = startServer({ ...baseConfig, dataDir: dir, port: 0, previewBackfillMs: 0 });
+  const request = async (path: string, token: string, body?: unknown) => {
+    const res = await fetch(server.url.origin + path, {
+      method: body === undefined ? "GET" : "POST",
+      headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+      body: body === undefined ? undefined : JSON.stringify(body),
+    });
+    return { status: res.status, data: await res.json() as any };
+  };
+  const sender = app.accounts.mintSession("nudge-sender@test.example", "Sender");
+  const recipient = app.accounts.mintSession("nudge-recipient@test.example", "Recipient");
+  const watcher = app.accounts.mintSession("nudge-watcher@test.example", "Watcher");
+  const outsider = app.accounts.mintSession("nudge-outsider@test.example", "Outsider");
+  const who = async (token: string) => (await request("/api/state", token)).data.me as string;
+  const [s, r, w] = await Promise.all([sender, recipient, watcher].map(who)) as [string, string, string];
+  const group = (await request("/api/groups", sender, { name: "Nudges", members: [r, w] })).data.group.id;
+  const added = await request("/api/links", sender, { url: `${origin}/plain?nudge`, group_id: group });
+  const id = added.data.link.id;
+  await app.idle();
+  const title = (await request("/api/state", sender)).data.links.find((l: any) => l.id === id).title;
+  Object.defineProperty(app.push, "enabled", { value: true });
+  const delivery = spyOn(app.push as any, "toPerson").mockImplementation(async (...args: any[]) => {
+    const payload = args[2](0);
+    expect(payload.aps.category).toBe("NUDGE");
+    expect(payload.aps.alert.title).toBe("Sender nudged you");
+    expect(payload.aps.alert.body).toBe(title || "link");
+    expect(payload.link_id).toBe(id);
+    expect(payload.sender_id).toBe(s);
+    expect(payload.group_id).toBe(group);
+  });
+  try {
+    const path = `/api/links/${id}/nudge`;
+    expect((await request(path, recipient, { people: [w] })).status).toBe(403);
+    expect((await request(path, outsider, {})).status).toBe(404);
+    expect((await request(path, sender, { people: "bad" })).status).toBe(400);
+    const first = await request(path, sender, { people: [r, r] });
+    expect(first.status).toBe(200);
+    expect(first.data.nudged).toEqual([r]);
+    expect(first.data.link.nudged[r]).toBeNumber();
+    await app.idle();
+    expect(delivery).toHaveBeenCalledTimes(1);
+    expect(delivery.mock.calls[0]![0]).toBe(r);
+    expect((await request(path, sender, { people: [r] })).status).toBe(429);
+    expect((await request("/api/state", sender)).data.links.find((l: any) => l.id === id).nudged).toEqual(first.data.link.nudged);
+    expect((await request("/api/state", recipient)).data.links.find((l: any) => l.id === id).nudged).toBeUndefined();
+    for (const [blocker, blocked] of [[s, r], [r, s]]) {
+      app.db.run("INSERT INTO blocks (blocker, blocked, created_at) VALUES (?, ?, 1)", [blocker!, blocked!]);
+      expect((await request(path, sender, { people: [r] })).status).toBe(400);
+      app.db.run("DELETE FROM blocks WHERE blocker = ? AND blocked = ?", [blocker!, blocked!]);
+    }
+    app.db.run("INSERT INTO seen (link_id, person, seen_at) VALUES (?, ?, 1)", [id, w]);
+    app.db.run("UPDATE nudges SET nudged_at = nudged_at - 86401 WHERE link_id = ?", [id]);
+    app.db.run("UPDATE group_members SET muted = 1 WHERE group_id = ? AND user_id = ?", [group, r]);
+    const everyone = await request(path, sender, {});
+    expect(everyone.data.nudged).toEqual([r]);
+    await app.idle();
+    expect(delivery).toHaveBeenCalledTimes(1);
+    expect((await request(path, sender, { people: [] })).status).toBe(429);
+    app.db.run("INSERT INTO reports (reporter, link_id, reason, details, snapshot, created_at) VALUES (?, ?, 'spam', '', '{}', 1)", [r, id]);
+    expect((await request(path, sender, {})).data).toEqual({ error: "nobody to nudge" });
+    app.db.run("DELETE FROM links WHERE id = ?", [id]);
+    expect(app.db.query("SELECT * FROM nudges WHERE link_id = ?").all(id)).toEqual([]);
+  } finally {
+    delivery.mockRestore();
+    app.push.close();
+    server.stop(true);
+    await app.idle();
+    app.db.close();
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 const signIn = (code: string, verifier = VERIFIER, invite?: string) =>
   call("/api/auth/token", { body: { code, code_verifier: verifier, ...(invite ? { invite } : {}) } });
 

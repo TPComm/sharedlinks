@@ -91,7 +91,7 @@ describe("openDatabase", () => {
     expect(pragma(db, "foreign_keys")).toBe(1);
     expect(pragma(db, "journal_mode")).toBe("wal");
     expect(db.query("SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name").all().map((r: any) => r.name))
-      .toEqual(["blocks", "comments", "device_tokens", "group_members", "groups", "invites", "links", "reactions", "reports", "seen", "sessions", "sqlite_sequence", "users"]);
+      .toEqual(["blocks", "comments", "device_tokens", "group_members", "groups", "invites", "links", "nudges", "reactions", "reports", "seen", "sessions", "sqlite_sequence", "users"]);
     expect(linksSql(db)).toContain("AUTOINCREMENT");
     db.close();
   });

@@ -179,7 +179,7 @@ function privacyPage(email: string, sessionDays: number): string {
 <ul>
 <li><b>The people in your chats</b> see your name and photo. People only lists people you share a chat with. Anyone with a link's share URL can see its title, thumbnail and original URL. Notes, who sent it, comments, reactions and activity stay private to the chat. Your name and photo can still appear on links in a chat you've left, or under Blocked People for someone who blocked you. Reports and blocks are private: only the person who runs the server reads reports.</li>
 <li><b>WorkOS</b> runs sign-in. It keeps your email, your sign-in details and the sign-ins you make, and gets the app's name and version and your iOS version when you sign in, plus, like any website, your IP address and browser details while you sign in. See the <a href="https://workos.com/legal/privacy">WorkOS privacy policy</a>.</li>
-<li><b>Apple</b> delivers push notifications. For each one, the server sends Apple your device's push token and what the notification shows: who sent a link, reacted or commented, the chat's name, the link's title and note (shortened if long), the reaction or shortened comment text, and how many links are in your Queue tab, along with a link to the sender's profile photo for a new link (anyone holding that link can open the photo), and Links' own numbers for the link, its sender, its chat and the comment. See the <a href="https://www.apple.com/legal/privacy/">Apple privacy policy</a>.</li>
+<li><b>Apple</b> delivers push notifications. For each one, the server sends Apple your device's push token and what the notification shows: who sent a link, nudged you, reacted or commented, the chat's name, the link's title and note (shortened if long), the reaction or shortened comment text, and how many links are in your Queue tab, along with a link to the sender's profile photo for a new link (anyone holding that link can open the photo), and Links' own numbers for the link, its sender, its chat and the comment. See the <a href="https://www.apple.com/legal/privacy/">Apple privacy policy</a>.</li>
 <li><b>Grafana Cloud</b> (Grafana Labs) keeps a copy of the server logs, the web server's and the daily backup's own messages, and the server health figures, so problems can be spotted and fixed. See the <a href="https://grafana.com/legal/privacy-policy/">Grafana Labs privacy policy</a>.</li>
 <li><b>The company that hosts this server</b> stores it on its computers.</li>
 </ul>
@@ -379,7 +379,7 @@ export function createApp(config: Config, opts: AppOptions = {}) {
     const rows = db.query(`SELECT * FROM links WHERE ${VISIBLE}${only} ORDER BY added_at DESC`)
       .all(...(groupId === undefined ? [me] : [me, groupId])) as LinkRow[];
     for (const r of rows) {
-      links.set(r.id, toLink(r));
+      links.set(r.id, toLink(r, me));
     }
     for (const r of db.query("SELECT * FROM seen").all() as { link_id: number; person: string; seen_at: number }[]) {
       const link = links.get(r.link_id);
@@ -397,13 +397,14 @@ export function createApp(config: Config, opts: AppOptions = {}) {
     return { me, users, groups: groupsOf(me), links: [...links.values()], blocked: [...blocked] };
   }
 
-  function toLink(r: LinkRow) {
+  function toLink(r: LinkRow, me: string) {
     return {
       token: r.share_token, share_url: `${config.publicUrl}/l/${r.share_token}`,
       id: r.id, group_id: r.group_id, url: r.url, platform: r.platform, title: r.title, author: r.author, note: r.note,
       description: r.description, site_name: r.site_name,
       thumb: r.thumb_type ? `/thumbs/${r.id}${r.thumb_v ? `/${r.thumb_v}` : ""}` : null, thumb_w: r.thumb_w, thumb_h: r.thumb_h, meta: r.meta, added_by: r.added_by, added_at: r.added_at,
       seen: {} as Record<string, number>, reactions: {} as Record<string, string>,
+      ...(r.added_by === me ? { nudged: Object.fromEntries((db.query("SELECT person, nudged_at FROM nudges WHERE link_id = ?").all(r.id) as { person: string; nudged_at: number }[]).map((n) => [n.person, n.nudged_at])) } : {}),
       comment_count: 0, last_comment: null as { person: string; snippet: string; at: number } | null,
     };
   }
@@ -457,7 +458,7 @@ export function createApp(config: Config, opts: AppOptions = {}) {
     const row = db.query("SELECT * FROM links WHERE id = ?").get(id) as LinkRow | null;
     if (!row) return null;
     const blocked = blockedBy(me);
-    const link = toLink(row);
+    const link = toLink(row, me);
     for (const r of db.query("SELECT person, seen_at FROM seen WHERE link_id = ?").all(id) as { person: string; seen_at: number }[]) {
       if (!blocked.has(r.person)) link.seen[r.person] = r.seen_at;
     }
@@ -1082,6 +1083,40 @@ export function createApp(config: Config, opts: AppOptions = {}) {
           startMetadataFetch(id, row.url, row.platform);
         }
         return json({ link: getLink(id, me) });
+      }),
+    },
+    "/api/links/:id/nudge": {
+      POST: route<WithId>(async (req, me) => {
+        const id = linkId(req, me);
+        const { people } = await readJson(req);
+        if (people !== undefined && (!Array.isArray(people) || people.some((p) => typeof p !== "string"))) {
+          throw new BadRequest("Choose people to nudge.");
+        }
+        const nudged = asUser(me, () => {
+          stillSees(id, me);
+          if (sender(id) !== me) throw new AuthError("Only the person who sent a link can nudge someone.", 403);
+          const link = db.query("SELECT group_id FROM links WHERE id = ?").get(id) as { group_id: number };
+          const candidates = db.query(`SELECT m.user_id, n.nudged_at FROM group_members m
+            LEFT JOIN nudges n ON n.link_id = ?1 AND n.person = m.user_id
+            WHERE m.group_id = ?2 AND m.user_id != ?3
+              AND NOT EXISTS (SELECT 1 FROM seen WHERE link_id = ?1 AND person = m.user_id)
+              AND NOT EXISTS (SELECT 1 FROM reports WHERE link_id = ?1 AND reporter = m.user_id)
+              AND NOT EXISTS (SELECT 1 FROM blocks WHERE
+                (blocker = ?3 AND blocked = m.user_id) OR (blocker = m.user_id AND blocked = ?3))`)
+            .all(id, link.group_id, me) as { user_id: string; nudged_at: number | null }[];
+          const requested = candidates.filter((p) => !people?.length || people.includes(p.user_id));
+          const at = now();
+          const eligible = requested.filter((p) => p.nudged_at === null || p.nudged_at <= at - 86400);
+          if (!eligible.length) {
+            if (requested.length) throw new AuthError("You've already nudged them. Try again after 24 hours.", 429);
+            throw new BadRequest("nobody to nudge");
+          }
+          for (const p of eligible) db.run(`INSERT INTO nudges (link_id, person, nudged_at) VALUES (?, ?, ?)
+            ON CONFLICT(link_id, person) DO UPDATE SET nudged_at = excluded.nudged_at`, [id, p.user_id, at]);
+          return eligible.map((p) => p.user_id);
+        });
+        if (push.enabled) track(Promise.resolve().then(() => push.nudge(id, nudged)));
+        return json({ nudged, link: getLink(id, me) });
       }),
     },
     "/api/links/:id/seen": {
