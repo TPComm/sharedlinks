@@ -80,6 +80,16 @@ New conversations stay SMS, with the iMessage app drawer disabled.
    Servers from before invites had an `ALLOWED_EMAILS` guest list instead: the first start of
    this version keeps everyone already signed up who's still on it (everyone already signed up,
    if it isn't set), and after that it's never read, so take it out of the env file.
+5. **Custom domain** (optional, so saved passwords are under your name): in WorkOS → Domains, give
+   AuthKit a host of yours, e.g. `auth.YOUR-DOMAIN` (it points at WorkOS, so it can't be the
+   server's host). iCloud Keychain and 1Password save the sign-up password under the host in the
+   sign-in page's address bar, so it's now yours instead of WorkOS's. The redirect in step 2 stays
+   `https://YOUR-HOST/auth/callback`. To tie those passwords to the app, that host has to serve
+   `https://auth.YOUR-DOMAIN/.well-known/apple-app-site-association` (200, JSON, no redirect) with
+   `{"webcredentials": {"apps": ["TEAMID.com.yourname.links"]}}`, and `LINKS_AUTH_DOMAIN` in
+   `ios/Config.xcconfig` names it (the app's entitlements add `webcredentials:` for it). Without the
+   file the password is still saved under that host, just not linked to Links. Logins saved under
+   the old AuthKit domain aren't offered on the new one, since AutoFill matches by domain.
 
 **Sign in with Apple and email invites.** Someone who picks *Hide My Email* signs in with a relay
 address (`…@privaterelay.appleid.com`, and `…@private.icloud.com` for new ones from late 2026), not
