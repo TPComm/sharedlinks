@@ -252,11 +252,13 @@ test("nudges are sender-only, private, limited per person and skip ineligible me
     expect((await request(path, sender, { people: [r] })).status).toBe(429);
     expect((await request("/api/state", sender)).data.links.find((l: any) => l.id === id).nudged).toEqual(first.data.link.nudged);
     expect((await request("/api/state", recipient)).data.links.find((l: any) => l.id === id).nudged).toBeUndefined();
-    for (const [blocker, blocked] of [[s, r], [r, s]]) {
-      app.db.run("INSERT INTO blocks (blocker, blocked, created_at) VALUES (?, ?, 1)", [blocker!, blocked!]);
-      expect((await request(path, sender, { people: [r] })).status).toBe(400);
-      app.db.run("DELETE FROM blocks WHERE blocker = ? AND blocked = ?", [blocker!, blocked!]);
-    }
+    app.db.run("INSERT INTO blocks (blocker, blocked, created_at) VALUES (?, ?, 1)", [s, r]);
+    expect((await request(path, sender, { people: [r] })).status).toBe(400);
+    app.db.run("DELETE FROM blocks WHERE blocker = ? AND blocked = ?", [s, r]);
+    // Their block stays private: the reply is the same as without it.
+    app.db.run("INSERT INTO blocks (blocker, blocked, created_at) VALUES (?, ?, 1)", [r, s]);
+    expect((await request(path, sender, { people: [r] })).status).toBe(429);
+    app.db.run("DELETE FROM blocks WHERE blocker = ? AND blocked = ?", [r, s]);
     app.db.run("INSERT INTO seen (link_id, person, seen_at) VALUES (?, ?, 1)", [id, w]);
     app.db.run("UPDATE nudges SET nudged_at = nudged_at - 86401 WHERE link_id = ?", [id]);
     app.db.run("UPDATE group_members SET muted = 1 WHERE group_id = ? AND user_id = ?", [group, r]);
@@ -265,7 +267,18 @@ test("nudges are sender-only, private, limited per person and skip ineligible me
     await app.idle();
     expect(delivery).toHaveBeenCalledTimes(1);
     expect((await request(path, sender, { people: [] })).status).toBe(429);
+    app.db.run("UPDATE group_members SET muted = 0 WHERE group_id = ? AND user_id = ?", [group, r]);
+    // Reporting the link or blocking the sender still looks like a nudge to the sender, but sends no push.
     app.db.run("INSERT INTO reports (reporter, link_id, reason, details, snapshot, created_at) VALUES (?, ?, 'spam', '', '{}', 1)", [r, id]);
+    app.db.run("UPDATE nudges SET nudged_at = nudged_at - 86401 WHERE link_id = ?", [id]);
+    expect((await request(path, sender, {})).data.nudged).toEqual([r]);
+    app.db.run("DELETE FROM reports WHERE reporter = ? AND link_id = ?", [r, id]);
+    app.db.run("INSERT INTO blocks (blocker, blocked, created_at) VALUES (?, ?, 1)", [r, s]);
+    app.db.run("UPDATE nudges SET nudged_at = nudged_at - 86401 WHERE link_id = ?", [id]);
+    expect((await request(path, sender, {})).data.nudged).toEqual([r]);
+    await app.idle();
+    expect(delivery).toHaveBeenCalledTimes(1);
+    app.db.run("INSERT INTO seen (link_id, person, seen_at) VALUES (?, ?, 1)", [id, r]);
     expect((await request(path, sender, {})).data).toEqual({ error: "There's nobody to nudge right now." });
     app.db.run("DELETE FROM links WHERE id = ?", [id]);
     expect(app.db.query("SELECT * FROM nudges WHERE link_id = ?").all(id)).toEqual([]);
