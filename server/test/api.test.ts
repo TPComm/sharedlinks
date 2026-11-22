@@ -799,10 +799,10 @@ describe("links", () => {
   });
 
   test("notification settings: both on to start; PATCH /api/me changes either, alone or with a name", async () => {
-    expect((await call("/api/me", { token })).data.notifications).toEqual({ watched: true, reactions: true });
+    expect((await call("/api/me", { token })).data.notifications).toEqual({ watched: true, reactions: true, catchup: null });
     const off = await call("/api/me", { method: "PATCH", token, body: { notifications: { reactions: false } } });
     expect(off.status).toBe(200);
-    expect(off.data.notifications).toEqual({ watched: true, reactions: false });
+    expect(off.data.notifications).toEqual({ watched: true, reactions: false, catchup: null });
     const name = (await call("/api/me", { token })).data.user.name;
     for (const notifications of [null, "off", [], { watched: "no" }]) {
       expect((await call("/api/me", { method: "PATCH", token, body: { notifications } })).status, JSON.stringify(notifications)).toBe(400);
@@ -810,6 +810,20 @@ describe("links", () => {
     const both = await call("/api/me", { method: "PATCH", token, body: { name, notifications: { watched: false, reactions: true } } });
     expect(both.data).toMatchObject({ user: { name }, notifications: { watched: false, reactions: true } });
     await call("/api/me", { method: "PATCH", token, body: { notifications: { watched: true } } });
+  });
+
+  test("catch-up settings validate, persist and turn off independently", async () => {
+    const patch = (catchup: unknown) => call("/api/me", { method: "PATCH", token, body: { notifications: { catchup } } });
+    for (const value of [false, [], {}, { time: "8:00", timeZone: "UTC" }, { time: "24:00", timeZone: "UTC" },
+      { time: "08:60", timeZone: "UTC" }, { time: "08:00", timeZone: "Not/AZone" }, { time: "08:00" }]) {
+      expect((await patch(value)).status).toBe(400);
+    }
+    const catchup = { time: "08:00", timeZone: "Australia/Sydney" };
+    expect((await patch(catchup)).data.notifications.catchup).toEqual(catchup);
+    expect((await call("/api/me", { token })).data.notifications.catchup).toEqual(catchup);
+    const unchanged = await call("/api/me", { method: "PATCH", token, body: { notifications: { watched: true } } });
+    expect(unchanged.data.notifications.catchup).toEqual(catchup);
+    expect((await patch(null)).data.notifications.catchup).toBeNull();
   });
 
   test("claiming a legacy person moves their history", async () => {

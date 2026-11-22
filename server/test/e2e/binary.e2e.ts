@@ -344,7 +344,7 @@ describe("a day with Links", () => {
   e2e("reads and renames the signed-in person", async () => {
     expect((await call("/api/me", { token: bob.token })).data)
       .toEqual({ user: { id: bob.id, name: "Bob Smith", avatar: null, email: "bob.smith@team.test" }, claimable: [],
-                 notifications: { watched: true, reactions: true } });
+                 notifications: { watched: true, reactions: true, catchup: null } });
     expect((await call("/api/me", { method: "PATCH", token: alice.token, body: { name: "  Ally   A  " } })).data.user.name).toBe("Ally A");
     expect((await call("/api/me", { token: alice.token })).data.user.name).toBe("Ally A");
     expect(await call("/api/me", { method: "PATCH", token: alice.token, body: { name: "   " } }))

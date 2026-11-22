@@ -56,6 +56,9 @@ export interface UserRow {
    * removed their photo; null to use `avatar`, the picture WorkOS has for them.
    */
   photo: string | null;
+  catchup_minute: number | null;
+  catchup_tz: string | null;
+  catchup_sent_on: string | null;
 }
 
 export interface CommentRow {
@@ -259,6 +262,18 @@ function migrateToV21(db: Database) {
       created_at REAL NOT NULL
     )`);
     db.run("PRAGMA user_version = 21");
+  })();
+}
+
+function migrateToV18(db: Database) {
+  const { user_version } = db.query("PRAGMA user_version").get() as { user_version: number };
+  if (user_version >= 18) return;
+  db.transaction(() => {
+    const have = (db.query("PRAGMA table_info(users)").all() as { name: string }[]).map((c) => c.name);
+    for (const [column, type] of [["catchup_minute", "INTEGER"], ["catchup_tz", "TEXT"], ["catchup_sent_on", "TEXT"]]) {
+      if (!have.includes(column!)) db.run(`ALTER TABLE users ADD COLUMN ${column} ${type}`);
+    }
+    db.run("PRAGMA user_version = 18");
   })();
 }
 

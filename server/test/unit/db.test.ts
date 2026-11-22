@@ -164,9 +164,9 @@ describe("migrations", () => {
     expect(db.query("SELECT 1 FROM sqlite_master WHERE name = 'people'").get()).toBeNull();
     // People keep their join date; names only seen on links ("Jo") join now.
     expect(db.query("SELECT * FROM users ORDER BY id").all()).toEqual([
-      { id: "legacy:Alex", email: null, name: "Alex", avatar: null, created_at: 2, member: 0, claimable_by: null, push_watched: 1, push_reactions: 1, email_verified: 0, photo: null },
-      { id: "legacy:Jo", email: null, name: "Jo", avatar: null, created_at: 1_700_000_000, member: 0, claimable_by: null, push_watched: 1, push_reactions: 1, email_verified: 0, photo: null },
-      { id: "legacy:Sam", email: null, name: "Sam", avatar: null, created_at: 1, member: 0, claimable_by: null, push_watched: 1, push_reactions: 1, email_verified: 0, photo: null },
+      { id: "legacy:Alex", email: null, name: "Alex", avatar: null, created_at: 2, member: 0, claimable_by: null, push_watched: 1, push_reactions: 1, email_verified: 0, photo: null, catchup_minute: null, catchup_tz: null, catchup_sent_on: null },
+      { id: "legacy:Jo", email: null, name: "Jo", avatar: null, created_at: 1_700_000_000, member: 0, claimable_by: null, push_watched: 1, push_reactions: 1, email_verified: 0, photo: null, catchup_minute: null, catchup_tz: null, catchup_sent_on: null },
+      { id: "legacy:Sam", email: null, name: "Sam", avatar: null, created_at: 1, member: 0, claimable_by: null, push_watched: 1, push_reactions: 1, email_verified: 0, photo: null, catchup_minute: null, catchup_tz: null, catchup_sent_on: null },
     ]);
     expect(db.query("SELECT id, added_by FROM links ORDER BY id").all())
       .toEqual([{ id: 1, added_by: "legacy:Sam" }, { id: 2, added_by: "legacy:Jo" }, { id: 3, added_by: "legacy:Alex" }]);

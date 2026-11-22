@@ -19,6 +19,7 @@ describe("configFromEnv", () => {
       logRequests: true,
       supportEmail: "support@tpcomm.co",
       previewBackfillMs: 5000,
+      catchupIntervalMs: 60000,
       appleAppIds: [],
       appStoreId: "",
       apnsTeamId: "",

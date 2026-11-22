@@ -3,6 +3,7 @@ import { randomBytes } from "node:crypto";
 import { copyFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { Config } from "./config.ts";
+import { localClock } from "./catchup.ts";
 import { defaultGroup, deleteEmptyGroups, directChat, ensureDirectChat, ensureDirectChatsFor, LEGACY, now, type InviteRow, type UserRow } from "./db.ts";
 import { BadRequest, clip } from "./links.ts";
 import { screener } from "./moderation.ts";
@@ -187,16 +188,40 @@ export class Accounts {
     return {
       user: { ...publicUser(user, this.config.publicUrl), email: user.email },
       claimable: this.claimable(user).map((u) => publicUser(u, this.config.publicUrl)),
-      notifications: { watched: !!user.push_watched, reactions: !!user.push_reactions },
+      notifications: { watched: !!user.push_watched, reactions: !!user.push_reactions,
+        catchup: user.catchup_minute === null ? null : {
+          time: `${Math.floor(user.catchup_minute / 60)}`.padStart(2, "0") + ":" + `${user.catchup_minute % 60}`.padStart(2, "0"),
+          timeZone: user.catchup_tz,
+        } },
     };
   }
 
   /** `{watched?, reactions?}`: which pushes about the links they sent this person gets. */
   setNotifications(userId: string, settings: unknown) {
     if (!settings || typeof settings !== "object" || Array.isArray(settings)) throw new BadRequest("notifications must be an object.");
-    const { watched, reactions } = settings as Record<string, unknown>;
+    const { watched, reactions, catchup } = settings as Record<string, unknown>;
     for (const v of [watched, reactions]) {
       if (v !== undefined && typeof v !== "boolean") throw new BadRequest("Notification settings are true or false.");
+    }
+    if (catchup !== undefined) {
+      if (catchup === null) {
+        this.db.run("UPDATE users SET catchup_minute = NULL, catchup_tz = NULL, catchup_sent_on = NULL WHERE id = ?", [userId]);
+      } else {
+        if (typeof catchup !== "object" || Array.isArray(catchup)) throw new BadRequest("catchup must be an object or null.");
+        const { time, timeZone } = catchup as Record<string, unknown>;
+        if (typeof time !== "string" || !/^([01]\d|2[0-3]):[0-5]\d$/.test(time) || typeof timeZone !== "string" || !timeZone || /^[+-]/.test(timeZone)) {
+          throw new BadRequest("Choose a 24-hour HH:MM time and an IANA time zone.");
+        }
+        let clock;
+        try { clock = localClock(new Date(), timeZone); }
+        catch { throw new BadRequest("Choose a valid IANA time zone."); }
+        const minute = Number(time.slice(0, 2)) * 60 + Number(time.slice(3));
+        const current = this.db.query("SELECT catchup_minute, catchup_tz FROM users WHERE id = ?").get(userId) as UserRow;
+        if (current.catchup_minute !== minute || current.catchup_tz !== timeZone) {
+          this.db.run("UPDATE users SET catchup_minute = ?, catchup_tz = ?, catchup_sent_on = ? WHERE id = ?",
+            [minute, timeZone, clock.minute >= minute ? clock.date : null, userId]);
+        }
+      }
     }
     if (watched !== undefined) this.db.run("UPDATE users SET push_watched = ? WHERE id = ?", [watched ? 1 : 0, userId]);
     if (reactions !== undefined) this.db.run("UPDATE users SET push_reactions = ? WHERE id = ?", [reactions ? 1 : 0, userId]);

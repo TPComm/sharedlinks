@@ -101,7 +101,7 @@ beforeAll(async () => {
   apnsServers = [prod.server, sandbox.server];
   const config = {
     ...configFromEnv({ APNS_TEAM_ID: "TEAM123456", APNS_TOPIC: "com.tpcomm.links", APNS_KEY_ID: "KEY1234567", APNS_KEY_FILE: keyFile,
-                       APNS_HOST: prod.url, APNS_SANDBOX_HOST: sandbox.url }),
+                       APNS_HOST: prod.url, APNS_SANDBOX_HOST: sandbox.url, CATCHUP_INTERVAL_MS: "0" }),
     port: 0, hostname: "127.0.0.1", dataDir, workosClientId: "client_TEST", workosApi: fakeWorkOS.url.origin,
     allowPrivateNetwork: true, logRequests: false, previewBackfillMs: 0,
   };
@@ -423,7 +423,7 @@ describe("pushes", () => {
   });
 
   test("each kind can be turned off, and the other then goes out without waiting", async () => {
-    expect((await setNotifications(sam, { watched: false })).data.notifications).toEqual({ watched: false, reactions: true });
+    expect((await setNotifications(sam, { watched: false })).data.notifications).toEqual({ watched: false, reactions: true, catchup: null });
     let id = await samsLink("no-watched");
     await watch(id, alex);
     await settle();
@@ -432,7 +432,7 @@ describe("pushes", () => {
     await settle();
     expect(toSam().map((s) => s.body.aps.alert.body)).toEqual(["reacted 🔥 to your link: Cats & Dogs"]);
 
-    expect((await setNotifications(sam, { watched: true, reactions: false })).data.notifications).toEqual({ watched: true, reactions: false });
+    expect((await setNotifications(sam, { watched: true, reactions: false })).data.notifications).toEqual({ watched: true, reactions: false, catchup: null });
     id = await samsLink("no-reactions");
     await react(id, alex, "🔥");
     await watch(id, alex);
