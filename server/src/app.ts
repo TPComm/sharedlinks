@@ -787,7 +787,9 @@ export function createApp(config: Config, opts: AppOptions = {}) {
         const scope = `${VISIBLE} AND added_at >= ?2 AND added_at < ?3 AND (?4 IS NULL OR group_id = ?4)`;
         const rows = db.query(`WITH scoped AS (SELECT * FROM links WHERE ${scope}),
           reaction_counts AS (SELECT r.link_id, count(*) AS total FROM reactions r
-            JOIN scoped ON scoped.id = r.link_id WHERE r.emoji != '👎' GROUP BY r.link_id)
+            JOIN scoped ON scoped.id = r.link_id WHERE r.emoji != '👎'
+              AND NOT EXISTS (SELECT 1 FROM blocks WHERE blocker = ?1 AND blocked = r.person)
+            GROUP BY r.link_id)
           SELECT scoped.*, coalesce(reaction_counts.total, 0) AS reaction_count, seen.person IS NOT NULL AS watched
           FROM scoped LEFT JOIN reaction_counts ON reaction_counts.link_id = scoped.id
           LEFT JOIN seen ON seen.link_id = scoped.id AND seen.person = ?1
