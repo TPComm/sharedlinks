@@ -615,6 +615,12 @@ final class AppModel {
         commentReads.hasUnread(link, person: inbox.me, server: client.baseURL)
     }
 
+    var unreadCommentLinkCount: Int { inbox.links.filter { hasUnreadComments($0) }.count }
+
+    func hasUnreadComment(_ item: ActivityItem) -> Bool {
+        commentReads.hasUnread(item, person: inbox.me, server: client.baseURL)
+    }
+
     func markCommentsRead(_ linkID: Int, comments: [LinkComment]) {
         guard let date = comments.map(\.createdAt).max() else { return }
         commentReads.markRead(linkID, through: date, person: inbox.me, server: client.baseURL)

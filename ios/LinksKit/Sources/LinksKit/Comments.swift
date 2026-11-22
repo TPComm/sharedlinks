@@ -45,6 +45,11 @@ public struct CommentReadState: Codable, Sendable {
         return last.at > (positions[scope(person, server)]?[String(link.id)] ?? .distantPast)
     }
 
+    public func hasUnread(_ item: ActivityItem, person: String, server: URL) -> Bool {
+        item.kind == .comment && item.person != person
+            && item.at > (positions[scope(person, server)]?[String(item.linkID)] ?? .distantPast)
+    }
+
     public mutating func markRead(_ linkID: Int, through date: Date, person: String, server: URL) {
         let key = scope(person, server)
         let id = String(linkID)

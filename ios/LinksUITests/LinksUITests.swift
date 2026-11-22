@@ -117,7 +117,7 @@ final class LinksUITests: XCTestCase {
     func testSignedInLaunchShowsTheInbox() throws {
         launch()
         XCTAssert(app.navigationBars["Queue"].exists)
-        for tab in ["Queue", "Seen", "Sent", "Search"] {
+        for tab in ["Queue", "Seen", "Sent", "Activity", "Search"] {
             XCTAssert(app.tabBars.buttons[tab].exists, "no \(tab) tab")
         }
         XCTAssert(app.buttons["newLink"].exists)
@@ -491,6 +491,30 @@ final class LinksUITests: XCTestCase {
     }
 
     // MARK: Comments
+
+    func testActivityShowsReactionsAndOpensComments() throws {
+        let link = try seed(by: server.me, note: "Activity link")
+        let comment = try server.addComment(link.id, body: "Activity reply", as: server.friend)
+        try server.react(link.id, emoji: "😂", as: server.friend)
+        launch()
+        app.tabBars.buttons["Activity"].tap()
+        let reaction = scrolledTo(app.buttons["activity.reaction.\(link.id)"])
+        XCTAssert(reaction.waitForExistence(timeout: 10))
+        XCTAssert(reaction.label.contains("reacted 😂"))
+        let row = scrolledTo(app.buttons["activity.comment.\(link.id)"])
+        XCTAssert(row.waitForExistence(timeout: 10))
+        XCTAssert(row.label.contains("commented: Activity reply"))
+        let screenshot = XCTAttachment(screenshot: app.screenshot())
+        screenshot.name = "Activity tab"
+        screenshot.lifetime = .keepAlways
+        add(screenshot)
+        row.tap()
+        XCTAssert(page(link).waitForExistence(timeout: 5))
+        XCTAssert(app.staticTexts["Activity reply"].waitForExistence(timeout: 10))
+        XCTAssert(app.staticTexts["Activity reply"].isHittable)
+        XCTAssert(app.textFields["comments.draft"].exists)
+        XCTAssertFalse(app.buttons["comment.edit.\(comment.id)"].exists)
+    }
 
     func testCommentThreadCRUDAndUnreadState() throws {
         let note = "Sender note stays separate \(shortID())"

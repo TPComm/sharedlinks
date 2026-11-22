@@ -9,10 +9,11 @@ import SwiftUI
 struct LinkDetailView: View {
     @Environment(AppModel.self) private var model
     let linkID: Int
+    var showComments = false
 
     var body: some View {
         if let link = model.inbox.links.first(where: { $0.id == linkID }) {
-            LinkPage(link: link)
+            LinkPage(link: link, showComments: showComments)
         } else {
             // Someone deleted it while this page was open (or while the app was away), or I
             // reported it or blocked its sender on another device.
@@ -28,6 +29,7 @@ private struct LinkPage: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.scenePhase) private var scenePhase
     let link: SharedLink
+    var showComments = false
     @State private var thread = LinkThread()
     @State private var highlight: SWHighlight?
 
@@ -48,28 +50,47 @@ private struct LinkPage: View {
     private var seenAt: Date? { link.seen[inbox.me] }
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 24) {
-                preview
-                about
-                if let highlight { SharedAttributionView(highlight: highlight) }
-                actions
-                reactions
-                receipts
-                CommentThreadView(thread: thread, linkID: link.id)
+        ScrollViewReader { proxy in
+            ScrollView {
+                VStack(alignment: .leading, spacing: 24) {
+                    preview
+                    about
+                    if let highlight { SharedAttributionView(highlight: highlight) }
+                    actions
+                    reactions
+                    receipts
+                    CommentThreadView(thread: thread, linkID: link.id)
+                        .id("comments")
+                }
+                .padding(.horizontal, 20)
+                .padding(.vertical, 16)
+                .frame(maxWidth: 600)
+                .frame(maxWidth: .infinity)
             }
-            .padding(.horizontal, 20)
-            .padding(.vertical, 16)
-            .frame(maxWidth: 600)
-            .frame(maxWidth: .infinity)
+            .accessibilityIdentifier("linkPage.\(link.id)")
+            .navigationTitle(link.platform.noun)
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar { toolbar }
+            .safeAreaInset(edge: .bottom) { CommentComposer(thread: thread, linkID: link.id) }
+            .scrollDismissesKeyboard(.interactively)
+            .task {
+                await thread.load(link.id, model: model)
+                if showComments { proxy.scrollTo("comments", anchor: .top) }
+            }
+            .onChange(of: model.inboxRefresh) { _, _ in
+                Task { await thread.load(link.id, model: model) }
+            }
+            .refreshable {
+                await model.refresh()
+                await thread.load(link.id, model: model)
+            }
+            .onChange(of: scenePhase) { _, phase in
+                if phase == .active { Task { await thread.load(link.id, model: model) } }
+            }
+            .animation(.default, value: seenAt)
+            .sensoryFeedback(.success, trigger: seenAt) { old, new in old == nil && new != nil }
+            .sensoryFeedback(.selection, trigger: picks)
         }
-        .accessibilityIdentifier("linkPage.\(link.id)")
-        .navigationTitle(link.platform.noun)
-        .navigationBarTitleDisplayMode(.inline)
-        .toolbar { toolbar }
-        .safeAreaInset(edge: .bottom) { CommentComposer(thread: thread, linkID: link.id) }
-        .scrollDismissesKeyboard(.interactively)
-        .task { await thread.load(link.id, model: model) }
         .task(id: HighlightLookup(url: link.shareURL, revision: model.sharedHighlights.revision)) {
             highlight = nil
             guard let url = link.shareURL else { return }
@@ -77,19 +98,6 @@ private struct LinkPage: View {
             guard !Task.isCancelled else { return }
             highlight = found
         }
-        .onChange(of: model.inboxRefresh) { _, _ in
-            Task { await thread.load(link.id, model: model) }
-        }
-        .refreshable {
-            await model.refresh()
-            await thread.load(link.id, model: model)
-        }
-        .onChange(of: scenePhase) { _, phase in
-            if phase == .active { Task { await thread.load(link.id, model: model) } }
-        }
-        .animation(.default, value: seenAt)
-        .sensoryFeedback(.success, trigger: seenAt) { old, new in old == nil && new != nil }
-        .sensoryFeedback(.selection, trigger: picks)
         .linkDeleteConfirmation(link, isPresented: $confirmingDelete) {
             let link = link
             leave { await model.delete(link) }

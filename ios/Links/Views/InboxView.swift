@@ -2,7 +2,7 @@ import LinksKit
 import SwiftUI
 
 enum InboxTab: String, Hashable, Codable {
-    case toWatch, watched, sent, favorites, search
+    case toWatch, watched, sent, activity, favorites, search
 
     /// The tab that shows a filter's list.
     init(_ filter: InboxFilter) {
@@ -36,6 +36,11 @@ struct InboxView: View {
             Tab("Sent", systemImage: "paperplane", value: .sent) {
                 LinkListScreen(filter: .sent)
             }
+
+            Tab("Activity", systemImage: "bell", value: .activity) {
+                ActivityScreen()
+            }
+            .badge(model.unreadCommentLinkCount)
 
             Tab("Favorites", systemImage: "star", value: .favorites) {
                 LinkListScreen(filter: .favorites)
