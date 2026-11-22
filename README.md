@@ -37,6 +37,9 @@ marks it seen in one go.
 top platform and most-reacted link, with an opt-in shareable card. It covers only links you can
 see in your current chats; dates use your local calendar and reactions/seen marks reflect now.
 
+**Shared with You** shows who shared a Links universal link in Messages on the link's page,
+when available. Tap their name to return to the conversation and reply.
+
 The **Throwback** card in Seen resurfaces links from at least a week ago that you and a friend
 loved, with a different starting pick each day.
 
