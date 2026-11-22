@@ -875,6 +875,19 @@ export function createApp(config: Config, opts: AppOptions = {}) {
       GET: route((req, me) => {
         const params = new URL(req.url).searchParams;
         const before = params.get("before");
+        const cursor = params.get("cursor");
+        let after: [number, string, number, string] | null = null;
+        if (cursor !== null) {
+          try {
+            const value = JSON.parse(Buffer.from(cursor, "base64url").toString());
+            if (!Array.isArray(value) || value.length !== 4 || !Number.isFinite(value[0])
+                || !["comment", "reaction", "watched"].includes(value[1])
+                || !Number.isSafeInteger(value[2]) || value[2] < 1 || typeof value[3] !== "string") throw new Error();
+            after = value as [number, string, number, string];
+          } catch {
+            throw new BadRequest("Use the next cursor from an activity page.");
+          }
+        }
         const limit = Number(params.get("limit") ?? 50);
         if (!Number.isInteger(limit) || limit < 1 || limit > 100
             || (before !== null && (!before.trim() || !Number.isFinite(Number(before))))) {
@@ -898,15 +911,23 @@ export function createApp(config: Config, opts: AppOptions = {}) {
           WHERE ${VISIBLE} AND links.added_by = ?1 AND s.person != ?1
             AND NOT EXISTS (SELECT 1 FROM blocks WHERE blocker = ?1 AND blocked = s.person)
         ) WHERE (?2 IS NULL OR at < ?2)
-        ORDER BY at DESC, kind, sort_id DESC, person LIMIT ?3`).all(me, before === null ? null : Number(before), limit + 1) as {
+          AND (?3 IS NULL OR at < ?3
+            OR (at = ?3 AND kind > ?4)
+            OR (at = ?3 AND kind = ?4 AND sort_id < ?5)
+            OR (at = ?3 AND kind = ?4 AND sort_id = ?5 AND person > ?6))
+        ORDER BY at DESC, kind, sort_id DESC, person LIMIT ?7`).all(me, before === null ? null : Number(before),
+          ...(after ?? [null, null, null, null]), limit + 1) as {
           kind: "comment" | "reaction" | "watched"; link_id: number; person: string; at: number;
           comment_id: number | null; snippet: string | null; emoji: string | null; sort_id: number;
         }[];
+        const last = rows[Math.min(limit, rows.length) - 1];
+        const next = rows.length > limit && last
+          ? Buffer.from(JSON.stringify([last.at, last.kind, last.sort_id, last.person])).toString("base64url") : null;
         return json({ items: rows.slice(0, limit).map((r) => ({
           kind: r.kind, link_id: r.link_id, person: r.person, at: r.at,
           ...(r.kind === "comment" ? { comment_id: r.comment_id, snippet: r.snippet } : {}),
           ...(r.kind === "reaction" ? { emoji: r.emoji } : {}),
-        })), has_more: rows.length > limit });
+        })), has_more: rows.length > limit, next });
       }),
     },
     "/api/state": {

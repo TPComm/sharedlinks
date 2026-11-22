@@ -23,9 +23,10 @@ public struct ActivityItem: Codable, Sendable, Hashable, Identifiable {
 public struct ActivityPage: Codable, Sendable {
     public let items: [ActivityItem]
     public let hasMore: Bool
+    public let next: String?
 
     enum CodingKeys: String, CodingKey {
-        case items
+        case items, next
         case hasMore = "has_more"
     }
 }

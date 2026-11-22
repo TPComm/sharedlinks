@@ -214,11 +214,12 @@ public struct APIClient: Sendable {
 
     // MARK: Comments
 
-    public func activity(before: Date? = nil, limit: Int = 50) async throws -> ActivityPage {
+    public func activity(before: Date? = nil, limit: Int = 50, cursor: String? = nil) async throws -> ActivityPage {
         var request = request("GET", "api/activity")
         var components = URLComponents(url: request.url!, resolvingAgainstBaseURL: false)!
         var items = [URLQueryItem(name: "limit", value: String(limit))]
         if let before { items.append(URLQueryItem(name: "before", value: String(before.timeIntervalSince1970))) }
+        if let cursor { items.append(URLQueryItem(name: "cursor", value: cursor)) }
         components.queryItems = items
         request.url = components.url
         let (data, response) = try await perform(request)

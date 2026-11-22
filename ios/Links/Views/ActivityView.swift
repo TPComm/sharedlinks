@@ -5,6 +5,7 @@ struct ActivityScreen: View {
     @Environment(AppModel.self) private var model
     @State private var items: [ActivityItem] = []
     @State private var hasMore = false
+    @State private var next: String?
     @State private var loading = false
     @State private var error: String?
     @State private var commentLinkID: Int?
@@ -89,11 +90,12 @@ struct ActivityScreen: View {
         loading = true
         defer { loading = false }
         do {
-            let page = try await model.client.activity(before: more ? items.last?.at : nil)
+            let page = try await model.client.activity(cursor: more ? next : nil)
             try Task.checkCancellation()
             let existing = more ? Set(items.map(\.id)) : []
             items = (more ? items : []) + page.items.filter { !existing.contains($0.id) }
             hasMore = page.hasMore
+            next = page.next
             error = nil
         } catch is CancellationError {
         } catch {
