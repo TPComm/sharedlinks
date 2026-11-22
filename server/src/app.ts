@@ -1112,7 +1112,7 @@ export function createApp(config: Config, opts: AppOptions = {}) {
           const eligible = requested.filter((p) => p.nudged_at === null || p.nudged_at <= at - 86400);
           if (!eligible.length) {
             if (requested.length) throw new AuthError("You've already nudged them. Try again after 24 hours.", 429);
-            throw new BadRequest("nobody to nudge");
+            throw new BadRequest("There's nobody to nudge right now.");
           }
           for (const p of eligible) db.run(`INSERT INTO nudges (link_id, person, nudged_at) VALUES (?, ?, ?)
             ON CONFLICT(link_id, person) DO UPDATE SET nudged_at = excluded.nudged_at`, [id, p.user_id, at]);
