@@ -177,6 +177,16 @@ struct LinksServer: Sendable {
     struct Notifications: Decodable, Equatable, Sendable {
         let watched: Bool
         let reactions: Bool
+        var catchup: CatchUp? = nil
+    }
+
+    struct CatchUp: Decodable, Equatable, Sendable {
+        let time: String
+        let timeZone: String
+    }
+
+    func disableCatchUp(as token: String) throws {
+        _ = try send("PATCH", "api/me", json: ["notifications": ["catchup": NSNull()]], as: token)
     }
 
     /// The push settings in GET /api/me; nil from a server without them.

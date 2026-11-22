@@ -649,12 +649,14 @@ public struct MeResponse: Codable, Sendable {
 /// Which pushes I get about the links I sent. The server sends a watch and a reaction from the
 /// same person within a minute as one push.
 public struct NotificationSettings: Codable, Sendable, Equatable {
+    public var catchup: CatchUp?
     /// When someone marks a link I sent as watched.
     public var watched: Bool
     /// When someone reacts to a link I sent.
     public var reactions: Bool
 
-    public init(watched: Bool = true, reactions: Bool = true) {
+    public init(watched: Bool = true, reactions: Bool = true, catchup: CatchUp? = nil) {
+        self.catchup = catchup
         self.watched = watched
         self.reactions = reactions
     }
@@ -669,6 +671,16 @@ public struct ChatInviteLink: Codable, Sendable, Hashable {
         case url
         case createdAt = "created_at"
         case createdBy = "created_by"
+    }
+}
+
+public struct CatchUp: Codable, Sendable, Equatable {
+    public var time: String
+    public var timeZone: String
+
+    public init(time: String, timeZone: String) {
+        self.time = time
+        self.timeZone = timeZone
     }
 }
 

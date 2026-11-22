@@ -4,6 +4,13 @@ import Testing
 
 @Suite("New-link notifications")
 struct LinkNotificationTests {
+    @Test func catchUpOpensQueueWithoutBeingARichLinkNotification() {
+        let info: [AnyHashable: Any] = ["open": "queue", "aps": ["alert": ["title": "Daily Catch-Up"]]]
+        #expect(LinkNotification.destination(userInfo: info) == .inbox)
+        #expect(LinkNotification(userInfo: info) == nil)
+        #expect(LinkNotification.destination(userInfo: ["open": "elsewhere"]) == nil)
+        #expect(LinkNotification.destination(userInfo: ["link_id": 7]) == .open(linkID: 7))
+    }
     @Test func readsWhatTheServerSends() throws {
         // As server/src/push.ts sends it, through APNs' JSON (numbers arrive as NSNumber).
         let json = #"""

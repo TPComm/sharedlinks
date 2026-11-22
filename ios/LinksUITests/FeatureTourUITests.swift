@@ -50,7 +50,11 @@ final class FeatureTourUITests: XCTestCase {
         app.buttons["featureTour.continue"].tap()
         XCTAssert(waitForTitle("Invite Friends to a Chat"))
         XCTAssert(app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "Friends already on Links who tap it join the chat.")).firstMatch.exists)
-        XCTAssertEqual(progress.label, "Page 8 of 8")
+        XCTAssertEqual(progress.label, "Page 8 of 9")
+        app.buttons["featureTour.continue"].tap()
+        XCTAssert(waitForTitle("Get a Daily Catch-Up"))
+        XCTAssertEqual(progress.label, "Page 9 of 9")
+        capture("Daily catch-up")
         app.buttons["featureTour.done"].tap()
         XCTAssert(app.tabBars.buttons["Queue"].waitForExistence(timeout: 20))
 
@@ -91,6 +95,7 @@ final class FeatureTourUITests: XCTestCase {
         XCTAssertFalse(app.staticTexts["Swipe Through Your Queue"].exists)
         XCTAssertFalse(app.staticTexts["Save Your Favorites"].exists)
         XCTAssertFalse(app.staticTexts["Invite Friends to a Chat"].exists)
+        XCTAssertFalse(app.staticTexts["Get a Daily Catch-Up"].exists)
     }
 
     func testRecoversAutomaticallyWhenPresentationDoesNotAppear() {

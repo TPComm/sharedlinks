@@ -118,6 +118,25 @@ struct ProfileSheet: View {
                 }
                 if let settings = model.notifications {
                     Section {
+                        Picker("New Links", selection: Binding(
+                            get: { settings.catchup != nil },
+                            set: { on in saveCatchUp(on ? CatchUp(time: "18:00", timeZone: TimeZone.current.identifier) : nil) }
+                        )) {
+                            Text("Every Link").tag(false)
+                            Text("Daily Catch-Up").tag(true)
+                        }
+                        .accessibilityIdentifier("notify.catchup")
+                        if let catchup = settings.catchup {
+                            DatePicker("Catch-Up Time", selection: Binding(
+                                get: { catchUpDate(catchup.time) },
+                                set: { date in
+                                    let parts = Calendar.current.dateComponents([.hour, .minute], from: date)
+                                    saveCatchUp(CatchUp(time: String(format: "%02d:%02d", parts.hour!, parts.minute!),
+                                                       timeZone: TimeZone.current.identifier))
+                                }
+                            ), displayedComponents: .hourAndMinute)
+                            .accessibilityIdentifier("notify.catchupTime")
+                        }
                         notificationToggle("When someone sees my link", systemImage: "eye",
                                            isOn: settings.watched, id: "notify.watched") {
                             try await model.setNotifications(watched: $0)
@@ -327,6 +346,18 @@ struct ProfileSheet: View {
         Task {
             do { try await save() } catch { failure = error.localizedDescription }
             savingPhoto = false
+        }
+    }
+
+    private func catchUpDate(_ time: String) -> Date {
+        let parts = time.split(separator: ":").compactMap { Int($0) }
+        return Calendar.current.date(bySettingHour: parts.first ?? 18, minute: parts.last ?? 0, second: 0, of: Date()) ?? Date()
+    }
+
+    private func saveCatchUp(_ catchup: CatchUp?) {
+        Task {
+            do { try await model.setNotifications(catchup: .some(catchup)) }
+            catch { failure = error.localizedDescription }
         }
     }
 
