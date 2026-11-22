@@ -256,7 +256,7 @@ function migrateToV21(db: Database) {
       group_id INTEGER PRIMARY KEY REFERENCES groups(id) ON DELETE CASCADE,
       token TEXT NOT NULL UNIQUE,
       created_by TEXT REFERENCES users(id) ON DELETE SET NULL,
-      created_at INTEGER NOT NULL
+      created_at REAL NOT NULL
     )`);
     db.run("PRAGMA user_version = 21");
   })();

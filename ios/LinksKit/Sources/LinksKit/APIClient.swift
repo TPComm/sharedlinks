@@ -255,6 +255,23 @@ public struct APIClient: Sendable {
 
     // MARK: Invites
 
+    public func chatInviteLink(groupID: Int) async throws -> ChatInviteLink? {
+        let r: ChatLinkEnvelope = try await send("GET", "api/groups/\(groupID)/link")
+        return r.link
+    }
+
+    public func resetChatInviteLink(groupID: Int) async throws -> ChatInviteLink {
+        let r: ChatLinkEnvelope = try await send("POST", "api/groups/\(groupID)/link")
+        guard let link = r.link else { throw APIError.server("The invite link wasn't created. Try again.") }
+        return link
+    }
+
+    public func turnOffChatInviteLink(groupID: Int) async throws {
+        let _: ChatLinkEnvelope = try await send("DELETE", "api/groups/\(groupID)/link")
+    }
+
+    private struct ChatLinkEnvelope: Decodable { var link: ChatInviteLink? }
+
     /// Mine that nobody has used yet, newest first.
     public func invites() async throws -> [Invite] {
         let r: InvitesEnvelope = try await send("GET", "api/invites")

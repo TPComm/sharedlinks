@@ -1044,6 +1044,25 @@ final class LinksUITests: XCTestCase {
         XCTAssert(app.scrollViews["linkPage.\(link.id)"].waitForExistence(timeout: 5))
     }
 
+    func testChatInviteLinkCreateResetAndTurnOff() throws {
+        let meID = try server.state(as: server.me).me
+        let name = "Invites \(shortID())"
+        let chat = try server.startChat(name: name, members: [meID], as: server.friend)
+        leaveAfterwards(chat.id)
+        launch()
+        pickChat(name)
+        openChatPicker()
+        app.buttons["Chat Info"].tap()
+        scrolledTo(app.buttons["chatLink.create"]).tap()
+        XCTAssert(app.buttons["chatLink.share"].waitForExistence(timeout: 10))
+        scrolledTo(app.buttons["chatLink.reset"]).tap()
+        app.buttons.matching(NSPredicate(format: "label == %@ AND identifier != %@", "Reset Link", "chatLink.reset")).firstMatch.tap()
+        XCTAssert(app.buttons["chatLink.share"].waitForExistence(timeout: 10))
+        scrolledTo(app.buttons["chatLink.off"]).tap()
+        app.buttons.matching(NSPredicate(format: "label == %@ AND identifier != %@", "Turn Off Link", "chatLink.off")).firstMatch.tap()
+        XCTAssert(app.buttons["chatLink.create"].waitForExistence(timeout: 10))
+    }
+
     func testChatInfoSavesMuteDurationsAndKeepsLinksVisible() throws {
         let meID = try server.state(as: server.me).me
         let name = "Mute \(shortID())"

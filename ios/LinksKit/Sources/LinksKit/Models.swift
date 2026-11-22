@@ -660,6 +660,18 @@ public struct NotificationSettings: Codable, Sendable, Equatable {
     }
 }
 
+public struct ChatInviteLink: Codable, Sendable, Hashable {
+    public var url: URL
+    public var createdAt: Date
+    public var createdBy: String?
+
+    enum CodingKeys: String, CodingKey {
+        case url
+        case createdAt = "created_at"
+        case createdBy = "created_by"
+    }
+}
+
 /// An invite I sent that nobody has used yet (GET /api/invites).
 public struct Invite: Codable, Sendable, Hashable, Identifiable {
     public let id: Int

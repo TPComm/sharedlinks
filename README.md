@@ -63,6 +63,8 @@ New people get a short **welcome tour** after their first sign-in (Profile → S
 It walks through putting Links at the front of the share sheet, with a practice share that ticks
 itself off, and TipKit tips then point out the gestures once each.
 
+In a chat's info, create and share an **Invite Link** so friends already on Links can join; new people still need a personal invite.
+
 ## Feature tours
 
 New features appear once per device after the welcome tour, and can be replayed from

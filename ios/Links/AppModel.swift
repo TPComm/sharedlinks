@@ -329,6 +329,21 @@ final class AppModel {
 
     // MARK: Invites
 
+    func loadChatInviteLink(_ groupID: Int) async throws -> ChatInviteLink? {
+        do { return try await client.chatInviteLink(groupID: groupID) }
+        catch APIError.signedOut { endSession(); throw APIError.signedOut }
+    }
+
+    func resetChatInviteLink(_ groupID: Int) async throws -> ChatInviteLink {
+        do { return try await client.resetChatInviteLink(groupID: groupID) }
+        catch APIError.signedOut { endSession(); throw APIError.signedOut }
+    }
+
+    func turnOffChatInviteLink(_ groupID: Int) async throws {
+        do { try await client.turnOffChatInviteLink(groupID: groupID) }
+        catch APIError.signedOut { endSession(); throw APIError.signedOut }
+    }
+
     func loadInvites() async {
         await perform { self.invites = try await self.client.invites() }
     }
