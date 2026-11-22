@@ -1106,6 +1106,8 @@ final class LinksUITests: XCTestCase {
         let name = "Shared \(shortID())"
         let chat = try server.startChat(name: name, members: [meID], as: server.friend)
         leaveAfterwards(chat.id)
+        let unnamed = try server.startChat(name: "", members: [meID], as: server.friend)
+        leaveAfterwards(unnamed.id)
         let everyone = try seed(by: server.friend)
         let friendID = try server.state(as: server.friend).me
         let direct = try server.state(as: server.me).groups.filter { $0.isDirect == true && $0.members.contains(friendID) }
@@ -1125,19 +1127,24 @@ final class LinksUITests: XCTestCase {
         // It starts on Everyone, and says who the picked chat's link goes to.
         let to = app.buttons["share.chat"]
         XCTAssert(to.waitForExistence(timeout: 30), "no Chat row in the Share Extension")
-        XCTAssert(to.label.contains("Everyone"), to.label)
+        func checkSelection(_ title: String, line: UInt = #line) {
+            let selection = [to.label, to.value as? String ?? ""].joined(separator: " ")
+            XCTAssertTrue(selection.contains(title), selection, line: line)
+        }
+        checkSelection("Everyone")
         to.tap()
         let friend = app.buttons["Friend"].firstMatch
         XCTAssert(friend.waitForExistence(timeout: 10), "no direct destination for Friend")
+        XCTAssert(app.buttons["Friend (Group)"].exists, "the existing unnamed group should stay available separately")
         friend.tap()
-        XCTAssert(to.label.contains("Friend"), to.label)
+        checkSelection("Friend")
         XCTAssert(app.staticTexts["Goes to Friend."].waitForExistence(timeout: 5), "the direct chat should only send to Friend")
 
         to.tap()
         let pick = app.buttons[name].firstMatch
         XCTAssert(pick.waitForExistence(timeout: 30), "no \(name) in the chat picker")
         pick.tap()
-        XCTAssert(to.label.contains(name), to.label)
+        checkSelection(name)
         XCTAssert(app.staticTexts["Goes to Friend."].waitForExistence(timeout: 5), "the footer doesn't follow the chat")
         app.buttons["Cancel"].firstMatch.tap()
         XCTAssert(to.waitForNonExistence(timeout: 10), "the Share Extension stayed open")

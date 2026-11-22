@@ -83,11 +83,13 @@ struct ShareComposeView: View {
                 }
                 // The practice send goes nowhere, so it has no chat to pick.
                 if !isPractice, let snapshot = model.snapshot, !snapshot.groups.isEmpty {
+                    let directTitles = Set(snapshot.groups.filter(\.isDirect).map(snapshot.title(of:)))
                     Section {
                         Picker("Chat", selection: $model.groupID) {
                             if model.groupID == nil { Text("Choose a Chat").tag(Int?.none) }
                             ForEach(snapshot.groups) { group in
-                                Label(snapshot.title(of: group), systemImage: group.isDirect ? "person" : "person.2")
+                                let title = snapshot.title(of: group)
+                                Text(!group.isDirect && directTitles.contains(title) ? "\(title) (Group)" : title)
                                     .tag(Int?.some(group.id))
                             }
                         }
