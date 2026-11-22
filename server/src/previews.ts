@@ -344,4 +344,5 @@ export async function fetchMetadata(db: Database, dataDir: string, linkId: numbe
     [title, author, description, siteName, thumbType, w, h, title || thumbType ? "done" : "failed", PREVIEW_VERSION, thumb ? 1 : 0, linkId]);
   // Deleted while we were fetching: don't leave its thumbnail behind.
   if (!changes && thumb) rmSync(thumbPath, { force: true });
+  return { retryThumbnail: !!changes && !thumbType && (!!meta.image || platform === "reddit") };
 }

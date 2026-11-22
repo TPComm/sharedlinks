@@ -240,9 +240,9 @@ export function createApp(config: Config, opts: AppOptions = {}) {
   }
   function queueFetch(id: number, url: string, platform: string): Promise<void> {
     const run = (latest.get(id) ?? Promise.resolve()).then(async () => {
-      await fetchMetadata(db, config.dataDir, id, url, platform, fetchOpts);
+      const result = await fetchMetadata(db, config.dataDir, id, url, platform, fetchOpts);
       const row = db.query("SELECT meta FROM links WHERE id = ?").get(id) as { meta: string } | null;
-      if (row?.meta === "failed") failedAttempt(id);
+      if (row?.meta === "failed" || result?.retryThumbnail) failedAttempt(id);
       else retries.delete(id);
     });
     const settled = run.catch(() => {});
@@ -264,15 +264,16 @@ export function createApp(config: Config, opts: AppOptions = {}) {
     startMetadataFetch(row.id, row.url, row.platform);
   }
 
-  // Backfill old previews and retry failures with backoff, one at a time at the configured pace.
+  // Backfill old previews and retry failures or missing thumbnails with backoff, one at a time.
   function backfillNext() {
     let row: LinkRow | null;
     try {
-      const rows = db.query("SELECT id, url, platform, preview_v, meta FROM links WHERE (preview_v < ? OR meta = 'failed') AND meta != 'pending' ORDER BY added_at DESC")
+      const rows = db.query("SELECT id, url, platform, preview_v, meta FROM links WHERE (preview_v < ? OR meta = 'failed' OR (meta = 'done' AND thumb_type IS NULL)) AND meta != 'pending' ORDER BY added_at DESC")
         .all(PREVIEW_VERSION) as LinkRow[];
       row = rows.find((candidate) => {
         if (latest.has(candidate.id)) return false;
         if (candidate.preview_v < PREVIEW_VERSION) return true;
+        if (candidate.meta === "done" && !retries.has(candidate.id)) return false;
         if (!retries.has(candidate.id)) failedAttempt(candidate.id);
         return retries.get(candidate.id)!.after <= previewNow();
       }) ?? null;

@@ -109,6 +109,8 @@ Failed link previews retry in the background after roughly 1 minute, 5 minutes, 
 2 hours, then every 12 hours, one at a time. Retry history is in memory and resets on server
 restart. “Try Loading the Preview Again” bypasses this delay. Reddit previews combine its
 public oEmbed title/author with thumbnail metadata fetched as a link-preview bot.
+An incomplete thumbnail fetch also retries with this backoff, even after the title arrives;
+Reddit title-only results remain eligible because HTML and oEmbed can recover separately.
 
 ```bash
 curl -fsSL https://bun.sh/install | bash        # once; then add ~/.bun/bin to your PATH
