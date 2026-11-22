@@ -46,6 +46,17 @@ New people get a short **welcome tour** after their first sign-in (Profile → S
 It walks through putting Links at the front of the share sheet, with a practice share that ticks
 itself off, and TipKit tips then point out the gestures once each.
 
+## Feature tours
+
+New features appear once per device after the welcome tour, and can be replayed from
+**Profile → What's New**. To add one, add a stable case to `FeatureTour` in
+`ios/Links/Views/FeatureTour.swift`, supply its page content and optional action, and add an
+assertion to `ios/LinksUITests/FeatureTourUITests.swift`. Case order is presentation order;
+never rename a shipped case's id. `FeatureTours` in LinksKit keeps seen ids in App Group defaults.
+Debug launches can use `LINKS_RESET_FEATURE_TOURS=1` to start fresh and
+`LINKS_COMPLETE_ONBOARDING=1` to act as an existing user. `LINKS_RESET_ONBOARDING=1` resets both
+tours; `LINKS_UI_TESTS=1` suppresses automatic tours.
+
 ## Messages extension
 
 In Messages, open **+ → Links** (under **More** if needed), browse **Queue / Recent**, and tap

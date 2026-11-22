@@ -59,6 +59,10 @@ final class TourUITests: XCTestCase {
         XCTAssertFalse(app.buttons["tour.skip"].exists, "Skip on the last page")
         app.buttons["tour.done"].tap()
         allowNotificationsIfAsked()
+        let featureSkip = app.buttons["featureTour.skip"]
+        XCTAssert(featureSkip.waitForExistence(timeout: 30), "no feature tours after the welcome tour")
+        featureSkip.tap()
+        XCTAssert(featureSkip.waitForNonExistence(timeout: 20))
 
         // The inbox, with the gesture tips on the friend's link, one after another.
         XCTAssert(app.tabBars.buttons["Queue"].waitForExistence(timeout: 20))

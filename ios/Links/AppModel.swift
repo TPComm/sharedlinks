@@ -40,6 +40,10 @@ final class AppModel {
     var addPrefill = ""
     var showClaimSheet = false
     var showTour = false
+    var showFeatureTours = false
+    private(set) var pendingFeatureTours: [FeatureTour] = []
+    private var dismissingWelcomeTour = false
+    private var requestingNotifications = false
     /// Set by ProfileButton while the profile sheet is up.
     var isProfileOpen = false
     /// The page the tour opens on: the first, or the share-sheet page from "How to Share to Links".
@@ -92,9 +96,17 @@ final class AppModel {
     init() {
         if Self.resetsOnboarding {
             Onboarding.shared.reset()
+            FeatureTours.shared.reset()
             tourCompleted = false
         }
         #if DEBUG
+        if ProcessInfo.processInfo.environment["LINKS_RESET_FEATURE_TOURS"] == "1" {
+            FeatureTours.shared.reset()
+        }
+        if ProcessInfo.processInfo.environment["LINKS_COMPLETE_ONBOARDING"] == "1" {
+            Onboarding.shared.completeTour()
+            tourCompleted = true
+        }
         // Extensions don't inherit the UI test runner's environment.
         LinksConfig.sharedDefaults.set(
             ProcessInfo.processInfo.environment["LINKS_DEV_TOKEN"] != nil
@@ -162,6 +174,7 @@ final class AppModel {
     private func endSession() {
         sessionID = UUID()
         showTour = false
+        showFeatureTours = false
         pushRegistered = false
         registeredToken = nil
         SessionStore.clear()
@@ -473,8 +486,13 @@ final class AppModel {
         // No system prompt in UI tests: while it's up the app is inactive and doesn't fetch, and a
         // fresh CI Simulator shows it whenever it likes (ios/scripts/ui-tests.sh).
         // Nor over the tour: its last page offers it, and finishTour asks if that wasn't used.
-        guard !Self.isUITesting, tourCompleted else { return }
-        Task { _ = try? await UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .badge, .sound]) }
+        guard !Self.isUITesting, tourCompleted, !showTour, !showFeatureTours, !requestingNotifications else { return }
+        requestingNotifications = true
+        Task {
+            _ = try? await UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .badge, .sound])
+            requestingNotifications = false
+            showFeatureToursIfNeeded()
+        }
     }
 
     // MARK: Comments
@@ -536,12 +554,40 @@ final class AppModel {
     // MARK: Tour
 
     /// Gesture tips wait until nothing covers the inbox, so a popover never lands under a sheet.
-    var canShowTips: Bool { tourCompleted && !showTour && !showClaimSheet && !showAddSheet && !isProfileOpen }
+    var canShowTips: Bool { tourCompleted && !showTour && !showFeatureTours && !dismissingWelcomeTour && !requestingNotifications && !showClaimSheet && !showAddSheet && !isProfileOpen }
 
     /// Shows the tour once, after sign-in and after the claim sheet (if any) has closed.
     func showTourIfNeeded() {
-        guard isSignedIn, !tourCompleted, !showTour, !showClaimSheet, !showAddSheet, !Self.isUITesting else { return }
+        if tourCompleted {
+            showFeatureToursIfNeeded()
+            return
+        }
+        guard isSignedIn, !showTour, !showFeatureTours, !showClaimSheet, !showAddSheet, !isProfileOpen, chatSheet == nil, !Self.isUITesting else { return }
         startTour()
+    }
+
+    func showFeatureToursIfNeeded() {
+        guard isSignedIn, tourCompleted, !showTour, !dismissingWelcomeTour, !requestingNotifications,
+              !showFeatureTours, !showClaimSheet, !showAddSheet, !isProfileOpen, chatSheet == nil,
+              !Self.isUITesting else { return }
+        startFeatureTours(FeatureTour.allCases.filter { !FeatureTours.shared.hasSeen($0.id) })
+    }
+
+    func startFeatureTours(_ tours: [FeatureTour] = FeatureTour.allCases) {
+        guard !tours.isEmpty else { return }
+        pendingFeatureTours = tours
+        showFeatureTours = true
+    }
+
+    func finishFeatureTours() {
+        for tour in pendingFeatureTours { FeatureTours.shared.markSeen(tour.id) }
+        pendingFeatureTours = []
+        requestNotificationPermission()
+    }
+
+    func welcomeTourDismissed() {
+        dismissingWelcomeTour = false
+        showFeatureToursIfNeeded()
     }
 
     func startTour(at page: TourPage = .welcome) {
@@ -553,6 +599,7 @@ final class AppModel {
     func finishTour() {
         Onboarding.shared.completeTour()
         tourCompleted = true
+        dismissingWelcomeTour = true
         showTour = false
         requestNotificationPermission()
     }
