@@ -63,6 +63,19 @@ test("summaries count links and list distinct senders newest first, only once pe
   expect(bodies[1].aps.alert.body).toBe("5 new links from Sam, Kim and 2 others");
 });
 
+test("retained links without senders count towards summaries without inventing names", async () => {
+  enable();
+  add("deleted"); add("deleted"); add("deleted");
+  expect(push.toWatch("Reader")).toBe(3);
+  await push.catchUp(new Date("2026-03-08T08:00:00Z"));
+  expect(bodies[0].aps.alert.body).toBe("3 new links");
+  expect(bodies[0].aps.badge).toBe(3);
+  add("Maya");
+  await push.catchUp(new Date("2026-03-09T08:00:00Z"));
+  expect(bodies[1].aps.alert.body).toBe("4 new links from Maya");
+  expect(bodies[1].aps.badge).toBe(4);
+});
+
 test("empty queues and muted chats stay silent but record the run", async () => {
   enable();
   await push.catchUp(new Date("2026-03-08T08:00:00Z"));
