@@ -33,3 +33,8 @@ LINKS_SUPPORT_URL = mailto:support@tpcomm.co
 // Apple's cache (turn on Settings > Developer > Associated Domains Development on the phone).
 LINKS_ASSOCIATED_DOMAIN = links.tpcomm.co
 LINKS_ASSOCIATED_DOMAIN_MODE[config=Debug] = ?mode=developer
+
+// The AuthKit custom domain (WorkOS dashboard > Domains), where the sign-in page lives. Passwords
+// are saved under this host, so it needs an apple-app-site-association file with a webcredentials
+// entry for the app; WorkOS serves that host, not this server.
+LINKS_AUTH_DOMAIN = auth.tpcomm.co

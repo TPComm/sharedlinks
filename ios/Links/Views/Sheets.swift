@@ -58,7 +58,7 @@ struct AddLinkSheet: View {
                     Section {
                         Picker("To", selection: $groupID) {
                             ForEach(model.inbox.groups) { group in
-                                Text(model.inbox.title(of: group)).tag(Int?.some(group.id))
+                                Text(model.inbox.destinationTitle(of: group)).tag(Int?.some(group.id))
                             }
                         }
                         .accessibilityIdentifier("addLink.chat")

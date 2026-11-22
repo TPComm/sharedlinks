@@ -4,7 +4,7 @@ import { readdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { Accounts, AuthError, INVITE_TOKEN_RE, MAX_GROUP_MEMBERS, MAX_PHOTO_BYTES, photoType, publicUser, reportPhoto } from "./accounts.ts";
 import type { Config } from "./config.ts";
-import { defaultGroup, deleteEmptyGroups, deleteLink, now, openDatabase, type CommentRow, type GroupRow, type LinkRow, type UserRow } from "./db.ts";
+import { defaultGroup, deleteEmptyGroups, deleteLink, ensureDirectChatsFor, now, openDatabase, sharesGroupWithDirectPeer, type CommentRow, type GroupRow, type LinkRow, type UserRow } from "./db.ts";
 import { BadRequest, canonical, clipText, extractUrl } from "./links.ts";
 import { landingPage } from "./landing.ts";
 import { REPORT_REASONS } from "./moderation.ts";
@@ -335,7 +335,7 @@ export function createApp(config: Config, opts: AppOptions = {}) {
     const settings = db.query("SELECT muted, muted_until FROM group_members WHERE group_id = ? AND user_id = ?")
       .get(r.id, me) as { muted: number; muted_until: number | null };
     const muted = !!settings.muted && (settings.muted_until === null || settings.muted_until > now());
-    return { id: r.id, name: r.name, created_by: r.created_by, created_at: r.created_at, default: !!r.is_default, members,
+    return { id: r.id, name: r.name, created_by: r.created_by, created_at: r.created_at, default: !!r.is_default, direct: !!r.is_direct, members,
       muted, muted_until: muted ? settings.muted_until : null };
   }
 
@@ -779,13 +779,14 @@ export function createApp(config: Config, opts: AppOptions = {}) {
       POST: route(async (req, me) => {
         const data = await readJson(req);
         const name = groupName(data.name);
-        const members = newMembers(data.members, me, []);
         const id = asUser(me, () => {
+          const members = newMembers(data.members, me, []);
           const at = now();
           const id = Number(db.run("INSERT INTO groups (name, created_by, created_at) VALUES (?, ?, ?)", [name, me, at]).lastInsertRowid);
           for (const user of [me, ...members]) {
             db.run("INSERT INTO group_members (group_id, user_id, joined_at) VALUES (?, ?, ?)", [id, user, at]);
           }
+          for (const user of members) ensureDirectChatsFor(db, user, id);
           return id;
         });
         return json({ group: getGroup(id, me) }, 201);
@@ -807,7 +808,10 @@ export function createApp(config: Config, opts: AppOptions = {}) {
         // Again once the body is in: they may have left while it uploaded.
         asUser(me, () => {
           groupOf(id, me);
-          if (name !== undefined) db.run("UPDATE groups SET name = ? WHERE id = ?", [name, id]);
+          if (name !== undefined) {
+            if (getGroup(id, me).direct) throw new BadRequest("Direct chats use the other person's name.");
+            db.run("UPDATE groups SET name = ? WHERE id = ?", [name, id]);
+          }
           if (data.muted !== undefined) {
             db.run("UPDATE group_members SET muted = ?, muted_until = ? WHERE group_id = ? AND user_id = ?",
               [data.muted ? 1 : 0, data.muted ? data.muted_until ?? null : null, id, me]);
@@ -820,10 +824,13 @@ export function createApp(config: Config, opts: AppOptions = {}) {
       // Leave the chat.
       DELETE: route<WithId>((req, me) => {
         const id = groupOf(req.params.id, me);
-        const orphaned = db.transaction(() => {
+        const orphaned = asUser(me, () => {
+          if (getGroup(id, me).direct && sharesGroupWithDirectPeer(db, id, me)) {
+            throw new BadRequest("Leave your shared group chats before leaving this direct chat.");
+          }
           db.run("DELETE FROM group_members WHERE group_id = ? AND user_id = ?", [id, me]);
           return deleteEmptyGroups(db);
-        })();
+        });
         for (const link of orphaned) rmSync(join(config.dataDir, "thumbs", String(link)), { force: true });
         push.badges([me]); // the chat's links leave their To Watch; nobody else's change
         return json({ ok: true });
@@ -835,12 +842,14 @@ export function createApp(config: Config, opts: AppOptions = {}) {
         const data = await readJson(req);
         const added = asUser(me, () => {
           groupOf(id, me); // still in it now the body is in
-          const have = toGroup(db.query("SELECT * FROM groups WHERE id = ?").get(id) as GroupRow, me).members;
-          const added = newMembers(data.members, me, have);
+          const group = getGroup(id, me);
+          if (group.direct) throw new BadRequest("Start a group chat to add more people.");
+          const added = newMembers(data.members, me, group.members);
           const at = now();
           for (const user of added) {
             db.run("INSERT OR IGNORE INTO group_members (group_id, user_id, joined_at) VALUES (?, ?, ?)", [id, user, at]);
           }
+          for (const user of added) ensureDirectChatsFor(db, user, id);
           return added;
         });
         push.badges(added); // the chat's links land in their To Watch
@@ -854,8 +863,11 @@ export function createApp(config: Config, opts: AppOptions = {}) {
       GET: route((_req, me) => json({ invites: accounts.pendingInvites(me) })),
       POST: route(async (req, me) => {
         const { email, group_id } = await readJson(req);
-        const { invite, token } = asUser(me, () =>
-          accounts.createInvite(me, email, group_id === undefined || group_id === null ? null : groupOf(group_id, me)));
+        const { invite, token } = asUser(me, () => {
+          const group = group_id === undefined || group_id === null ? null : getGroup(groupOf(group_id, me), me);
+          if (group?.direct) throw new BadRequest("You can't invite someone into a direct chat.");
+          return accounts.createInvite(me, email, group?.id ?? null);
+        });
         return json({ invite: { ...invite, url: `${config.publicUrl}/invite/${token}` } }, 201);
       }),
     },
