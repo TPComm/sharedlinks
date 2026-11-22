@@ -990,7 +990,9 @@ describe("wrapped", () => {
     expect((await call(`/api/wrapped?start=100&end=200&group_id=${secret}`, { token: viewer })).status).toBe(404);
     expect((await call("/api/wrapped?start=0&end=1", { token: viewer })).data).toEqual({ start: 0, end: 1, received: 0, sent: 0, watched: 0, top_sender: null, top_platform: null, most_reacted: null });
     db.run("INSERT INTO blocks (blocker, blocked, created_at) VALUES (?, ?, 0)", [meId, amyId]);
+    await call(`/api/links/${own}/react`, { token: amy, body: { emoji: "🔥" } });
     expect(await get()).toMatchObject({ received: 1, watched: 0, top_sender: { id: zoeId } });
+    expect((await get()).most_reacted).toMatchObject({ id: z, reactions: 1 });
     await call("/api/reports", { token: viewer, body: { link_id: z, reason: "offensive" } });
     expect(await get()).toMatchObject({ received: 0, sent: 1, top_sender: null, most_reacted: null });
     db.close();
