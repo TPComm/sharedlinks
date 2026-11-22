@@ -210,6 +210,7 @@ export function openDatabase(dataDir: string, legacyAllowedEmails: string[] = []
   migrateToV18(db);
   migrateToV19(db);
   migrateToV20(db);
+  migrateToV21(db);
   db.transaction(() => {
     const update = db.query("UPDATE links SET share_token = ? WHERE id = ? AND share_token IS NULL");
     for (const row of db.query("SELECT id FROM links WHERE share_token IS NULL").all() as { id: number }[]) {
@@ -244,6 +245,20 @@ function migrateToV16(db: Database) {
       update.run(randomBytes(24).toString("base64url"), row.id);
     }
     db.run("PRAGMA user_version = 16");
+  })();
+}
+
+function migrateToV21(db: Database) {
+  const { user_version } = db.query("PRAGMA user_version").get() as { user_version: number };
+  if (user_version >= 21) return;
+  db.transaction(() => {
+    db.run(`CREATE TABLE IF NOT EXISTS chat_invite_links (
+      group_id INTEGER PRIMARY KEY REFERENCES groups(id) ON DELETE CASCADE,
+      token TEXT NOT NULL UNIQUE,
+      created_by TEXT REFERENCES users(id) ON DELETE SET NULL,
+      created_at INTEGER NOT NULL
+    )`);
+    db.run("PRAGMA user_version = 21");
   })();
 }
 

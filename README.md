@@ -389,6 +389,9 @@ API endpoints except sign-in need `Authorization: Bearer <session token>`; pages
 | POST | `/api/groups` | `{name?, members?}` (user ids; I'm added) → 201 `{group}`. An empty name means the app names it after its members; up to 50 people |
 | PATCH | `/api/groups/:id` | `{name?, muted?, muted_until?}` (at least one): rename the chat or change only my mute → `{group}`. `muted: true` mutes indefinitely with an omitted/null deadline, or until `muted_until` (finite future Unix seconds); `muted: false` clears the deadline. A deadline alone updates the existing mute's deadline. Muting suppresses new-link, comment and watched/reaction alerts, not Queue counts or badges |
 | POST | `/api/groups/:id/members` | `{members}`: any group member adds people who are in Links → `{group}`. The legacy Everyone chat and direct chats cannot accept more members. Direct chats cannot be renamed. Nobody removes anyone else |
+| GET | `/api/groups/:id/link` | Any chat member fetches `{link: {url, created_at, created_by} \| null}`; default chat refused (400), non-members get 404 |
+| POST | `/api/groups/:id/link` | Create or reset a reusable chat invite link → 201 `{link}`; old URLs stop working immediately. Only people already on Links can join; default chat refused |
+| DELETE | `/api/groups/:id/link` | Turn off the chat invite link → `{link: null}` |
 | DELETE | `/api/groups/:id` | Leave the chat; the links I sent stay in it. The last one out deletes it and its links (never the default chat). Leave shared group chats before leaving the direct chat with a group mate |
 | POST | `/api/links/:id/seen` | `{seen: true/false}` |
 | POST | `/api/links/:id/nudge` | Sender only: `{people?: [userId, …]}`; omitted or empty means all eligible unwatched chat members. Excludes unclaimed legacy people and people the sender blocked. Records nudges at most once per person per link per 24 hours → `{nudged: [userId, …], link}`. A recipient's block of the sender or report of the link stops delivery without changing the response or cooldown; muted chats and missing devices also prevent delivery. 429 if only the cooldown prevents a nudge, otherwise 400 when nobody is eligible. Only the sender's link JSON includes `nudged: {personId: UnixSeconds, …}` (all recorded times) |
@@ -402,7 +405,7 @@ API endpoints except sign-in need `Authorization: Bearer <session token>`; pages
 | POST | `/api/blocks` | `{user_id}` → `{blocked}` |
 | DELETE | `/api/blocks/:user_id` | unblock (URL-encode the id) → `{blocked}` |
 | GET/POST | `/api/invites` | GET → `{invites}` (mine, still pending); POST `{email?}` → 201 `{invite: {id, email, group_id, created_at, expires_at, url}}`. Using the invite opens a direct chat with me, never a group. Older clients' `group_id` is ignored and returned as null |
-| POST | `/api/invites/accept` | `{token}` → `{group}`: someone already in opens or starts a direct chat with the inviter; `group` is null for their own or an admin's invite. An open invite stays pending if the pair already had a chat; a verified recipient uses up an email-bound invite. Invites addressed to verified people already paired with the sender are omitted from the sender's pending list but their links remain usable. Without recorded email verification they can return to an existing direct chat without claiming an email-bound invite, but can't use it to start a new one; 404 for inactive links, 403 for a mismatched or unverified email |
+| POST | `/api/invites/accept` | `{token}` → `{group}`: an existing member joins a reusable chat link without using it up (repeat accepts return the same group; reset/disabled links return 404), or opens or starts a direct chat with the inviter; `group` is null for their own or an admin's invite. An open invite stays pending if the pair already had a chat; a verified recipient uses up an email-bound invite. Invites addressed to verified people already paired with the sender are omitted from the sender's pending list but their links remain usable. Without recorded email verification they can return to an existing direct chat without claiming an email-bound invite, but can't use it to start a new one; 404 for inactive links, 403 for a mismatched or unverified email |
 | DELETE | `/api/invites/:id` | cancels a pending invite → `{invites}` |
 | GET | `/invite/:token` | public page for an invite link: who sent it, Open in Links, the Smart App Banner. Loading it never uses the invite up |
 | GET | `/.well-known/apple-app-site-association` | public; which paths open the app (only with `APPLE_APP_IDS`) |
@@ -415,6 +418,10 @@ API endpoints except sign-in need `Authorization: Bearer <session token>`; pages
 | GET | `/version` | public: `{commit}`, the git commit the server was built from (`dev` unless built by `deploy/deploy.sh`) |
 
 Each link includes `token` (its unguessable share token) and `share_url` (the absolute public `/l/:token` URL).
+`POST /api/invites/accept` also accepts reusable chat invite links: existing Links members join the
+chat (or return to it if already joined), subject to its member cap, without using the link up.
+Reset or disabled links return the same 404 as an expired personal invite. Signing in with a chat
+link never admits new people to Links; they need a personal invite for now.
 Adding a `share_url` from this server adds the original URL, with duplicate detection within the destination chat.
 Anyone with that URL can view its title and thumbnail and open the original URL, without seeing the inbox.
 Each link also includes `comment_count` and `last_comment: {person, snippet, at} | null`, scoped to
