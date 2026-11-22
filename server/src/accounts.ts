@@ -216,10 +216,10 @@ export class Accounts {
         try { clock = localClock(new Date(), timeZone); }
         catch { throw new BadRequest("Choose a valid IANA time zone."); }
         const minute = Number(time.slice(0, 2)) * 60 + Number(time.slice(3));
-        const current = this.db.query("SELECT catchup_minute, catchup_tz FROM users WHERE id = ?").get(userId) as UserRow;
+        const current = this.db.query("SELECT catchup_minute, catchup_tz, catchup_sent_on FROM users WHERE id = ?").get(userId) as UserRow;
         if (current.catchup_minute !== minute || current.catchup_tz !== timeZone) {
           this.db.run("UPDATE users SET catchup_minute = ?, catchup_tz = ?, catchup_sent_on = ? WHERE id = ?",
-            [minute, timeZone, clock.minute >= minute ? clock.date : null, userId]);
+            [minute, timeZone, current.catchup_sent_on === clock.date || clock.minute >= minute ? clock.date : null, userId]);
         }
       }
     }

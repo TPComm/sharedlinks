@@ -92,6 +92,23 @@ test("time zones and a DST transition use the local clock", async () => {
   expect(db.query("SELECT catchup_sent_on FROM users WHERE id = 'Other'").get()).toEqual({ catchup_sent_on: "2026-03-07" });
 });
 
+test("moving the time later or changing zone preserves today's completed run", async () => {
+  setSystemTime(new Date("2026-03-08T07:00:00Z"));
+  add("Maya");
+  accounts.setNotifications("Reader", { catchup: { time: "08:00", timeZone: "UTC" } });
+  setSystemTime(new Date("2026-03-08T09:00:00Z"));
+  await push.catchUp(new Date());
+  expect(bodies).toHaveLength(1);
+  accounts.setNotifications("Reader", { catchup: { time: "18:00", timeZone: "UTC" } });
+  await push.catchUp(new Date("2026-03-08T18:00:00Z"));
+  expect(bodies).toHaveLength(1);
+  accounts.setNotifications("Reader", { catchup: { time: "18:00", timeZone: "Europe/London" } });
+  await push.catchUp(new Date("2026-03-08T18:00:00Z"));
+  expect(bodies).toHaveLength(1);
+  await push.catchUp(new Date("2026-03-09T18:00:00Z"));
+  expect(bodies).toHaveLength(2);
+});
+
 test("enabling after the chosen time waits until tomorrow; unchanged settings do not reset delivery", async () => {
   setSystemTime(new Date("2026-03-08T12:00:00Z"));
   add("Maya");
