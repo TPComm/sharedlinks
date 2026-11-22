@@ -49,6 +49,7 @@ struct FeatureTourView: View {
             HStack {
                 Spacer()
                 Button("Not Now") { model.showFeatureTours = false }
+                    .foregroundStyle(.primary)
                     .disabled(savingPhoto)
                     .accessibilityIdentifier("featureTour.skip")
             }
@@ -77,7 +78,11 @@ struct FeatureTourView: View {
                     .tag(index)
                 }
             }
-            .tabViewStyle(.page)
+            .tabViewStyle(.page(indexDisplayMode: .never))
+            if tours.count > 1 {
+                PageDots(current: selection, count: tours.count)
+                    .accessibilityIdentifier("featureTour.progress")
+            }
             if selection == tours.count - 1 {
                 Button("Done") { model.showFeatureTours = false }
                     .disabled(savingPhoto)

@@ -56,7 +56,7 @@ struct TourView: View {
     /// Fixed under the pages, so the buttons stay put while the pages swipe.
     private var controls: some View {
         VStack(spacing: 12) {
-            PageDots(current: page)
+            PageDots(current: page.rawValue, count: TourPage.allCases.count)
                 .padding(.bottom, 4)
             primaryButton
             secondaryButton
@@ -334,12 +334,13 @@ extension Feature where Accessory == EmptyView {
     }
 }
 
-private struct PageDots: View {
-    let current: TourPage
+struct PageDots: View {
+    let current: Int
+    let count: Int
 
     var body: some View {
         HStack(spacing: 7) {
-            ForEach(TourPage.allCases) { page in
+            ForEach(0..<count, id: \.self) { page in
                 Capsule()
                     .fill(page == current ? Color.accentColor : Color.secondary.opacity(0.3))
                     .frame(width: page == current ? 20 : 7, height: 7)
@@ -347,7 +348,7 @@ private struct PageDots: View {
         }
         .animation(.spring(duration: 0.3), value: current)
         .accessibilityElement()
-        .accessibilityLabel("Page \(current.rawValue + 1) of \(TourPage.allCases.count)")
+        .accessibilityLabel("Page \(current + 1) of \(count)")
     }
 }
 

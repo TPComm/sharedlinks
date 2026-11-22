@@ -14,9 +14,12 @@ final class FeatureTourUITests: XCTestCase {
         launch(reset: true)
         XCTAssert(waitForTitle("Make Links Yours"))
         XCTAssert(app.buttons["featureTour.action.profilePhoto"].exists)
+        let progress = app.descendants(matching: .any)["featureTour.progress"]
+        XCTAssertEqual(progress.label, "Page 1 of 2")
         app.buttons["featureTour.continue"].tap()
         XCTAssert(waitForTitle("Send Today's Links Together"))
         XCTAssert(app.buttons["featureTour.action.rollup"].exists)
+        XCTAssertEqual(progress.label, "Page 2 of 2")
         app.buttons["featureTour.done"].tap()
         allowNotificationsIfAsked()
         XCTAssert(app.tabBars.buttons["Queue"].waitForExistence(timeout: 20))
