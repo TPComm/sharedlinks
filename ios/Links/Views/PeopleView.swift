@@ -84,8 +84,10 @@ struct InviteSheet: View {
     @State private var failure: String?
 
     private var inviter: String { model.me?.name ?? "A friend" }
-    /// The chat picked in the inbox; from All Chats there is none, and the server starts one with just us two.
-    private var chat: LinkGroup? { model.inbox.group(model.chat) }
+    private var chat: LinkGroup? {
+        guard let group = model.inbox.group(model.chat), !group.isDirect else { return nil }
+        return group
+    }
     private var joining: String {
         if let chat { "They’ll join \(model.inbox.title(of: chat))." } else { "Starts a chat with just you two." }
     }

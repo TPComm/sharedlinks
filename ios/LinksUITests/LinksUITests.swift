@@ -1099,7 +1099,7 @@ final class LinksUITests: XCTestCase {
         XCTAssertNotNil(try server.state(as: server.friend).link(mine.id))
     }
 
-    /// The Share Extension's "To:" row. Its Send can't reach this test server (the extension
+    /// The Share Extension's Chat row. Its Send can't reach this test server (the extension
     /// doesn't get the app's LINKS_SERVER_URL), so APIClientTests cover the `group_id` it sends.
     func testTheShareSheetsToRowPicksAChat() throws {
         let meID = try server.state(as: server.me).me
@@ -1107,6 +1107,9 @@ final class LinksUITests: XCTestCase {
         let chat = try server.startChat(name: name, members: [meID], as: server.friend)
         leaveAfterwards(chat.id)
         let everyone = try seed(by: server.friend)
+        let friendID = try server.state(as: server.friend).me
+        let direct = try server.state(as: server.me).groups.filter { $0.isDirect == true && $0.members.contains(friendID) }
+        XCTAssertEqual(direct.count, 1, "group mates should have exactly one direct chat")
 
         launch()
         waitForRow(everyone, in: "toWatch").tap()
@@ -1121,8 +1124,15 @@ final class LinksUITests: XCTestCase {
 
         // It starts on Everyone, and says who the picked chat's link goes to.
         let to = app.buttons["share.chat"]
-        XCTAssert(to.waitForExistence(timeout: 30), "no To row in the Share Extension")
+        XCTAssert(to.waitForExistence(timeout: 30), "no Chat row in the Share Extension")
         XCTAssert(to.label.contains("Everyone"), to.label)
+        to.tap()
+        let friend = app.buttons["Friend"].firstMatch
+        XCTAssert(friend.waitForExistence(timeout: 10), "no direct destination for Friend")
+        friend.tap()
+        XCTAssert(to.label.contains("Friend"), to.label)
+        XCTAssert(app.staticTexts["Goes to Friend."].waitForExistence(timeout: 5), "the direct chat should only send to Friend")
+
         to.tap()
         let pick = app.buttons[name].firstMatch
         XCTAssert(pick.waitForExistence(timeout: 30), "no \(name) in the chat picker")

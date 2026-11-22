@@ -34,10 +34,26 @@ struct GroupsTests {
         #expect(state.groups.map(\.id) == [1, 5])
         #expect(state.defaultGroup?.id == 1)
         let film = try #require(state.group(5))
-        #expect(film.name == "Film club" && film.createdBy == "user_01SAM" && !film.isDefault)
+        #expect(film.name == "Film club" && film.createdBy == "user_01SAM" && !film.isDefault && !film.isDirect)
         #expect(film.members == ["user_01SAM", "user_01JO"])
         #expect(film.createdAt == Date(timeIntervalSince1970: 1_794_525_700))
         #expect(state.links.first?.groupID == 5)
+    }
+
+    @Test func directChatKeepsItsPeerWhileTheyShareAGroup() throws {
+        let direct = try Fixture.decode(LinkGroup.self, #"{"id": 4, "direct": true, "members": ["user_ME", "user_ALEX"]}"#)
+        var state = state.updating(direct)
+        #expect(direct.isDirect && state.title(of: direct) == "Alex Kim")
+        #expect(!state.canLeave(direct))
+        state.groups = [direct]
+        #expect(state.canLeave(direct))
+    }
+
+    @Test func aBlockedPersonWithoutAnySharedChatIsNotInPeople() {
+        var state = state
+        state.groups = []
+        state.blocked = ["user_ALEX"]
+        #expect(!state.otherPeople.map(\.id).contains("user_ALEX"))
     }
 
     /// Cached inboxes and servers from before chats: no groups, no group_id.

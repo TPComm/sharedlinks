@@ -47,12 +47,16 @@ struct ChatPicker: View {
             if let group = selected {
                 Section(inbox.title(of: group)) {
                     Button("Chat Info", systemImage: "info.circle") { infoGroup = group }
-                    Button("Rename…", systemImage: "pencil") { model.chatSheet = .rename(group) }
-                    if !inbox.addable(to: group).isEmpty {
-                        Button("Add People…", systemImage: "person.badge.plus") { model.chatSheet = .addPeople(group) }
+                    if !group.isDirect {
+                        Button("Rename…", systemImage: "pencil") { model.chatSheet = .rename(group) }
+                        if !inbox.addable(to: group).isEmpty {
+                            Button("Add People…", systemImage: "person.badge.plus") { model.chatSheet = .addPeople(group) }
+                        }
                     }
-                    Button("Leave Chat", systemImage: "rectangle.portrait.and.arrow.right", role: .destructive) {
-                        leaving = group
+                    if inbox.canLeave(group) {
+                        Button("Leave Chat", systemImage: "rectangle.portrait.and.arrow.right", role: .destructive) {
+                            leaving = group
+                        }
                     }
                 }
             }

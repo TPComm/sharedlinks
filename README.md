@@ -21,6 +21,10 @@ Sign-in is [WorkOS AuthKit](https://workos.com/docs/authkit).
 | **In the app** | **+** opens a sheet with the system Paste button (no "Allow Paste" prompt). Drag a link from Safari onto the list (iPad, iPhone). |
 | **Sharing out** | Long-press or swipe a row, or Share on a link's page: the system share sheet sends the link's public `/l/` page (the original URL on servers without one), with the thumbnail as the preview. Opening an `/l/` link in the app shows that link's page when it's in your inbox. |
 
+Everyone you share a group with gets a private one-to-one chat with you, listed under their name
+when you choose where to share. Group chats, including Everyone, stay separate. If you leave a group,
+the direct chats stay; leave a direct chat once you no longer share any groups with that person.
+
 Plus: a **Home Screen / Lock Screen widget** (Queue or Sent receipts, small/medium/large and
 lock screen sizes) whose ✓ buttons mark things seen without opening the app, an **app icon
 badge** with the Queue count, reactions, notes, search and swipe actions. Tapping a row (or a
@@ -337,12 +341,12 @@ API endpoints except sign-in need `Authorization: Bearer <session token>`; pages
 | PUT/DELETE | `/api/me/photo` | PUT's body is my profile photo itself, a JPEG or PNG up to 2 MB and 4096px a side (the app sends a 512px JPEG); it replaces the WorkOS picture as my `avatar` everywhere, at a new `/photos/:token` address each time. DELETE goes back to initials. Both return what `GET /api/me` does |
 | GET | `/photos/:token` | A profile photo, no sign-in needed (`AsyncImage` sends none): the address is random and stops working once its photo is replaced or removed, or its account deleted |
 | POST | `/api/me/claim` | `{id}` of a legacy person in my `claimable` (one `links-server claim` approved for my account) |
-| GET | `/api/state` | `{me, users, groups, links, blocked}`: `users` is only people I share a chat with, plus anyone named on a link in my chats and people I blocked; the chats I'm in (`{id, name, created_by, created_at, default, members, muted, muted_until}`; my effective mute and its Unix-seconds deadline, null when unmuted or indefinite) and their links (each with its `group_id`), without links I reported or that people I blocked sent, and without blocked people's watched marks and reactions; `?group_id=` for one chat's links |
+| GET | `/api/state` | `{me, users, groups, links, blocked}`: `users` is only people I share a chat with, plus anyone named on a link in my chats and people I blocked; the chats I'm in (`{id, name, created_by, created_at, default, direct, members, muted, muted_until}`; `direct` marks a private 1:1 chat; my effective mute and its Unix-seconds deadline, null when unmuted or indefinite) and their links (each with its `group_id`), without links I reported or that people I blocked sent, and without blocked people's watched marks and reactions; `?group_id=` for one chat's links |
 | POST | `/api/links` | `{url, note?, group_id?}`; `url` may be any text containing a link; without `group_id` (apps from before chats) it goes to the default chat, or my only chat if I left that → `{link, duplicate}` (a duplicate only within the same chat) |
 | POST | `/api/groups` | `{name?, members?}` (user ids; I'm added) → 201 `{group}`. An empty name means the app names it after its members; up to 50 people |
 | PATCH | `/api/groups/:id` | `{name?, muted?, muted_until?}` (at least one): rename the chat or change only my mute → `{group}`. `muted: true` mutes indefinitely with an omitted/null deadline, or until `muted_until` (finite future Unix seconds); `muted: false` clears the deadline. A deadline alone updates the existing mute's deadline. Muting suppresses new-link, comment and watched/reaction alerts, not Queue counts or badges |
-| POST | `/api/groups/:id/members` | `{members}`: any member adds people who are in Links → `{group}`. Nobody removes anyone else |
-| DELETE | `/api/groups/:id` | Leave the chat; the links I sent stay in it. The last one out deletes it and its links (never the default chat) |
+| POST | `/api/groups/:id/members` | `{members}`: any group member adds people who are in Links → `{group}`. Direct chats cannot be renamed or accept more members. Nobody removes anyone else |
+| DELETE | `/api/groups/:id` | Leave the chat; the links I sent stay in it. The last one out deletes it and its links (never the default chat). Leave shared group chats before leaving the direct chat with a group mate |
 | POST | `/api/links/:id/seen` | `{seen: true/false}` |
 | POST | `/api/links/:id/react` | `{emoji}` (`null` removes) |
 | PATCH / DELETE | `/api/links/:id` | `{note}` (sender only) / –; 403 if the sender blocked you |
@@ -351,7 +355,7 @@ API endpoints except sign-in need `Authorization: Bearer <session token>`; pages
 | POST | `/api/reports` | `{link_id \| comment_id \| user_id, reason, details?}`; reason is `spam`, `offensive`, `harassment` or `other` → 201 |
 | POST | `/api/blocks` | `{user_id}` → `{blocked}` |
 | DELETE | `/api/blocks/:user_id` | unblock (URL-encode the id) → `{blocked}` |
-| GET/POST | `/api/invites` | GET → `{invites}` (mine, still pending); POST `{email?, group_id?}` → 201 `{invite: {id, email, group_id, created_at, expires_at, url}}`; whoever uses it joins only that chat of mine, or with no `group_id` a new chat with just me (an admin's invite joins the default chat) |
+| GET/POST | `/api/invites` | GET → `{invites}` (mine, still pending); POST `{email?, group_id?}` → 201 `{invite: {id, email, group_id, created_at, expires_at, url}}`; whoever uses it joins that group chat of mine and gets direct chats with its members, or with no `group_id` just the direct chat with me (an admin's invite joins the default chat) |
 | POST | `/api/invites/accept` | `{token}` → `{group}`: someone already in opens an invite link and joins its chat (as `/api/invites` says), using it up; `group` null for their own or an admin's invite. An open invite to a chat they're already in stays pending; an email-bound invite is used up by its verified recipient. Invites addressed to verified members already in the named chat are omitted from the sender's pending list but their links remain usable until accepted. Without recorded email verification, they can return to a chat they're already in without claiming the invite, but cannot join a new one; 404 when it doesn't work anymore, 403 when it's for another email, or joining needs email verification |
 | DELETE | `/api/invites/:id` | cancels a pending invite → `{invites}` |
 | GET | `/invite/:token` | public page for an invite link: who sent it, Open in Links, the Smart App Banner. Loading it never uses the invite up |
