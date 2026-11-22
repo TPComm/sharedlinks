@@ -36,6 +36,7 @@ private struct LinkPage: View {
     @State private var confirmingDelete = false
     @State private var reporting = false
     @State private var blocking = false
+    @State private var nudging = false
     /// Set by Delete, Report and Block, which go back first and act once the page has gone, so
     /// the page doesn't turn into "Link Deleted" on its way out.
     @State private var afterLeaving: (@MainActor () async -> Void)?
@@ -237,18 +238,34 @@ private struct LinkPage: View {
                 }
                 ForEach(receipts) { receipt in
                     HStack(spacing: 10) {
-                        AvatarView(user: inbox.user(receipt.id), size: 28)
-                        Text(inbox.name(of: receipt.id))
-                        Spacer()
-                        if let date = receipt.date {
-                            Label(LinkFormat.ago(date), systemImage: "checkmark")
-                                .foregroundStyle(.blue)
-                        } else {
-                            Text("Not yet").foregroundStyle(.secondary)
+                        HStack(spacing: 10) {
+                            AvatarView(user: inbox.user(receipt.id), size: 28)
+                            Text(inbox.name(of: receipt.id))
+                            Spacer()
+                            if let date = receipt.date {
+                                Label(LinkFormat.ago(date), systemImage: "checkmark")
+                                    .foregroundStyle(.blue)
+                            } else {
+                                Text("Not yet").foregroundStyle(.secondary)
+                            }
+                        }
+                        .accessibilityElement(children: .combine)
+                        if mine && receipt.date == nil {
+                            Button(recentlyNudged(receipt.id) ? "Nudged" : "Nudge") {
+                                sendNudge(to: [receipt.id])
+                            }
+                            .buttonStyle(.bordered)
+                            .disabled(nudging || recentlyNudged(receipt.id))
+                            .accessibilityIdentifier("nudge.\(receipt.id)")
                         }
                     }
                     .font(.subheadline)
-                    .accessibilityElement(children: .combine)
+                }
+                if mine && receipts.filter({ $0.date == nil }).count > 1 {
+                    Button("Nudge Everyone") { sendNudge(to: nil) }
+                        .buttonStyle(.bordered)
+                        .disabled(nudging || receipts.filter { $0.date == nil }.allSatisfy { recentlyNudged($0.id) })
+                        .accessibilityIdentifier("nudge.everyone")
                 }
             }
         }
@@ -257,6 +274,19 @@ private struct LinkPage: View {
     private struct Receipt: Identifiable {
         let id: String
         let date: Date?
+    }
+
+    private func recentlyNudged(_ person: String) -> Bool {
+        guard let at = link.nudged[person] else { return false }
+        return Date.now.timeIntervalSince1970 - at < 86_400
+    }
+
+    private func sendNudge(to people: [String]?) {
+        nudging = true
+        Task {
+            defer { nudging = false }
+            await model.nudge(link, people: people)
+        }
     }
 
     /// Who has seen it, earliest first, apart from me and the sender. On my own links everyone
