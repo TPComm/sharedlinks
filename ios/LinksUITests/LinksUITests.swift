@@ -1099,6 +1099,31 @@ final class LinksUITests: XCTestCase {
         XCTAssertNotNil(try server.state(as: server.friend).link(mine.id))
     }
 
+    func testTheAppDistinguishesGroupAndDirectChatDestinations() throws {
+        let meID = try server.state(as: server.me).me
+        let group = try server.startChat(name: "", members: [meID], as: server.friend)
+        leaveAfterwards(group.id)
+
+        launch()
+        openChatPicker()
+        let groupChoice = app.buttons["Friend (Group)"].firstMatch
+        XCTAssert(groupChoice.waitForExistence(timeout: 5), "the chat menu should label the group distinctly")
+        XCTAssert(app.buttons["Friend"].firstMatch.exists, "the chat menu should include the direct chat")
+        groupChoice.tap()
+        XCTAssert(app.buttons["chatPicker"].label.contains("Friend (Group)"))
+
+        app.buttons["newLink"].tap()
+        let to = app.buttons["addLink.chat"]
+        XCTAssert(to.waitForExistence(timeout: 5), "no recipient picker")
+        XCTAssert(to.label.contains("Friend (Group)") || to.value as? String == "Friend (Group)")
+        to.tap()
+        XCTAssert(app.buttons["Friend (Group)"].firstMatch.waitForExistence(timeout: 5))
+        app.buttons["Friend"].firstMatch.tap()
+        XCTAssert(to.label.contains("Friend") || to.value as? String == "Friend")
+        XCTAssertFalse(to.label.contains("(Group)") || to.value as? String == "Friend (Group)")
+        app.buttons["Cancel"].firstMatch.tap()
+    }
+
     /// The Share Extension's Chat row. Its Send can't reach this test server (the extension
     /// doesn't get the app's LINKS_SERVER_URL), so APIClientTests cover the `group_id` it sends.
     func testTheShareSheetsToRowPicksAChat() throws {

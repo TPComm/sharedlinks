@@ -107,6 +107,14 @@ struct GroupsTests {
         #expect(state.title(of: LinkGroup(id: 9, name: "  ", members: ["user_ME", "user_SAM"])) == "Sam Lee")
     }
 
+    @Test func distinguishesGroupAndDirectDestinationsWithTheSameName() throws {
+        let direct = LinkGroup(id: 4, isDirect: true, members: ["user_ME", "user_ALEX"])
+        let inbox = state.updating(direct)
+        #expect(inbox.destinationTitle(of: direct) == "Alex Kim")
+        #expect(inbox.destinationTitle(of: try #require(inbox.group(3))) == "Alex Kim (Group)")
+        #expect(inbox.destinationTitle(of: try #require(inbox.group(2))) == "Film club")
+    }
+
     @Test func aLinkGoesToItsChatsMembers() throws {
         #expect(state.recipients(in: state.group(2)).map(\.id) == ["user_SAM"])
         #expect(state.recipients(in: state.group(1)).map(\.id) == ["user_SAM", "user_ALEX"])

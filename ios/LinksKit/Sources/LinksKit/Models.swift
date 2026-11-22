@@ -480,6 +480,15 @@ public extension InboxState {
         return others.isEmpty ? "Just You" : LinkFormat.names(others)
     }
 
+    /// Distinguish an existing group from a direct chat with the same name.
+    func destinationTitle(of group: LinkGroup) -> String {
+        let title = title(of: group)
+        if !group.isDirect && groups.contains(where: { $0.isDirect && self.title(of: $0) == title }) {
+            return "\(title) (Group)"
+        }
+        return title
+    }
+
     /// The chat a new link goes to unless I pick another: the default one, else my first.
     var preferredGroup: LinkGroup? { defaultGroup ?? groups.first }
 
