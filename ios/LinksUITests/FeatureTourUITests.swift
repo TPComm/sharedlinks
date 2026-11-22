@@ -19,22 +19,25 @@ final class FeatureTourUITests: XCTestCase {
         XCTAssert(waitForTitle("Make Links Yours"))
         XCTAssert(app.buttons["featureTour.action.profilePhoto"].exists)
         let progress = app.descendants(matching: .any)["featureTour.progress"]
-        XCTAssertEqual(progress.label, "Page 1 of 4")
+        XCTAssertEqual(progress.label, "Page 1 of 5")
         capture("Profile photo action")
         app.buttons["featureTour.continue"].tap()
         XCTAssert(waitForTitle("Send Today's Links Together"))
         XCTAssert(app.buttons["featureTour.action.rollup"].exists)
-        XCTAssertEqual(progress.label, "Page 2 of 4")
+        XCTAssertEqual(progress.label, "Page 2 of 5")
         capture("Roll-up action")
         app.buttons["featureTour.continue"].tap()
         XCTAssert(waitForTitle("Links Wrapped"))
-        XCTAssertEqual(progress.label, "Page 3 of 4")
+        XCTAssertEqual(progress.label, "Page 3 of 5")
         capture("Wrapped page")
         app.buttons["featureTour.continue"].tap()
         XCTAssert(waitForTitle("See Who Shared It"))
         XCTAssertFalse(app.buttons["featureTour.action.sharedWithYou"].exists)
-        XCTAssertEqual(progress.label, "Page 4 of 4")
+        XCTAssertEqual(progress.label, "Page 4 of 5")
         capture("Shared with You")
+        app.buttons["featureTour.continue"].tap()
+        XCTAssert(waitForTitle("Nudge Friends Who Haven't Watched"))
+        XCTAssertEqual(progress.label, "Page 5 of 5")
         app.buttons["featureTour.done"].tap()
         XCTAssert(app.tabBars.buttons["Queue"].waitForExistence(timeout: 20))
 
@@ -64,6 +67,7 @@ final class FeatureTourUITests: XCTestCase {
         XCTAssertFalse(app.staticTexts["Make Links Yours"].waitForExistence(timeout: 3))
         XCTAssertFalse(app.staticTexts["Send Today's Links Together"].exists)
         XCTAssertFalse(app.staticTexts["See Who Shared It"].exists)
+        XCTAssertFalse(app.staticTexts["Nudge Friends Who Haven't Watched"].exists)
     }
 
     private func launch(reset: Bool) {

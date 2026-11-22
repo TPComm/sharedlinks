@@ -31,7 +31,8 @@ Plus: a **Home Screen / Lock Screen widget** (Queue or Sent receipts, small/medi
 lock screen sizes) whose ✓ buttons mark things seen without opening the app, an **app icon
 badge** with the Queue count, reactions, notes, search and swipe actions. Tapping a row (or a
 widget row) opens the link's page: **Open in TikTok** (or Instagram, YouTube…), react, see who
-has seen it, and mark it seen when you're back. Coming back from TikTok lands on that page,
+has seen it, and mark it seen when you're back. On a link you sent, tap **Nudge** next to someone
+who hasn't watched, or **Nudge Everyone**; each person can be nudged once per day. Coming back from TikTok lands on that page,
 even if iOS closed the app meanwhile. Long-press **Open in TikTok** still goes straight there and
 marks it seen in one go.
 

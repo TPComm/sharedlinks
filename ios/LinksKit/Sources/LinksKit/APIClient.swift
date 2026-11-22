@@ -168,6 +168,12 @@ public struct APIClient: Sendable {
         return r.link
     }
 
+    public func nudge(_ linkID: Int, people: [String]? = nil) async throws -> SharedLink {
+        let r: LinkEnvelope = try await send("POST", "api/links/\(linkID)/nudge",
+                                             json: people.map { ["people": $0] } ?? [:])
+        return r.link
+    }
+
     /// `nil` removes my reaction.
     public func react(_ linkID: Int, _ emoji: String?) async throws -> SharedLink {
         let r: LinkEnvelope = try await send("POST", "api/links/\(linkID)/react",
