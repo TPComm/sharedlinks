@@ -143,6 +143,10 @@ struct ProfileSheet: View {
                         close { model.startFeatureTours() }
                     }
                     .accessibilityIdentifier("profile.whatsNew")
+                    NavigationLink { WrappedView() } label: {
+                        Label("Links Wrapped", systemImage: "sparkles.rectangle.stack")
+                    }
+                    .accessibilityIdentifier("profile.wrapped")
                 }
                 Section("Help") {
                     if let support = LinksConfig.supportURL {

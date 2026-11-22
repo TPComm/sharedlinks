@@ -1,5 +1,37 @@
 import Foundation
 
+public struct Wrapped: Codable, Sendable {
+    public struct Sender: Codable, Sendable { public let id: String; public let name: String; public let count: Int }
+    public struct TopPlatform: Codable, Sendable { public let platform: String; public let count: Int }
+    public struct MostReacted: Codable, Sendable {
+        public let id: Int
+        public let url: URL
+        public let title: String?
+        public let platform: Platform
+        public let addedBy: String
+        public let thumb: String?
+        public let senderName: String
+        public let reactions: Int
+        enum CodingKeys: String, CodingKey {
+            case id, url, title, platform, thumb, reactions
+            case addedBy = "added_by", senderName = "sender_name"
+        }
+    }
+    public let start: Date
+    public let end: Date
+    public let received: Int
+    public let sent: Int
+    public let watched: Int
+    public let topSender: Sender?
+    public let topPlatform: TopPlatform?
+    public let mostReacted: MostReacted?
+    public var watchRate: Double? { received == 0 ? nil : Double(watched) / Double(received) }
+    enum CodingKeys: String, CodingKey {
+        case start, end, received, sent, watched
+        case topSender = "top_sender", topPlatform = "top_platform", mostReacted = "most_reacted"
+    }
+}
+
 public enum Platform: String, Codable, Sendable, CaseIterable {
     case tiktok, instagram, youtube, x, reddit, facebook, web
 

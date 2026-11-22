@@ -772,6 +772,40 @@ export function createApp(config: Config, opts: AppOptions = {}) {
     "/support": new Response(supportPage(config.supportEmail), { headers: { "Content-Type": "text/html; charset=utf-8" } }),
     "/privacy": new Response(privacyPage(config.supportEmail, config.sessionDays), { headers: { "Content-Type": "text/html; charset=utf-8" } }),
 
+    "/api/wrapped": {
+      GET: route((req, me) => {
+        const params = new URL(req.url).searchParams;
+        const parse = (key: string) => {
+          const value = params.get(key);
+          if (value === null || !/^-?\d+$/.test(value) || !Number.isSafeInteger(Number(value))) throw new BadRequest("Choose a valid date range.");
+          return Number(value);
+        };
+        const start = parse("start"), end = parse("end");
+        if (start >= end || end - start > 366 * 86400) throw new BadRequest("Choose a range of up to 366 days.");
+        const group = params.get("group_id");
+        const groupId = group === null ? null : groupOf(group, me);
+        const rows = db.query(`SELECT * FROM links WHERE ${VISIBLE} AND added_at >= ?2 AND added_at < ?3
+          AND (?4 IS NULL OR group_id = ?4) ORDER BY added_at DESC, id DESC`).all(me, start, end, groupId) as LinkRow[];
+        const received = rows.filter(r => r.added_by !== me);
+        const names = new Map((db.query("SELECT id, name FROM users").all() as { id: string; name: string }[]).map(u => [u.id, u.name]));
+        const counts = (values: string[]) => {
+          const result = new Map<string, number>();
+          for (const value of values) result.set(value, (result.get(value) ?? 0) + 1);
+          return [...result];
+        };
+        const compare = (a: string, b: string) => a < b ? -1 : a > b ? 1 : 0;
+        const sender = counts(received.map(r => r.added_by)).sort((a, b) => b[1] - a[1] || compare(names.get(a[0]) ?? "Deleted user", names.get(b[0]) ?? "Deleted user") || compare(a[0], b[0]))[0];
+        const platform = counts(received.map(r => r.platform)).sort((a, b) => b[1] - a[1] || compare(a[0], b[0]))[0];
+        const reactions = db.query("SELECT count(*) AS n FROM reactions WHERE link_id = ? AND emoji != '👎'");
+        const ranked = rows.map(r => ({ row: r, count: (reactions.get(r.id) as { n: number }).n })).sort((a, b) => b.count - a.count);
+        const best = ranked[0];
+        return json({ start, end, received: received.length, sent: rows.length - received.length,
+          watched: received.filter(r => db.query("SELECT 1 FROM seen WHERE link_id = ? AND person = ?").get(r.id, me)).length,
+          top_sender: sender ? { id: sender[0], name: names.get(sender[0]) ?? "Deleted user", count: sender[1] } : null,
+          top_platform: platform ? { platform: platform[0], count: platform[1] } : null,
+          most_reacted: best && best.count > 0 ? { ...toLink(best.row), sender_name: names.get(best.row.added_by) ?? "Deleted user", reactions: best.count } : null });
+      }),
+    },
     "/api/state": {
       GET: route((req, me) => {
         const groupId = new URL(req.url).searchParams.get("group_id");

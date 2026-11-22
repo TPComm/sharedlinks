@@ -948,6 +948,56 @@ describe("reports, blocks and the word list", () => {
   });
 });
 
+describe("wrapped", () => {
+  test("requires authentication and validates integer ranges", async () => {
+    expect((await call("/api/wrapped?start=1&end=2")).status).toBe(401);
+    const token = mint("wrapped-validation@test.com", "Viewer");
+    for (const query of ["", "start=1", "start=x&end=2", "start=1.5&end=2", "start=2&end=2", "start=3&end=2", `start=0&end=${367 * 86400}`]) {
+      expect((await call(`/api/wrapped?${query}`, { token })).status).toBe(400);
+    }
+  });
+
+  test("aggregates visible shares, ranges and chat filters with deterministic ties", async () => {
+    const db = new Database(join(dataDir, "links.db"));
+    const viewer = mint("wrapped-viewer@test.com", "Viewer");
+    const amy = mint("wrapped-amy@test.com", "Amy"), zoe = mint("wrapped-zoe@test.com", "Zoe");
+    const id = async (token: string) => (await call("/api/state", { token })).data.me;
+    const [meId, amyId, zoeId] = await Promise.all([id(viewer), id(amy), id(zoe)]);
+    const chat = (await call("/api/groups", { token: viewer, body: { members: [amyId, zoeId] } })).data.group.id;
+    const other = (await call("/api/groups", { token: viewer, body: { members: [amyId] } })).data.group.id;
+    const secret = (await call("/api/groups", { token: amy, body: { members: [zoeId] } })).data.group.id;
+    const add = async (token: string, group: number, n: number, at: number, platform = "youtube") => {
+      const link = (await call("/api/links", { token, body: { group_id: group, url: `${origin}/plain?wrapped=${n}` } })).data.link;
+      db.run("UPDATE links SET added_at = ?, platform = ? WHERE id = ?", [at, platform, link.id]);
+      return link.id;
+    };
+    const a = await add(amy, chat, 1, 100);
+    const z = await add(zoe, chat, 2, 120, "instagram");
+    const own = await add(viewer, chat, 3, 130);
+    await add(amy, other, 1, 140);
+    await add(amy, chat, 4, 99);
+    await add(zoe, chat, 5, 200);
+    await add(amy, secret, 6, 150);
+    await call(`/api/links/${a}/seen`, { token: viewer, body: { seen: true } });
+    await call(`/api/links/${a}/react`, { token: viewer, body: { emoji: "❤️" } });
+    await call(`/api/links/${z}/react`, { token: viewer, body: { emoji: "😮" } });
+    await call(`/api/links/${own}/react`, { token: amy, body: { emoji: "👎" } });
+    const get = async (extra = "") => (await call(`/api/wrapped?start=100&end=200${extra}`, { token: viewer })).data;
+    expect(await get()).toMatchObject({ received: 3, sent: 1, watched: 1,
+      top_sender: { id: amyId, name: "Amy", count: 2 }, top_platform: { platform: "youtube", count: 2 },
+      most_reacted: { id: z, sender_name: "Zoe", reactions: 1 } });
+    expect(await get(`&group_id=${chat}`)).toMatchObject({ received: 2, sent: 1, top_sender: { id: amyId }, top_platform: { platform: "instagram" } });
+    expect((await call(`/api/wrapped?start=100&end=200&group_id=${secret}`, { token: viewer })).status).toBe(404);
+    expect((await call("/api/wrapped?start=0&end=1", { token: viewer })).data).toEqual({ start: 0, end: 1, received: 0, sent: 0, watched: 0, top_sender: null, top_platform: null, most_reacted: null });
+    db.run("INSERT INTO blocks (blocker, blocked, created_at) VALUES (?, ?, 0)", [meId, amyId]);
+    expect(await get()).toMatchObject({ received: 1, watched: 0, top_sender: { id: zoeId } });
+    await call("/api/reports", { token: viewer, body: { link_id: z, reason: "offensive" } });
+    expect(await get()).toMatchObject({ received: 0, sent: 1, top_sender: null, most_reacted: null });
+    db.close();
+    await idle();
+  });
+});
+
 describe("group chats", () => {
   let ann: string, bo: string, cy: string;
   let annId: string, boId: string, cyId: string;

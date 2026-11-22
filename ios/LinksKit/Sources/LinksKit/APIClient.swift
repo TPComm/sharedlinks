@@ -112,6 +112,18 @@ public struct APIClient: Sendable {
 
     public func state() async throws -> InboxState { try await send("GET", "api/state") }
 
+    public func wrapped(start: Date, end: Date, groupID: Int? = nil) async throws -> Wrapped {
+        var req = request("GET", "api/wrapped")
+        var components = URLComponents(url: req.url!, resolvingAgainstBaseURL: false)!
+        components.queryItems = [URLQueryItem(name: "start", value: String(Int(start.timeIntervalSince1970))),
+                                 URLQueryItem(name: "end", value: String(Int(end.timeIntervalSince1970)))]
+        if let groupID { components.queryItems?.append(URLQueryItem(name: "group_id", value: String(groupID))) }
+        req.url = components.url
+        let (data, response) = try await perform(req)
+        try check(response, data)
+        return try Self.decoder.decode(Wrapped.self, from: data)
+    }
+
     /// `text` can be a whole message; the server pulls the link out and cleans it up.
     /// `groupID` is the chat it goes to; without one, the server picks the default chat.
     public func add(_ text: String, note: String = "", groupID: Int? = nil) async throws -> AddResult {
