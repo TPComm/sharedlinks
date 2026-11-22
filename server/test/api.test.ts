@@ -1697,6 +1697,12 @@ describe("group chats", () => {
     const accept = (who: string) => call("/api/invites/accept", { token: who, body: { token } });
     expect((await accept(bo)).status).toBe(400);
     expect((await accept(ann)).data.group.id).toBe(chat.id);
+    const signed = await signIn("good", VERIFIER, token);
+    expect(signed.status).toBe(200);
+    expect(signed.data.group_id).toBeNull();
+    expect(signed.data.token).toBeString();
+    expect((await state(signed.data.token)).groups.map((g: any) => g.id)).not.toContain(chat.id);
+    expect((await accept(signed.data.token)).status).toBe(400);
   });
 
   test("signing in with an invite takes first-time and returning users only to the inviter's direct chat", async () => {

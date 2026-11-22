@@ -496,7 +496,7 @@ export class Accounts {
         try {
           return this.useInviteAsMember(user.id, inviteToken);
         } catch (e) {
-          if (e instanceof AuthError) return null;
+          if (e instanceof AuthError || e instanceof BadRequest) return null;
           throw e;
         }
       }
