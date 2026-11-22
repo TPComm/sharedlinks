@@ -61,8 +61,7 @@ final class MessagesUITests: XCTestCase {
         let chat = try server.startChat(name: name, as: server.me)
         let server = server!
         addTeardownBlock { try? server.leaveChat(chat.id, as: server.me) }
-        let host = "rollup-\(UUID().uuidString.prefix(8).lowercased()).invalid"
-        let link = try server.add("https://\(host)/article", to: chat.id, as: server.me)
+        let link = try server.add("https://rollup-\(UUID().uuidString.prefix(8).lowercased()).invalid/article", to: chat.id, as: server.me)
         XCTAssertNotNil(link.token)
         launchLinks()
         try openLinksInMessages()
@@ -74,7 +73,8 @@ final class MessagesUITests: XCTestCase {
         XCTAssert(draft.waitForExistence(timeout: 30), "the roll-up didn't create a draft")
         let transcript = messages.collectionViews["TranscriptCollectionView"]
         XCTAssert(transcript.exists, "can't verify that nothing was sent without the transcript")
-        XCTAssertFalse(transcript.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS %@", host)).firstMatch.exists,
+        let sent = NSPredicate(format: "label CONTAINS %@ OR label CONTAINS %@", "links from today", "link from today")
+        XCTAssertFalse(transcript.descendants(matching: .any).matching(sent).firstMatch.exists,
                        "the roll-up was sent instead of inserted")
         let attachment = XCTAttachment(screenshot: messages.screenshot())
         attachment.name = "Inserted daily roll-up, not sent"
