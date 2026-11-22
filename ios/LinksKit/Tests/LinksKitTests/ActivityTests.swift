@@ -59,11 +59,29 @@ struct ActivityTests {
         #expect(feed.items == [changed, page.items[0], page.items[2]])
         #expect(!feed.hasMore && feed.next == nil)
         feed.apply(ActivityPage(items: [], hasMore: false, next: nil), update: .newest)
-        #expect(feed.items.count == 3)
+        #expect(feed.items.isEmpty && !feed.hasMore && feed.next == nil)
         feed.apply(ActivityPage(items: [changed], hasMore: true, next: "reset"), update: .reset)
         #expect(feed.items == [changed] && feed.hasMore && feed.next == "reset")
         feed.apply(ActivityPage(items: [page.items[0]], hasMore: true, next: "tail"), update: .older)
         feed.apply(ActivityPage(items: [changed], hasMore: true, next: "head"), update: .newest)
         #expect(feed.items.count == 2 && feed.next == "tail")
+    }
+
+    @Test func backgroundRefreshRemovesMissingItemsOnlyWithinItsOrderedRange() throws {
+        let json = #"{"items":[{"kind":"comment","link_id":7,"person":"friend","at":30,"comment_id":43},{"kind":"comment","link_id":7,"person":"friend","at":30,"comment_id":42},{"kind":"reaction","link_id":7,"person":"a","at":30,"emoji":"😂"},{"kind":"reaction","link_id":7,"person":"b","at":30,"emoji":"😂"},{"kind":"watched","link_id":7,"person":"friend","at":20}],"has_more":true,"next":"tail"}"#
+        let page = try APIClient.decoder.decode(ActivityPage.self, from: Data(json.utf8))
+        var feed = ActivityFeed()
+        feed.apply(page, update: .reset)
+        let boundary = page.items[1]
+        feed.apply(ActivityPage(items: [boundary], hasMore: true, next: "head"), update: .newest)
+        #expect(feed.items == Array(page.items.dropFirst()))
+        #expect(feed.hasMore && feed.next == "tail")
+        feed.apply(ActivityPage(items: [page.items[2]], hasMore: true, next: "head"), update: .newest)
+        #expect(feed.items == Array(page.items.dropFirst(2)))
+        #expect(feed.next == "tail")
+        feed.apply(ActivityPage(items: [page.items[3]], hasMore: true, next: "head"), update: .newest)
+        #expect(feed.items == Array(page.items.dropFirst(3)))
+        feed.apply(ActivityPage(items: [page.items[4]], hasMore: false, next: nil), update: .newest)
+        #expect(feed.items == [page.items[4]] && !feed.hasMore && feed.next == nil)
     }
 }

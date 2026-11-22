@@ -41,19 +41,29 @@ public struct ActivityFeed: Sendable {
     public init() {}
 
     public mutating func apply(_ page: ActivityPage, update: Update) {
-        if update != .newest || items.isEmpty {
+        if update != .newest || items.isEmpty || !page.hasMore {
             hasMore = page.hasMore
             next = page.next
         }
-        var merged = Dictionary(uniqueKeysWithValues: (update == .reset ? [] : items).map { ($0.id, $0) })
-        for item in page.items { merged[item.id] = item }
-        items = merged.values.sorted { a, b in
-            if a.at != b.at { return a.at > b.at }
-            if a.kind != b.kind { return a.kind.rawValue < b.kind.rawValue }
-            let aID = a.commentID ?? a.linkID
-            let bID = b.commentID ?? b.linkID
-            if aID != bID { return aID > bID }
-            return a.person.utf8.lexicographicallyPrecedes(b.person.utf8)
+        let retained: [ActivityItem]
+        if update == .reset || (update == .newest && !page.hasMore) {
+            retained = []
+        } else if update == .newest, let last = page.items.last {
+            retained = items.filter { Self.precedes(last, $0) }
+        } else {
+            retained = items
         }
+        var merged = Dictionary(uniqueKeysWithValues: retained.map { ($0.id, $0) })
+        for item in page.items { merged[item.id] = item }
+        items = merged.values.sorted(by: Self.precedes)
+    }
+
+    private static func precedes(_ a: ActivityItem, _ b: ActivityItem) -> Bool {
+        if a.at != b.at { return a.at > b.at }
+        if a.kind != b.kind { return a.kind.rawValue < b.kind.rawValue }
+        let aID = a.commentID ?? a.linkID
+        let bID = b.commentID ?? b.linkID
+        if aID != bID { return aID > bID }
+        return a.person.utf8.lexicographicallyPrecedes(b.person.utf8)
     }
 }
