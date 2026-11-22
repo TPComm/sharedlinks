@@ -1655,6 +1655,9 @@ describe("group chats", () => {
     expect(made.status).toBe(201);
     expect(made.data.link.created_by).toBe(annId);
     expect((await call(path, { token: ann })).data.link).toEqual(made.data.link);
+    expect((await call(path, { token: ann, method: "POST" })).data.link).toEqual(made.data.link);
+    expect((await call(path, { token: ann, body: { reset: false } })).data.link).toEqual(made.data.link);
+    expect((await call(path, { token: ann, body: { reset: "true" } })).status).toBe(400);
     const token = made.data.link.url.split("/invite/")[1];
     expect(token).toMatch(/^[A-Za-z0-9_-]{43}$/);
     const page = await fetch(`${api}/invite/${token}`);
@@ -1674,7 +1677,7 @@ describe("group chats", () => {
     const signed = await signIn("good", VERIFIER, token);
     expect(signed.status).toBe(200);
     expect(signed.data.group_id).toBe(chat.id);
-    const reset = await call(path, { token: bo, method: "POST" });
+    const reset = await call(path, { token: bo, body: { reset: true } });
     expect(reset.data.link.url).not.toBe(made.data.link.url);
     expect((await accept(token)).status).toBe(404);
     expect((await call(path, { token: bo, method: "DELETE" })).data.link).toBeNull();

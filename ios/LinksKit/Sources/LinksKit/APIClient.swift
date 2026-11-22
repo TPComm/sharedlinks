@@ -260,8 +260,8 @@ public struct APIClient: Sendable {
         return r.link
     }
 
-    public func resetChatInviteLink(groupID: Int) async throws -> ChatInviteLink {
-        let r: ChatLinkEnvelope = try await send("POST", "api/groups/\(groupID)/link")
+    public func createChatInviteLink(groupID: Int, reset: Bool = false) async throws -> ChatInviteLink {
+        let r: ChatLinkEnvelope = try await send("POST", "api/groups/\(groupID)/link", json: reset ? ["reset": true] : [:])
         guard let link = r.link else { throw APIError.server("The invite link wasn't created. Try again.") }
         return link
     }

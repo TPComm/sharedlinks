@@ -935,7 +935,16 @@ export function createApp(config: Config, opts: AppOptions = {}) {
 
     "/api/groups/:id/link": {
       GET: route<WithId>((req, me) => json({ link: accounts.chatLink(linkGroup(req.params.id, me)) })),
-      POST: route<WithId>((req, me) => json({ link: asUser(me, () => accounts.resetChatLink(linkGroup(req.params.id, me), me)) }, 201)),
+      POST: route<WithId>(async (req, me) => {
+        linkGroup(req.params.id, me);
+        const { reset } = await readJson(req);
+        if (reset !== undefined && typeof reset !== "boolean") throw new BadRequest("reset must be a boolean.");
+        const link = asUser(me, () => {
+          const id = linkGroup(req.params.id, me);
+          return (!reset && accounts.chatLink(id)) || accounts.resetChatLink(id, me);
+        });
+        return json({ link }, 201);
+      }),
       DELETE: route<WithId>((req, me) => {
         db.run("DELETE FROM chat_invite_links WHERE group_id = ?", [linkGroup(req.params.id, me)]);
         return json({ link: null });

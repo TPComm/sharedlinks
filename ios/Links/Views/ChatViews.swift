@@ -245,6 +245,7 @@ private struct ChatInviteLinkSection: View {
     let group: LinkGroup
     @State private var link: ChatInviteLink?
     @State private var loading = true
+    @State private var loaded = false
     @State private var saving = false
     @State private var failure: String?
     @State private var resetting = false
@@ -254,6 +255,9 @@ private struct ChatInviteLinkSection: View {
         Section {
             if loading {
                 ProgressView()
+            } else if !loaded {
+                Button("Try Again") { Task { await load() } }
+                    .accessibilityIdentifier("chatLink.retry")
             } else if let link {
                 let title = "\(model.me?.name ?? "Someone") invited you to \(model.inbox.title(of: group)) on Links"
                 ShareLink(item: link.url, subject: Text(title), preview: SharePreview(title)) {
@@ -278,13 +282,10 @@ private struct ChatInviteLinkSection: View {
         }
         .disabled(saving || loading)
         .task(id: group.id) {
-            loading = true
-            defer { loading = false }
-            do { link = try await model.loadChatInviteLink(group.id) }
-            catch { failure = error.localizedDescription }
+            await load()
         }
         .confirmationDialog("Reset Invite Link?", isPresented: $resetting, titleVisibility: .visible) {
-            Button("Reset Link", role: .destructive) { change() }
+            Button("Reset Link", role: .destructive) { change(reset: true) }
         } message: {
             Text("The old link stops working. Share the new link with anyone you want to join.")
         }
@@ -295,7 +296,17 @@ private struct ChatInviteLinkSection: View {
         }
     }
 
-    private func change(off: Bool = false) {
+    private func load() async {
+        loading = true
+        failure = nil
+        defer { loading = false }
+        do {
+            link = try await model.loadChatInviteLink(group.id)
+            loaded = true
+        } catch { failure = error.localizedDescription }
+    }
+
+    private func change(off: Bool = false, reset: Bool = false) {
         saving = true
         failure = nil
         Task {
@@ -305,7 +316,7 @@ private struct ChatInviteLinkSection: View {
                     try await model.turnOffChatInviteLink(group.id)
                     link = nil
                 } else {
-                    link = try await model.resetChatInviteLink(group.id)
+                    link = try await model.createChatInviteLink(group.id, reset: reset)
                 }
             } catch { failure = error.localizedDescription }
         }

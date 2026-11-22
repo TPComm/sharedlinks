@@ -334,8 +334,8 @@ final class AppModel {
         catch APIError.signedOut { endSession(); throw APIError.signedOut }
     }
 
-    func resetChatInviteLink(_ groupID: Int) async throws -> ChatInviteLink {
-        do { return try await client.resetChatInviteLink(groupID: groupID) }
+    func createChatInviteLink(_ groupID: Int, reset: Bool = false) async throws -> ChatInviteLink {
+        do { return try await client.createChatInviteLink(groupID: groupID, reset: reset) }
         catch APIError.signedOut { endSession(); throw APIError.signedOut }
     }
 

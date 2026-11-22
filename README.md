@@ -392,7 +392,7 @@ API endpoints except sign-in need `Authorization: Bearer <session token>`; pages
 | PATCH | `/api/groups/:id` | `{name?, muted?, muted_until?}` (at least one): rename the chat or change only my mute → `{group}`. `muted: true` mutes indefinitely with an omitted/null deadline, or until `muted_until` (finite future Unix seconds); `muted: false` clears the deadline. A deadline alone updates the existing mute's deadline. Muting suppresses new-link, comment and watched/reaction alerts, not Queue counts or badges |
 | POST | `/api/groups/:id/members` | `{members}`: any group member adds people who are in Links → `{group}`. The legacy Everyone chat and direct chats cannot accept more members. Direct chats cannot be renamed. Nobody removes anyone else |
 | GET | `/api/groups/:id/link` | Any chat member fetches `{link: {url, created_at, created_by} \| null}`; default chat refused (400), non-members get 404 |
-| POST | `/api/groups/:id/link` | Create or reset a reusable chat invite link → 201 `{link}`; old URLs stop working immediately. Only people already on Links can join; default chat refused |
+| POST | `/api/groups/:id/link` | Create a reusable chat invite link or return the existing one → 201 `{link}`. Only `{reset: true}` replaces it, stopping the old URL immediately. Only people already on Links can join; default chat refused |
 | DELETE | `/api/groups/:id/link` | Turn off the chat invite link → `{link: null}` |
 | DELETE | `/api/groups/:id` | Leave the chat; the links I sent stay in it. The last one out deletes it and its links (never the default chat). Leave shared group chats before leaving the direct chat with a group mate |
 | POST | `/api/links/:id/seen` | `{seen: true/false}` |

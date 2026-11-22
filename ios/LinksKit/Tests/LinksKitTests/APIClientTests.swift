@@ -11,7 +11,7 @@ enum Endpoint: String, CaseIterable, Sendable {
     case muteWatched, muteReactions, notifyBoth
     case setPhoto, removePhoto
     case nudge, nudgeEveryone, nudgeEmpty
-    case chatLink, resetChatLink, turnOffChatLink
+    case chatLink, createChatLink, resetChatLink, turnOffChatLink
 
     var method: String {
         switch self {
@@ -47,14 +47,16 @@ enum Endpoint: String, CaseIterable, Sendable {
         case .invites, .createInvite, .createEmailInvite, .createChatInvite: "/api/invites"
         case .revokeInvite: "/api/invites/3"
         case .acceptInvite: "/api/invites/accept"
-        case .chatLink, .resetChatLink, .turnOffChatLink: "/api/groups/5/link"
+        case .chatLink, .createChatLink, .resetChatLink, .turnOffChatLink: "/api/groups/5/link"
         }
     }
 
     /// The JSON body, keys sorted; nil when the request has none.
     var body: String? {
         switch self {
-        case .chatLink, .resetChatLink, .turnOffChatLink: nil
+        case .chatLink, .turnOffChatLink: nil
+        case .createChatLink: #"{}"#
+        case .resetChatLink: #"{"reset":true}"#
         case .exchange: #"{"code":"code_abc","code_verifier":"ver_xyz"}"#
         case .exchangeWithInvite: #"{"code":"code_abc","code_verifier":"ver_xyz","invite":"inv_tok"}"#
         case .createInvite: #"{}"#
@@ -92,7 +94,7 @@ enum Endpoint: String, CaseIterable, Sendable {
 
     var reply: Reply {
         switch self {
-        case .chatLink, .resetChatLink:
+        case .chatLink, .createChatLink, .resetChatLink:
             .json(#"{"link":{"url":"https://links.test/invite/abc","created_at":1700000000.5,"created_by":"user_01SAM"}}"#, status: self == .resetChatLink ? 201 : 200)
         case .turnOffChatLink: .json(#"{"link":null}"#)
         case .exchange, .exchangeWithInvite: .json(#"{"token": "tok_new", "user": \#(Fixture.sam), "claimable": []}"#)
@@ -158,7 +160,8 @@ enum Endpoint: String, CaseIterable, Sendable {
             #expect(link?.url == URL(string: "https://links.test/invite/abc"))
             #expect(link?.createdAt == Date(timeIntervalSince1970: 1_700_000_000.5))
             #expect(link?.createdBy == "user_01SAM")
-        case .resetChatLink: #expect(try await client.resetChatInviteLink(groupID: 5).url == URL(string: "https://links.test/invite/abc"))
+        case .createChatLink: #expect(try await client.createChatInviteLink(groupID: 5).url == URL(string: "https://links.test/invite/abc"))
+        case .resetChatLink: #expect(try await client.createChatInviteLink(groupID: 5, reset: true).url == URL(string: "https://links.test/invite/abc"))
         case .turnOffChatLink: try await client.turnOffChatInviteLink(groupID: 5)
         case .addToGroup:
             #expect(try await client.add("https://vm.tiktok.com/ZMabc/", groupID: 5).link.groupID == 1)
@@ -331,7 +334,8 @@ struct APIClientErrorTests {
         let server = StubServer(always: .json(#"{"error":"That chat isn't there anymore."}"#, status: 404))
         let error = APIError.server("That chat isn't there anymore.")
         await #expect(throws: error) { try await server.client().chatInviteLink(groupID: 5) }
-        await #expect(throws: error) { try await server.client().resetChatInviteLink(groupID: 5) }
+        await #expect(throws: error) { try await server.client().createChatInviteLink(groupID: 5) }
+        await #expect(throws: error) { try await server.client().createChatInviteLink(groupID: 5, reset: true) }
         await #expect(throws: error) { try await server.client().turnOffChatInviteLink(groupID: 5) }
     }
 
