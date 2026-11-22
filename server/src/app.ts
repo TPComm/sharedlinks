@@ -215,6 +215,7 @@ function bearer(req: Request): string | null {
 export interface AppOptions extends PushOptions {
   /** How long a new link's push waits for its preview (title) before going out without it. */
   previewWaitMs?: number;
+  previewNow?: () => number;
 }
 
 export function createApp(config: Config, opts: AppOptions = {}) {
@@ -230,8 +231,20 @@ export function createApp(config: Config, opts: AppOptions = {}) {
 
   // One fetch per link at a time (a retry during the backfill, an edit mid-fetch): the next waits its turn.
   const latest = new Map<number, Promise<void>>();
+  const retries = new Map<number, { attempts: number; after: number }>();
+  const retryDelays = [60_000, 300_000, 1_800_000, 7_200_000, 43_200_000];
+  const previewNow = opts.previewNow ?? Date.now;
+  function failedAttempt(id: number) {
+    const attempts = (retries.get(id)?.attempts ?? 0) + 1;
+    retries.set(id, { attempts, after: previewNow() + retryDelays[Math.min(attempts - 1, retryDelays.length - 1)]! });
+  }
   function queueFetch(id: number, url: string, platform: string): Promise<void> {
-    const run = (latest.get(id) ?? Promise.resolve()).then(() => fetchMetadata(db, config.dataDir, id, url, platform, fetchOpts));
+    const run = (latest.get(id) ?? Promise.resolve()).then(async () => {
+      await fetchMetadata(db, config.dataDir, id, url, platform, fetchOpts);
+      const row = db.query("SELECT meta FROM links WHERE id = ?").get(id) as { meta: string } | null;
+      if (row?.meta === "failed") failedAttempt(id);
+      else retries.delete(id);
+    });
     const settled = run.catch(() => {});
     latest.set(id, settled);
     void settled.then(() => { if (latest.get(id) === settled) latest.delete(id); });
@@ -251,16 +264,25 @@ export function createApp(config: Config, opts: AppOptions = {}) {
     startMetadataFetch(row.id, row.url, row.platform);
   }
 
-  // Links whose preview predates PREVIEW_VERSION (or failed before) are re-fetched one at a time, gently.
+  // Backfill old previews and retry failures with backoff, one at a time at the configured pace.
   function backfillNext() {
     let row: LinkRow | null;
     try {
-      row = db.query("SELECT id, url, platform FROM links WHERE preview_v < ? AND meta != 'pending' ORDER BY added_at DESC LIMIT 1")
-        .get(PREVIEW_VERSION) as LinkRow | null;
+      const rows = db.query("SELECT id, url, platform, preview_v, meta FROM links WHERE (preview_v < ? OR meta = 'failed') AND meta != 'pending' ORDER BY added_at DESC")
+        .all(PREVIEW_VERSION) as LinkRow[];
+      row = rows.find((candidate) => {
+        if (latest.has(candidate.id)) return false;
+        if (candidate.preview_v < PREVIEW_VERSION) return true;
+        if (!retries.has(candidate.id)) failedAttempt(candidate.id);
+        return retries.get(candidate.id)!.after <= previewNow();
+      }) ?? null;
     } catch (e) {
       return console.error(`backfill stopped: ${e}`); // the database closed under us (shutdown)
     }
-    if (!row) return;
+    if (!row) {
+      setTimeout(backfillNext, config.previewBackfillMs).unref();
+      return;
+    }
     const task = queueFetch(row.id, row.url, row.platform)
       .catch((e) => {
         console.error(`backfill ${row.id}: ${e}`);
