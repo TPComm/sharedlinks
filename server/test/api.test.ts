@@ -2323,7 +2323,8 @@ describe("activity feed", () => {
     const collected = [];
     let cursor: string | null = null;
     do {
-      const page = (await call(`/api/activity?limit=1${cursor ? `&cursor=${cursor}` : ""}`, { token: ann })).data;
+      const page: { items: unknown[]; has_more: boolean; next: string | null } =
+        (await call(`/api/activity?limit=1${cursor ? `&cursor=${cursor}` : ""}`, { token: ann })).data;
       collected.push(...page.items);
       expect(page.has_more).toBe(page.next !== null);
       cursor = page.next;

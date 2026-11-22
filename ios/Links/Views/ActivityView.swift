@@ -3,9 +3,7 @@ import SwiftUI
 
 struct ActivityScreen: View {
     @Environment(AppModel.self) private var model
-    @State private var items: [ActivityItem] = []
-    @State private var hasMore = false
-    @State private var next: String?
+    @State private var feed = ActivityFeed()
     @State private var loading = false
     @State private var error: String?
     @State private var commentLinkID: Int?
@@ -13,7 +11,7 @@ struct ActivityScreen: View {
     var body: some View {
         NavigationStack(path: Binding(get: { model.paths[.activity] ?? [] }, set: { model.paths[.activity] = $0 })) {
             List {
-                ForEach(items) { item in
+                ForEach(feed.items) { item in
                     if let link = model.inbox.links.first(where: { $0.id == item.linkID }) {
                         Button {
                             commentLinkID = item.kind == .comment ? link.id : nil
@@ -43,10 +41,10 @@ struct ActivityScreen: View {
                 }
                 if let error {
                     Text(error).foregroundStyle(.secondary)
-                    Button("Try Again") { Task { await load(more: false) } }
+                    Button("Try Again") { Task { await load(.newest) } }
                 }
-                if hasMore {
-                    Button("Load More") { Task { await load(more: true) } }
+                if feed.hasMore {
+                    Button("Load More") { Task { await load(.older) } }
                         .disabled(loading)
                 }
                 if loading { ProgressView() }
@@ -56,23 +54,23 @@ struct ActivityScreen: View {
             .toolbar { ToolbarItem(placement: .topBarLeading) { ProfileButton() } }
             .navigationDestination(for: Int.self) { LinkDetailView(linkID: $0, showComments: commentLinkID == $0) }
             .overlay {
-                if !loading && error == nil && !items.contains(where: { item in model.inbox.links.contains { $0.id == item.linkID } }) {
+                if !loading && error == nil && !feed.items.contains(where: { item in model.inbox.links.contains { $0.id == item.linkID } }) {
                     ContentUnavailableView("No activity yet", systemImage: "bell",
                                            description: Text("Comments, reactions and watched links from your chats show up here."))
                 }
             }
             .refreshable {
                 await model.refresh()
-                await load(more: false)
+                await load(.reset)
             }
             .task {
-                if model.tab == .activity { await load(more: false) }
+                if model.tab == .activity { await load(.reset) }
             }
             .onChange(of: model.tab) { _, tab in
-                if tab == .activity { Task { await load(more: false) } }
+                if tab == .activity { Task { await load(.reset) } }
             }
             .onChange(of: model.inboxRefresh) { _, _ in
-                if model.tab == .activity { Task { await load(more: false) } }
+                if model.tab == .activity { Task { await load(.newest) } }
             }
         }
     }
@@ -85,17 +83,14 @@ struct ActivityScreen: View {
         }
     }
 
-    private func load(more: Bool) async {
+    private func load(_ update: ActivityFeed.Update) async {
         guard !loading else { return }
         loading = true
         defer { loading = false }
         do {
-            let page = try await model.client.activity(cursor: more ? next : nil)
+            let page = try await model.client.activity(cursor: update == .older ? feed.next : nil)
             try Task.checkCancellation()
-            let existing = more ? Set(items.map(\.id)) : []
-            items = (more ? items : []) + page.items.filter { !existing.contains($0.id) }
-            hasMore = page.hasMore
-            next = page.next
+            feed.apply(page, update: update)
             error = nil
         } catch is CancellationError {
         } catch {

@@ -44,4 +44,26 @@ struct ActivityTests {
         let server = StubServer(always: .json(#"{"error":"No access"}"#, status: 403))
         await #expect(throws: APIError.server("No access")) { try await server.client().activity() }
     }
+
+    @Test func backgroundRefreshPreservesLoadedTailAndUpdatesDuplicates() throws {
+        let page = try APIClient.decoder.decode(ActivityPage.self, from: Data(Self.page.utf8))
+        var feed = ActivityFeed()
+        feed.apply(ActivityPage(items: [page.items[0]], hasMore: true, next: "first"), update: .reset)
+        feed.apply(ActivityPage(items: Array(page.items.dropFirst()), hasMore: false, next: nil), update: .older)
+        #expect(feed.items == page.items)
+        feed.apply(ActivityPage(items: [page.items[0]], hasMore: true, next: "first"), update: .newest)
+        #expect(feed.items == page.items)
+        #expect(!feed.hasMore && feed.next == nil)
+        let changed = try APIClient.decoder.decode(ActivityItem.self, from: Data(#"{"kind":"reaction","link_id":7,"person":"friend","at":40,"emoji":"❤️"}"#.utf8))
+        feed.apply(ActivityPage(items: [changed], hasMore: true, next: "new-head"), update: .newest)
+        #expect(feed.items == [changed, page.items[0], page.items[2]])
+        #expect(!feed.hasMore && feed.next == nil)
+        feed.apply(ActivityPage(items: [], hasMore: false, next: nil), update: .newest)
+        #expect(feed.items.count == 3)
+        feed.apply(ActivityPage(items: [changed], hasMore: true, next: "reset"), update: .reset)
+        #expect(feed.items == [changed] && feed.hasMore && feed.next == "reset")
+        feed.apply(ActivityPage(items: [page.items[0]], hasMore: true, next: "tail"), update: .older)
+        feed.apply(ActivityPage(items: [changed], hasMore: true, next: "head"), update: .newest)
+        #expect(feed.items.count == 2 && feed.next == "tail")
+    }
 }
