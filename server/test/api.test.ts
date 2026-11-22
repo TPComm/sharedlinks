@@ -266,7 +266,7 @@ test("nudges are sender-only, private, limited per person and skip ineligible me
     expect(delivery).toHaveBeenCalledTimes(1);
     expect((await request(path, sender, { people: [] })).status).toBe(429);
     app.db.run("INSERT INTO reports (reporter, link_id, reason, details, snapshot, created_at) VALUES (?, ?, 'spam', '', '{}', 1)", [r, id]);
-    expect((await request(path, sender, {})).data).toEqual({ error: "nobody to nudge" });
+    expect((await request(path, sender, {})).data).toEqual({ error: "There's nobody to nudge right now." });
     app.db.run("DELETE FROM links WHERE id = ?", [id]);
     expect(app.db.query("SELECT * FROM nudges WHERE link_id = ?").all(id)).toEqual([]);
   } finally {
