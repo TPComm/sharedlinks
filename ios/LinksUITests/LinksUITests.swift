@@ -193,6 +193,17 @@ final class LinksUITests: XCTestCase {
         XCTAssertFalse(app.buttons["swipeQueue.open"].exists, "Swipe Through offered on an empty Queue")
     }
 
+    func testNewLinkDeepLinkClosesSwipeThrough() throws {
+        let link = try seed(by: server.friend)
+        launch()
+        waitForRow(link, in: "toWatch")
+        app.buttons["swipeQueue.open"].tap()
+        XCTAssert(app.scrollViews["swipeQueue"].waitForExistence(timeout: 10))
+        app.open(URL(string: "sharedlinks://add")!)
+        XCTAssert(app.textFields["addLink.text"].waitForExistence(timeout: 10), "New Link stuck behind Swipe Through")
+        XCTAssertFalse(app.scrollViews["swipeQueue"].exists)
+    }
+
     func testSentShowsWhenTheFriendHasWatchedIt() throws {
         let link = try seed(by: server.me, note: "Sent \(shortID())")
         launch()

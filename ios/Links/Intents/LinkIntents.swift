@@ -88,6 +88,7 @@ struct NewLinkIntent: AppIntent {
 
     @MainActor
     func perform() async throws -> some IntentResult {
+        model.swipeQueue = nil
         model.addPrefill = ""
         model.showAddSheet = true
         return .result()

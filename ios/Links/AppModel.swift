@@ -834,6 +834,7 @@ final class AppModel {
             // A shared /l/ link, e.g. tapped in Messages: its page, when it's in my inbox.
             showPage { $0.token == token }
         case .add:
+            swipeQueue = nil
             addPrefill = ""
             showAddSheet = true
         case .invite(let invite):
