@@ -41,6 +41,8 @@ final class AppModel {
     var showClaimSheet = false
     var showTour = false
     var showFeatureTours = false
+    /// Swipe Through, while it's open.
+    var swipeQueue: SwipeQueue?
     private(set) var pendingFeatureTours: [FeatureTour] = []
     private var dismissingWelcomeTour = false
     private var requestingNotifications = false
@@ -175,6 +177,7 @@ final class AppModel {
         sessionID = UUID()
         showTour = false
         showFeatureTours = false
+        swipeQueue = nil
         pushRegistered = false
         registeredToken = nil
         SessionStore.clear()
@@ -554,7 +557,7 @@ final class AppModel {
     // MARK: Tour
 
     /// Gesture tips wait until nothing covers the inbox, so a popover never lands under a sheet.
-    var canShowTips: Bool { tourCompleted && !showTour && !showFeatureTours && !dismissingWelcomeTour && !requestingNotifications && !showClaimSheet && !showAddSheet && !isProfileOpen }
+    var canShowTips: Bool { tourCompleted && !showTour && !showFeatureTours && swipeQueue == nil && !dismissingWelcomeTour && !requestingNotifications && !showClaimSheet && !showAddSheet && !isProfileOpen }
 
     /// Shows the tour once, after sign-in and after the claim sheet (if any) has closed.
     func showTourIfNeeded() {
@@ -569,7 +572,7 @@ final class AppModel {
     func showFeatureToursIfNeeded() {
         guard isSignedIn, tourCompleted, !showTour, !dismissingWelcomeTour, !requestingNotifications,
               !showFeatureTours, !showClaimSheet, !showAddSheet, !isProfileOpen, chatSheet == nil,
-              !Self.isUITesting else { return }
+              swipeQueue == nil, !Self.isUITesting else { return }
         startFeatureTours(FeatureTour.allCases.filter { !FeatureTours.shared.hasSeen($0.id) })
     }
 
@@ -874,6 +877,7 @@ final class AppModel {
 
     /// A chat's lists, from a deep link: the tab showing goes back to its list, off any link page.
     private func showChat(_ id: Int) {
+        swipeQueue = nil
         chat = id
         paths[tab] = []
     }
@@ -885,6 +889,7 @@ final class AppModel {
 
     /// A link's page on the tab whose list has it, e.g. from a widget.
     func showPage(_ link: SharedLink) {
+        swipeQueue = nil
         if let chat, link.groupID != chat { self.chat = nil } // e.g. a push from another chat
         let tab = InboxTab(inbox.home(of: link))
         self.tab = tab

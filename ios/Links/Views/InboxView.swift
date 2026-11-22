@@ -44,6 +44,7 @@ struct InboxView: View {
             AddLinkSheet(prefill: model.addPrefill)
         }
         .sheet(item: $model.chatSheet) { ChatSheetView(sheet: $0) }
+        .fullScreenCover(item: $model.swipeQueue) { SwipeQueueView(queue: $0) }
         // The tour waits for the claim sheet to be gone, not just going.
         .sheet(isPresented: $model.showClaimSheet, onDismiss: { model.showTourIfNeeded() }) {
             ClaimSheet()
@@ -70,6 +71,16 @@ struct LinkListScreen: View {
                 .navigationDestination(for: Int.self) { LinkDetailView(linkID: $0) }
                 .toolbar {
                     ToolbarItem(placement: .topBarLeading) { ProfileButton() }
+                    if filter == .toWatch, !model.inbox.links(for: .toWatch, in: model.chat).isEmpty {
+                        ToolbarItem(placement: .topBarTrailing) {
+                            Button {
+                                model.swipeQueue = SwipeQueue(model.inbox, in: model.chat)
+                            } label: {
+                                Label("Swipe Through", systemImage: "rectangle.stack")
+                            }
+                            .accessibilityIdentifier("swipeQueue.open")
+                        }
+                    }
                     // Servers from before chats have none to pick from.
                     if !model.inbox.groups.isEmpty {
                         ToolbarItem(placement: .topBarTrailing) { ChatPicker() }

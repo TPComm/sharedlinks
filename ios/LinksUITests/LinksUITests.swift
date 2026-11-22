@@ -143,6 +143,56 @@ final class LinksUITests: XCTestCase {
         try server.eventually("seen by me") { try server.state(as: server.friend).link(link.id)?.seen[me] }
     }
 
+    func testSwipingThroughTheQueueMarksEachLinkLeftBehindSeen() throws {
+        // Only this test's links in the Queue, so they're its first two cards (oldest first).
+        let me = try server.state(as: server.me).me
+        for link in try server.state(as: server.me).links where link.addedBy != me && link.seen[me] == nil {
+            try server.setSeen(link.id, true, as: server.me)
+        }
+        let first = try seed(by: server.friend, note: "First \(shortID())")
+        let second = try seed(by: server.friend, note: "Second \(shortID())")
+        launch()
+        waitForRow(second, in: "toWatch")
+        app.buttons["swipeQueue.open"].tap()
+
+        let progress = app.staticTexts["swipeQueue.progress"]
+        XCTAssert(app.descendants(matching: .any)["swipeQueue.card.\(first.id)"].waitForExistence(timeout: 10))
+        XCTAssertEqual(progress.label, "1 of 2")
+        XCTAssert(app.staticTexts[first.note].exists)
+        XCTAssert(app.buttons["swipeQueue.openLink"].firstMatch.exists)
+        XCTAssert(app.buttons["swipeQueue.comments"].firstMatch.exists)
+        app.scrollViews["swipeQueue"].swipeUp()
+        waitFor(progress, labelContaining: "2 of 2")
+        try server.eventually(timeout: 20, "first seen by me") { try server.state(as: server.friend).link(first.id)?.seen[me] }
+
+        app.buttons["swipeQueue.close"].tap()
+        XCTAssert(row(first, in: "toWatch").waitForNonExistence(timeout: 10), "first still in the Queue")
+        XCTAssert(row(second, in: "toWatch").exists, "closing marked the card it was on")
+        XCTAssertNil(try server.state(as: server.friend).link(second.id)?.seen[me])
+        app.tabBars.buttons["Seen"].tap()
+        XCTAssert(row(first, in: "watched").waitForExistence(timeout: 5), "first not in Seen")
+    }
+
+    func testSwipingPastTheLastLinkShowsAllCaughtUpAndMarksIt() throws {
+        let me = try server.state(as: server.me).me
+        for link in try server.state(as: server.me).links where link.addedBy != me && link.seen[me] == nil {
+            try server.setSeen(link.id, true, as: server.me)
+        }
+        let only = try seed(by: server.friend)
+        launch()
+        waitForRow(only, in: "toWatch")
+        app.buttons["swipeQueue.open"].tap()
+        XCTAssert(app.descendants(matching: .any)["swipeQueue.card.\(only.id)"].waitForExistence(timeout: 10))
+        app.scrollViews["swipeQueue"].swipeUp()
+        let done = app.buttons["swipeQueue.done"]
+        XCTAssert(done.waitForExistence(timeout: 10), "no end card")
+        XCTAssert(app.staticTexts["All Caught Up"].exists)
+        try server.eventually(timeout: 20, "seen by me") { try server.state(as: server.friend).link(only.id)?.seen[me] }
+        done.tap()
+        XCTAssert(row(only, in: "toWatch").waitForNonExistence(timeout: 10), "still in the Queue")
+        XCTAssertFalse(app.buttons["swipeQueue.open"].exists, "Swipe Through offered on an empty Queue")
+    }
+
     func testSentShowsWhenTheFriendHasWatchedIt() throws {
         let link = try seed(by: server.me, note: "Sent \(shortID())")
         launch()
