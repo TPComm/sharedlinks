@@ -56,6 +56,32 @@ final class MessagesUITests: XCTestCase {
         add(attachment)
     }
 
+    func testDailyRollupInsertsADraftWithoutSending() throws {
+        let name = "Rollup-\(UUID().uuidString.prefix(8))"
+        let chat = try server.startChat(name: name, as: server.me)
+        let server = server!
+        addTeardownBlock { try? server.leaveChat(chat.id, as: server.me) }
+        let host = "rollup-\(UUID().uuidString.prefix(8).lowercased()).invalid"
+        let link = try server.add("https://\(host)/article", to: chat.id, as: server.me)
+        XCTAssertNotNil(link.token)
+        launchLinks()
+        try openLinksInMessages()
+
+        let row = messages.buttons.containing(NSPredicate(format: "label CONTAINS %@", "1 link to \(name)")).firstMatch
+        XCTAssert(row.waitForExistence(timeout: 30), "today's roll-up is missing")
+        row.tap()
+        let draft = messages.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS %@", "1 link from today")).firstMatch
+        XCTAssert(draft.waitForExistence(timeout: 30), "the roll-up didn't create a draft")
+        let transcript = messages.collectionViews["TranscriptCollectionView"]
+        XCTAssert(transcript.exists, "can't verify that nothing was sent without the transcript")
+        XCTAssertFalse(transcript.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS %@", host)).firstMatch.exists,
+                       "the roll-up was sent instead of inserted")
+        let attachment = XCTAttachment(screenshot: messages.screenshot())
+        attachment.name = "Inserted daily roll-up, not sent"
+        attachment.lifetime = .keepAlways
+        add(attachment)
+    }
+
     private func launchLinks() {
         app.launchEnvironment = ["LINKS_SERVER_URL": server.url.absoluteString,
                                  "LINKS_DEV_TOKEN": server.me, "LINKS_UI_TESTS": "1"]

@@ -11,6 +11,7 @@ final class MessagesViewController: MSMessagesAppViewController {
         super.viewDidLoad()
         let host = UIHostingController(rootView: MessagesPickerView(model: model,
             insert: { [weak self] row in self?.insert(row) },
+            insertRollup: { [weak self] rollup in self?.insert(rollup) },
             open: { [weak self] url in self?.extensionContext?.open(url) }))
         addChild(host)
         host.view.frame = view.bounds
@@ -38,6 +39,35 @@ final class MessagesViewController: MSMessagesAppViewController {
 
     private func updateSelectedMessage(_ message: MSMessage?) {
         model.selectedToken = MessagesSelection.token(for: message?.url)
+        model.selectedRollup = MessagesRollupSelection(url: message?.url)
+    }
+
+    private func insert(_ rollup: MessagesRollup) {
+        guard let url = rollup.url(), let conversation = activeConversation, !model.inserting,
+              let insertion = MessagesRollupInsertion(rollup: rollup, token: SessionStore.token,
+                                                      currentUser: SessionStore.currentUser) else { return }
+        model.inserting = true
+        model.insertError = nil
+        Task {
+            defer { model.inserting = false }
+            let layout = MSMessageTemplateLayout()
+            layout.image = rollup.links.first.flatMap { ThumbnailStore.cached($0) }.flatMap(UIImage.init(data:))
+            layout.caption = rollup.caption
+            layout.subcaption = rollup.subcaption
+            let message = MSMessage(session: MSSession())
+            message.layout = layout
+            message.url = url
+            guard case .loaded(let content, _) = model.picker.state,
+                  insertion.canInsert(token: SessionStore.token, currentUser: SessionStore.currentUser,
+                                      conversationMatches: activeConversation === conversation,
+                                      rollups: content.rollups) else { return }
+            do {
+                try await conversation.insert(message)
+                requestPresentationStyle(.compact)
+            } catch {
+                model.insertError = error.localizedDescription
+            }
+        }
     }
 
     private func insert(_ row: MessagesPickerRow) {
@@ -72,6 +102,7 @@ final class MessagesViewController: MSMessagesAppViewController {
 @MainActor @Observable final class MessagesModel {
     let picker = MessagesPicker()
     var selectedToken: String?
+    var selectedRollup: MessagesRollupSelection?
     var inserting = false
     var insertError: String?
 }
@@ -79,11 +110,24 @@ final class MessagesViewController: MSMessagesAppViewController {
 private struct MessagesPickerView: View {
     let model: MessagesModel
     let insert: (MessagesPickerRow) -> Void
+    let insertRollup: (MessagesRollup) -> Void
     let open: (URL) -> Void
 
     var body: some View {
         NavigationStack {
             List {
+                if let selection = model.selectedRollup {
+                    Button("Open chat in Links", systemImage: "arrow.up.forward.app") {
+                        open(DeepLink.group(id: selection.groupID).url)
+                    }
+                    if case .loaded(let content, _) = model.picker.state {
+                        ForEach(selection.links(in: content.inbox)) { link in
+                            if let token = link.token {
+                                Button(link.displayTitle) { open(DeepLink.link(token: token).url) }
+                            }
+                        }
+                    }
+                }
                 if let token = model.selectedToken {
                     Button("Open in Links", systemImage: "arrow.up.forward.app") { open(DeepLink.link(token: token).url) }
                 }
@@ -103,6 +147,19 @@ private struct MessagesPickerView: View {
                     retry
                 case .loaded(let content, let notice):
                     noticeView(notice)
+                    if !content.rollups.isEmpty {
+                        Section("Today's roll-up") {
+                            ForEach(content.rollups) { rollup in
+                                Button { insertRollup(rollup) } label: {
+                                    VStack(alignment: .leading, spacing: 4) {
+                                        Text("Send today's links").font(.headline)
+                                        Text(rollup.detail).font(.caption).foregroundStyle(.secondary)
+                                    }
+                                }
+                                .disabled(model.inserting || rollup.url() == nil)
+                            }
+                        }
+                    }
                     ForEach(content.sections) { section in
                         Section(section.title) {
                             ForEach(section.rows) { row in

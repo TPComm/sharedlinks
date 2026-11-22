@@ -54,6 +54,9 @@ never the original URL. Older cached links without a share page stay greyed out 
 in Links. Select a Links message to see **Open in Links** for its link page; open the main app
 to sign in if needed.
 
+**Today's roll-up** inserts one draft card with the links you sent to a chosen Links chat today
+(your local day). Select a roll-up to open that chat in Links or open its links that are in your inbox.
+
 On the iOS 27 Simulator, this flow works in the seeded iMessage conversation
 **+1 (555) 564-8583**, which `MessagesUITests` uses to check draft insertion without sending.
 New conversations stay SMS, with the iMessage app drawer disabled.

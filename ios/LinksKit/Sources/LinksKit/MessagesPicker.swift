@@ -74,10 +74,13 @@ public struct MessagesPickerSection: Sendable, Hashable, Identifiable {
 }
 
 public struct MessagesPickerContent: Sendable, Hashable {
+    public let inbox: InboxState
+    public var rollups: [MessagesRollup] { MessagesRollup.today(in: inbox) }
     public let sections: [MessagesPickerSection]
     public var isEmpty: Bool { sections.isEmpty }
 
     public init(state: InboxState, recentLimit: Int = 20) {
+        inbox = state
         let queue = state.links(for: .toWatch)
         let queued = Set(queue.map(\.id))
         let recent = state.links.filter { !queued.contains($0.id) }.sorted {
