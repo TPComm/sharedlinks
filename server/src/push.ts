@@ -138,6 +138,26 @@ export class Pusher {
     }))));
   }
 
+  async nudge(linkId: number, people: string[]) {
+    if (!this.enabled) return;
+    const link = this.db.query(`SELECT l.title, l.platform, l.added_by, l.group_id, u.name, g.is_default
+      FROM links l JOIN users u ON u.id = l.added_by JOIN groups g ON g.id = l.group_id WHERE l.id = ?`)
+      .get(linkId) as { title: string | null; platform: string; added_by: string; group_id: number; name: string; is_default: number } | null;
+    if (!link) return;
+    const recipients = people.filter((person) => !this.isMuted(link.group_id, person)
+      && this.db.query(`SELECT 1 FROM group_members WHERE group_id = ?1 AND user_id = ?2
+        AND NOT EXISTS (SELECT 1 FROM blocks WHERE (blocker = ?2 AND blocked = ?3) OR (blocker = ?3 AND blocked = ?2))
+        AND NOT EXISTS (SELECT 1 FROM reports WHERE reporter = ?2 AND link_id = ?4)`)
+        .get(link.group_id, person, link.added_by, linkId));
+    await Promise.all(recipients.map((person) => this.toPerson(person, "alert", (badge) => this.fit({
+      aps: {
+        alert: { title: `${link.name} nudged you`, body: ["", link.title || nounOf(link.platform), ""] as const },
+        badge, sound: "default", "thread-id": threadId(link.group_id, link.is_default), category: "NUDGE",
+      },
+      link_id: linkId, group_id: link.group_id, sender_id: link.added_by,
+    }))));
+  }
+
   async newComment(commentId: number) {
     if (!this.enabled) return;
     const comment = this.db.query(`SELECT c.body, c.person, c.link_id, l.added_by, l.group_id,
@@ -332,7 +352,7 @@ export class Pusher {
     let titleMax = 150, noteMax = 200;
     for (;;) {
       const t = clip(title ?? "", titleMax), n = clipText(note, noteMax);
-      const body = (t ? `${lead}: ${t}` : lead) + (n ? `\n${n}` : "");
+      const body = (t ? (lead ? `${lead}: ${t}` : t) : lead) + (n ? `\n${n}` : "");
       const out = { ...payload, aps: { ...payload.aps, alert: { title: clip(payload.aps.alert.title, 100), body } } };
       if (size(out) <= MAX_PAYLOAD || (!t && !n)) return out;
       if (noteMax > 0) noteMax = noteMax > 20 ? Math.floor(noteMax / 2) : 0;

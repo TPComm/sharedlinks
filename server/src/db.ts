@@ -217,6 +217,20 @@ export function openDatabase(dataDir: string, legacyAllowedEmails: string[] = []
   return db;
 }
 
+function migrateToV18(db: Database) {
+  const { user_version } = db.query("PRAGMA user_version").get() as { user_version: number };
+  if (user_version >= 18) return;
+  db.transaction(() => {
+    db.run(`CREATE TABLE IF NOT EXISTS nudges (
+      link_id INTEGER NOT NULL REFERENCES links(id) ON DELETE CASCADE,
+      person TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      nudged_at REAL NOT NULL,
+      PRIMARY KEY (link_id, person)
+    )`);
+    db.run("PRAGMA user_version = 18");
+  })();
+}
+
 function migrateToV16(db: Database) {
   const { user_version } = db.query("PRAGMA user_version").get() as { user_version: number };
   if (user_version >= 16) return;
