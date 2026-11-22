@@ -1,10 +1,11 @@
-import { afterAll, beforeAll, beforeEach, describe, expect, test } from "bun:test";
+import { afterAll, beforeAll, beforeEach, describe, expect, spyOn, test } from "bun:test";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import http2 from "node:http2";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { startServer } from "../src/app.ts";
 import { configFromEnv } from "../src/config.ts";
+import { Pusher } from "../src/push.ts";
 
 const VERIFIER = "v".repeat(43);
 const dataDir = mkdtempSync(join(tmpdir(), "links-push-"));
@@ -128,6 +129,54 @@ afterAll(() => {
 });
 
 beforeEach(async () => { await settle(); sent = []; replies.clear(); });
+
+describe("provider tokens", () => {
+  const pusher = () => new Pusher(app.db, configFromEnv({
+    APNS_TEAM_ID: "TEAM123456", APNS_TOPIC: "com.tpcomm.links", APNS_KEY_ID: "KEY1234567",
+    APNS_KEY_FILE: join(dataDir, "key.p8"),
+  }), app.accounts, () => {});
+
+  test("concurrent callers share one mint until the cached token expires", async () => {
+    const push = pusher();
+    const sign = spyOn(crypto.subtle, "sign");
+    const clock = spyOn(Date, "now").mockReturnValue(Date.now());
+    try {
+      const mint = () => Promise.all(Array.from({ length: 10 }, () => push.providerToken()));
+      const first = await mint();
+      expect(new Set(first).size).toBe(1);
+      expect(sign).toHaveBeenCalledTimes(1);
+      expect(await push.providerToken()).toBe(first[0]!);
+      expect(sign).toHaveBeenCalledTimes(1);
+      clock.mockReturnValue(Date.now() + 51 * 60 * 1000);
+      const refreshed = await mint();
+      expect(new Set(refreshed).size).toBe(1);
+      expect(refreshed[0]).not.toBe(first[0]);
+      expect(sign).toHaveBeenCalledTimes(2);
+    } finally {
+      clock.mockRestore();
+      sign.mockRestore();
+      push.close();
+    }
+  });
+
+  test("a failed mint rejects its callers and lets the next call retry", async () => {
+    const push = pusher();
+    const failure = new Error("sign failed");
+    const sign = spyOn(crypto.subtle, "sign").mockRejectedValueOnce(failure);
+    try {
+      const results = await Promise.allSettled(Array.from({ length: 10 }, () => push.providerToken()));
+      expect(results).toEqual(Array.from({ length: 10 }, () => ({ status: "rejected", reason: failure })));
+      expect(sign).toHaveBeenCalledTimes(1);
+      const jwt = await push.providerToken();
+      expect(jwt.split(".")).toHaveLength(3);
+      expect(await push.providerToken()).toBe(jwt);
+      expect(sign).toHaveBeenCalledTimes(2);
+    } finally {
+      sign.mockRestore();
+      push.close();
+    }
+  });
+});
 
 describe("device registration", () => {
   test("validates the token and environment", async () => {

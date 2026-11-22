@@ -71,6 +71,7 @@ export class Pusher {
   readonly enabled: boolean;
   private signingKey: Promise<CryptoKey> | null = null;
   private jwt: { jwt: string; iat: number } | null = null;
+  private minting: Promise<string> | null = null;
   private conns = new Map<string, { session: http2.ClientHttp2Session; lastUsed: number; timer: Timer }>();
   private badgeTimers = new Map<string, { timer: Timer; done: () => void }>();
   private pendingActivity = new Map<string, PendingActivity>();
@@ -458,6 +459,16 @@ export class Pusher {
   async providerToken(): Promise<string> {
     const t = Math.floor(now());
     if (this.jwt && t - this.jwt.iat < JWT_TTL_S) return this.jwt.jwt;
+    if (this.minting) return this.minting;
+    this.minting = this.mintToken(t);
+    try {
+      return await this.minting;
+    } finally {
+      this.minting = null;
+    }
+  }
+
+  private async mintToken(t: number): Promise<string> {
     const key = this.config.apnsKey;
     if (!key) throw new Error("no APNs key");
     if (!this.signingKey) {
