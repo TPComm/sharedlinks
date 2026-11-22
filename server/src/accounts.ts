@@ -3,7 +3,7 @@ import { randomBytes } from "node:crypto";
 import { copyFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { Config } from "./config.ts";
-import { defaultGroup, deleteEmptyGroups, LEGACY, now, type InviteRow, type UserRow } from "./db.ts";
+import { defaultGroup, deleteEmptyGroups, directChat, ensureDirectChat, ensureDirectChatsFor, LEGACY, now, type InviteRow, type UserRow } from "./db.ts";
 import { BadRequest, clip } from "./links.ts";
 import { screener } from "./moderation.ts";
 import { imageSize } from "./previews.ts";
@@ -289,6 +289,7 @@ export class Accounts {
       }
       this.db.run("UPDATE users SET name = ? WHERE id = ?", [legacy.name, userId]);
       this.db.run("DELETE FROM users WHERE id = ?", [legacyId]);
+      ensureDirectChatsFor(this.db, userId);
     })();
   }
 
@@ -489,42 +490,31 @@ export class Accounts {
 
   /**
    * Let someone in (#75: they see only people they share a chat with). A friend's invite puts them in
-   * the chat `invitersChat` picks. An admin's invite or session puts them in the default chat.
+   * their group chat, or a direct chat with the friend. An admin's invite puts them in the default chat.
    * Returns the chat they're in.
    */
   private admit(userId: string, invite?: InviteRow): number {
     this.db.run("UPDATE users SET member = 1 WHERE id = ?", [userId]);
     // An account from before invites that wasn't let in was still put in the default chat by v8.
     this.db.run("DELETE FROM group_members WHERE user_id = ?", [userId]);
-    const group = invite?.invited_by ? this.invitersChat(invite, userId) : defaultGroup(this.db);
+    const friend = invite?.invited_by;
+    const group = friend ? this.inviteGroup(invite) : defaultGroup(this.db);
+    if (group === null) return ensureDirectChat(this.db, friend!, userId);
     this.db.run("INSERT OR IGNORE INTO group_members (group_id, user_id, joined_at) VALUES (?, ?, ?)", [group, userId, now()]);
+    ensureDirectChatsFor(this.db, userId, group);
     return group;
   }
 
   /**
-   * Where a friend's invite takes `userId`: the friend's chat it names, or else (it names none, or that
-   * chat is gone, full, or the friend left it) a chat of just the two of them, which is new unless
-   * they already have one.
+   * The group a friend's invite can let someone into; otherwise it opens their direct chat.
    */
-  private invitersChat(invite: InviteRow, userId: string): number {
-    const inviter = invite.invited_by!;
-    const named = invite.group_id;
-    if (named !== null
-      && this.db.query("SELECT 1 FROM group_members WHERE group_id = ? AND user_id = ?").get(named, inviter)
-      && (this.db.query("SELECT COUNT(*) AS n FROM group_members WHERE group_id = ?").get(named) as { n: number }).n < MAX_GROUP_MEMBERS) {
-      return named;
-    }
-    const pair = this.db.query(`SELECT g.id FROM groups g
-        JOIN group_members a ON a.group_id = g.id AND a.user_id = ?1
-        JOIN group_members b ON b.group_id = g.id AND b.user_id = ?2
-        WHERE g.is_default = 0 AND (SELECT COUNT(*) FROM group_members m WHERE m.group_id = g.id) = 2
-        ORDER BY g.created_at, g.id LIMIT 1`).get(inviter, userId) as { id: number } | null;
-    if (pair) return pair.id;
-    const at = now();
-    const group = (this.db.query("INSERT INTO groups (name, created_by, created_at) VALUES ('', ?, ?) RETURNING id")
-      .get(inviter, at) as { id: number }).id;
-    this.db.run("INSERT INTO group_members (group_id, user_id, joined_at) VALUES (?, ?, ?)", [group, inviter, at]);
-    return group;
+  private inviteGroup(invite: InviteRow): number | null {
+    const row = this.db.query(`SELECT g.id FROM groups g
+      JOIN group_members m ON m.group_id = g.id AND m.user_id = ?2
+      WHERE g.id = ?1 AND g.is_direct = 0
+        AND (SELECT COUNT(*) FROM group_members WHERE group_id = g.id) < ?3`)
+      .get(invite.group_id, invite.invited_by, MAX_GROUP_MEMBERS) as { id: number } | null;
+    return row?.id ?? null;
   }
 
   /**
@@ -561,12 +551,19 @@ export class Accounts {
         throw new AuthError("Verify your email address, then sign in again.", 403);
       }
     }
-    const group = existing ? row.group_id! : this.invitersChat(row, userId);
-    if (this.inGroup(group, userId)) {
-      if (row.email) this.useUp(row, userId, group);
-      return group;
+    if (existing) {
+      if (row.email) this.useUp(row, userId, row.group_id!);
+      return row.group_id;
+    }
+    const group = this.inviteGroup(row);
+    if (group === null) {
+      const pair = directChat(this.db, row.invited_by, userId);
+      const direct = pair ?? ensureDirectChat(this.db, row.invited_by, userId);
+      if (pair === null || row.email) this.useUp(row, userId, direct);
+      return direct;
     }
     this.db.run("INSERT INTO group_members (group_id, user_id, joined_at) VALUES (?, ?, ?)", [group, userId, now()]);
+    ensureDirectChatsFor(this.db, userId, group);
     this.useUp(row, userId, group);
     console.log(`invite ${row.id} from ${row.invited_by} used by member ${userId}`);
     return group;
@@ -599,7 +596,9 @@ export class Accounts {
     const id = row?.id ?? `local_${Buffer.from(crypto.getRandomValues(new Uint8Array(8))).toString("hex")}`;
     this.upsertUser(id, email, name || titleCase(email.split("@")[0] ?? "Someone"), null);
     this.db.run("UPDATE users SET email_verified = 1 WHERE id = ?", [id]); // the admin minting it vouches for the email
-    if (!this.isMember(id)) this.admit(id); // and for them
+    this.db.transaction(() => {
+      if (!this.isMember(id)) this.admit(id); // and for them
+    }).immediate();
     return this.newSession(id);
   }
 }

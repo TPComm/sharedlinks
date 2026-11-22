@@ -75,6 +75,8 @@ export interface GroupRow {
   created_at: number;
   /** 1 for the chat everyone was in before groups (see migrateToV8); new members join it. */
   is_default: number;
+  /** 1 for a private chat between two people, with no group invites or additional members. */
+  is_direct: number;
 }
 
 export interface InviteRow {
@@ -205,6 +207,7 @@ export function openDatabase(dataDir: string, legacyAllowedEmails: string[] = []
   migrateToV15(db);
   migrateToV16(db);
   migrateToV17(db);
+  migrateToV18(db);
   db.transaction(() => {
     const update = db.query("UPDATE links SET share_token = ? WHERE id = ? AND share_token IS NULL");
     for (const row of db.query("SELECT id FROM links WHERE share_token IS NULL").all() as { id: number }[]) {
@@ -236,6 +239,32 @@ function migrateToV17(db: Database) {
     if (!have.includes("photo")) db.run("ALTER TABLE users ADD COLUMN photo TEXT");
     db.run("PRAGMA user_version = 17");
   })();
+}
+
+function migrateToV18(db: Database) {
+  const { user_version } = db.query("PRAGMA user_version").get() as { user_version: number };
+  if (user_version >= 18) return;
+  db.transaction(() => {
+    const have = (db.query("PRAGMA table_info(groups)").all() as { name: string }[]).map((c) => c.name);
+    if (!have.includes("is_direct")) {
+      db.run("ALTER TABLE groups ADD COLUMN is_direct INTEGER NOT NULL DEFAULT 0 CHECK (is_direct IN (0, 1))");
+    }
+    const at = now();
+    // An old unnamed two-person chat could be a group someone still wants to add others to.
+    // Keep the chat, links and invites intact instead of guessing which chats to make private.
+    const pairs = db.query(`SELECT DISTINCT a.user_id AS a, b.user_id AS b FROM group_members a
+      JOIN group_members b ON b.group_id = a.group_id AND a.user_id < b.user_id
+      JOIN users ua ON ua.id = a.user_id JOIN users ub ON ub.id = b.user_id
+      WHERE ua.member = 1 AND ub.member = 1 AND ua.id NOT LIKE ?1 AND ub.id NOT LIKE ?1
+      ORDER BY a.user_id, b.user_id`).all(`${LEGACY}%`) as { a: string; b: string }[];
+    for (const { a, b } of pairs) ensureDirectChat(db, a, b, at);
+    // A rolled-back binary still must not expose existing private links to a new member.
+    db.exec(`CREATE TRIGGER IF NOT EXISTS direct_members_fixed BEFORE INSERT ON group_members
+      WHEN EXISTS (SELECT 1 FROM groups WHERE id = NEW.group_id AND is_direct = 1)
+        AND NOT EXISTS (SELECT 1 FROM group_members WHERE group_id = NEW.group_id AND user_id = NEW.user_id)
+      BEGIN SELECT RAISE(ABORT, 'Direct chats cannot add members'); END;`);
+    db.run("PRAGMA user_version = 18");
+  }).immediate();
 }
 
 /**
@@ -573,6 +602,43 @@ function migrateToV15(db: Database) {
 /** The chat everyone was in before groups; new members join it (see Accounts.admit). */
 export function defaultGroup(db: Database): number {
   return (db.query("SELECT id FROM groups WHERE is_default = 1").get() as { id: number }).id;
+}
+
+export function directChat(db: Database, a: string, b: string): number | null {
+  return (db.query(`SELECT g.id FROM group_members a
+    JOIN group_members b ON b.group_id = a.group_id AND b.user_id = ?2
+    JOIN groups g ON g.id = a.group_id AND g.is_direct = 1
+    WHERE a.user_id = ?1 LIMIT 1`).get(a, b) as { id: number } | null)?.id ?? null;
+}
+
+/** Call in a write transaction so two joins can't create a second chat for the same pair. */
+export function ensureDirectChat(db: Database, a: string, b: string, at = now()): number {
+  const existing = directChat(db, a, b);
+  if (existing !== null) return existing;
+  const { id } = db.query("INSERT INTO groups (created_by, created_at) VALUES (?, ?) RETURNING id")
+    .get(a, at) as { id: number };
+  db.run("INSERT INTO group_members (group_id, user_id, joined_at) VALUES (?, ?, ?), (?, ?, ?)", [id, a, at, id, b, at]);
+  db.run("UPDATE groups SET is_direct = 1 WHERE id = ?", [id]);
+  return id;
+}
+
+/** A new relationship through group membership also gets a private chat. */
+export function ensureDirectChatsFor(db: Database, user: string, group?: number) {
+  const peers = db.query(`SELECT DISTINCT b.user_id FROM group_members a JOIN groups g ON g.id = a.group_id
+    JOIN group_members b ON b.group_id = a.group_id AND b.user_id <> a.user_id
+    JOIN users u ON u.id = b.user_id AND u.member = 1 AND u.id NOT LIKE ?3
+    WHERE a.user_id = ?1 AND g.is_direct = 0 AND (?2 IS NULL OR a.group_id = ?2)
+    ORDER BY b.user_id`).all(user, group ?? null, `${LEGACY}%`) as { user_id: string }[];
+  const at = now();
+  for (const peer of peers) ensureDirectChat(db, user, peer.user_id, at);
+}
+
+export function sharesGroupWithDirectPeer(db: Database, direct: number, user: string): boolean {
+  return !!db.query(`SELECT 1 FROM group_members peer
+    JOIN group_members a ON a.user_id = peer.user_id
+    JOIN group_members b ON b.group_id = a.group_id AND b.user_id = ?2
+    JOIN groups g ON g.id = a.group_id AND g.is_direct = 0
+    WHERE peer.group_id = ?1 AND peer.user_id <> ?2 LIMIT 1`).get(direct, user);
 }
 
 /**
