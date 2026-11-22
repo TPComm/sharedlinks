@@ -1103,9 +1103,7 @@ export function createApp(config: Config, opts: AppOptions = {}) {
             LEFT JOIN nudges n ON n.link_id = ?1 AND n.person = m.user_id
             WHERE m.group_id = ?2 AND m.user_id != ?3
               AND NOT EXISTS (SELECT 1 FROM seen WHERE link_id = ?1 AND person = m.user_id)
-              AND NOT EXISTS (SELECT 1 FROM reports WHERE link_id = ?1 AND reporter = m.user_id)
-              AND NOT EXISTS (SELECT 1 FROM blocks WHERE
-                (blocker = ?3 AND blocked = m.user_id) OR (blocker = m.user_id AND blocked = ?3))`)
+              AND NOT EXISTS (SELECT 1 FROM blocks WHERE blocker = ?3 AND blocked = m.user_id)`)
             .all(id, link.group_id, me) as { user_id: string; nudged_at: number | null }[];
           const requested = candidates.filter((p) => !people?.length || people.includes(p.user_id));
           const at = now();
