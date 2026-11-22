@@ -167,7 +167,7 @@ WORKOS_CLIENT_ID=client_... \
 ```
 
 That adds swap on small boxes, installs Caddy and automatic security updates, creates a locked-down
-`links` service and a daily database backup (`/var/lib/links/backups`, newest 14 nightly snapshots, plus a `photos/` copy of the current profile photos), opens only
+`links` service and a daily database backup (`/var/lib/links/backups`, newest 14 nightly snapshots, plus `photos/` and `report-photos/` copies for every retained snapshot), opens only
 SSH/80/443, then builds the right binary for the VPS's CPU on your Mac and deploys it. Finally set
 `LINKS_SERVER_URL_Release = https:/$()/links.example.com` in `ios/Config.xcconfig`, and let yourself
 in: `sudo -u links sh -c 'set -a && . /etc/links/links.env && DATA_DIR=/var/lib/links /opt/links/links-server invite you@x.com'`.
@@ -205,6 +205,8 @@ at startup and sends nothing.
 
 **Backups off the box:** `rsync -a root@203.0.113.7:/var/lib/links/backups/ ./backups/`
 
+**Restoring:** alongside the `.db`, copy `backups/photos/*` into `DATA_DIR/photos` and `backups/report-photos/*` into `DATA_DIR/report-photos`.
+
 **Labelled backups:** a copy named `links-YYYY-MM-DD-<label>.db` in the backups folder (say one made
 before a deploy) is removed by the nightly backup once its date is 14 days old, except the newest such
 copy, which stays so a rollback always has one.
@@ -232,16 +234,21 @@ host. Import it in Grafana (Dashboards → New → Import); it finds the stack's
 data sources itself. The live copy is "Links" in the Links folder of the Grafana Cloud stack; after
 editing it there, export it (Share → Export, without "Export for sharing externally") over this file.
 
-**Grafana alerts:** `deploy/grafana/links-alerts.json` is the live "links-prod" rule group in the
+**Grafana alerts:** `deploy/grafana/links-alerts.json` defines the "links-prod" rule group in the
 Links folder: **Links site down** (`links` or `caddy` unit not active for 3m, or the host stops
 sending metrics), **Links 5xx spike** (5 or more 5xx request lines in 5m), **Links disk filling
 up** (under 15% free on `/` for 10m), **Links backup stalled** (no `backed up to` line from
-`links-backup` in 26h, so the daily backup stopped running or kept failing) and **Links push
+`links-backup` in 26h, so the daily backup stopped running or kept failing), **Links push
 notifications failing** (3 or more push failure log lines in 15m for 5m, so a one-off 429 rate
-limit doesn't page; successful sends aren't logged). They match
+limit doesn't page; successful sends aren't logged) and **Links Loki heartbeat missing** (no
+Fluent Bit heartbeat in Loki for 5m, persisting for another 3m). They match
 `instance`/`host` `links.tpcomm.co` only, so test servers never fire them, and send to the
 "Links → Sherlog (Devin webhook)" contact point. After changing them in Grafana, export the group
 (Alert rules → links-prod → Export, JSON) over this file.
+
+Before enabling the Loki heartbeat rule, rerun `deploy/monitoring.sh` and verify
+`{job="links",host="links.tpcomm.co",systemd_unit="links-loki-heartbeat"}` receives a line each
+minute. The heartbeat checks Fluent Bit's Loki output, not the journal input or application traffic.
 
 **Reports and moderation** (App Store guideline 1.2). Whoever runs the server reads the reports:
 

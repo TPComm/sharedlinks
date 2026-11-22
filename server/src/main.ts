@@ -124,8 +124,8 @@ if (command === "mint-session") {
   const file = join(dir, `links-${new Date().toISOString().slice(0, 10)}.db`);
   // Uploaded profile photos live outside SQLite and can't be fetched again; each token's file never
   // changes. They're copied before the snapshot and again for the tokens it names, so a photo replaced
-  // in between is still saved; one that came and went in between means another try. A copy whose photo
-  // the snapshot no longer names goes, as deletion promises.
+  // in between is still saved; one that came and went in between means another try. Copies stay only
+  // while a retained snapshot names them, as deletion promises.
   const photos = join(config.dataDir, "photos");
   const saved = join(dir, "photos");
   mkdirSync(saved, { recursive: true });
@@ -169,8 +169,6 @@ if (command === "mint-session") {
     if (lost.length) console.error(`backup failed: report photo(s) missing from ${config.dataDir}: ${lost.join(", ")}`);
     process.exit(1);
   }
-  for (const f of readdirSync(saved)) if (!named.includes(f)) rmSync(join(saved, f), { force: true });
-  for (const f of readdirSync(savedReported)) if (!evidence.includes(join("report-photos", f))) rmSync(join(savedReported, f), { force: true });
   const names = readdirSync(dir);
   const old = names.filter((f) => /^links-\d{4}-\d{2}-\d{2}\.db$/.test(f)).sort().slice(0, -14);
   // Labelled copies (links-YYYY-MM-DD-pre-deploy.db) go after 14 days too, as the privacy page promises,
@@ -184,6 +182,25 @@ if (command === "mint-session") {
     .sort();
   old.push(...labelled.slice(0, -1).filter((f) => f.slice(6, 16) <= cutoff));
   for (const f of old) rmSync(join(dir, f));
+  const keptPhotos = new Set<string>();
+  const keptReports = new Set<string>();
+  for (const f of readdirSync(dir).filter((f) => /^links-\d{4}-\d{2}-\d{2}(?:-.+)?\.db$/.test(f))) {
+    const snapshot = new Database(join(dir, f), { readonly: true });
+    try {
+      const columns = snapshot.query("PRAGMA table_info(users)").all() as { name: string }[];
+      if (columns.some((c) => c.name === "photo")) {
+        for (const { photo } of snapshot.query("SELECT photo FROM users WHERE photo <> ''").all() as { photo: string }[]) keptPhotos.add(photo);
+      }
+      if (snapshot.query("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'reports'").get()) {
+        for (const { copy } of snapshot.query("SELECT json_extract(snapshot, '$.photo_copy') AS copy FROM reports WHERE json_extract(snapshot, '$.photo_copy') IS NOT NULL")
+          .all() as { copy: string }[]) keptReports.add(copy);
+      }
+    } finally {
+      snapshot.close();
+    }
+  }
+  for (const f of readdirSync(saved)) if (!keptPhotos.has(f)) rmSync(join(saved, f), { force: true });
+  for (const f of readdirSync(savedReported)) if (!keptReports.has(join("report-photos", f))) rmSync(join(savedReported, f), { force: true });
   console.log(`backed up to ${file}`);
 } else if (command === "reports") {
   // App Store guideline 1.2: "timely responses" to reports. Each new one is also logged (journalctl -u links).
