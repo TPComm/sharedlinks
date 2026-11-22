@@ -48,6 +48,24 @@ const addLink = (db: Database, url: string) =>
   Number(db.run("INSERT INTO links (group_id, url, platform, added_by, added_at) VALUES (1, ?, 'web', 'u', 1)", [url]).lastInsertRowid);
 
 describe("openDatabase", () => {
+  test("v19 leaves legacy reaction timestamps null and tolerates an existing column", () => {
+    const db = openDatabase(tmp.dir);
+    db.run("INSERT INTO users (id, name, created_at) VALUES ('u', 'U', 1)");
+    const id = addLink(db, "https://example.com/reaction");
+    db.run("INSERT INTO reactions (link_id, person, emoji) VALUES (?, 'u', '😂')", [id]);
+    db.exec("ALTER TABLE reactions DROP COLUMN reacted_at; PRAGMA user_version = 18");
+    db.close();
+    const migrated = openDatabase(tmp.dir);
+    expect(migrated.query("SELECT reacted_at FROM reactions").all()).toEqual([{ reacted_at: null }]);
+    expect(pragma(migrated, "user_version")).toBe(19);
+    migrated.exec("PRAGMA user_version = 18");
+    migrated.close();
+    const reopened = openDatabase(tmp.dir);
+    expect(pragma(reopened, "user_version")).toBe(19);
+    expect(reopened.query("SELECT reacted_at FROM reactions").all()).toEqual([{ reacted_at: null }]);
+    reopened.close();
+  });
+
   test("fills tokens after an old binary inserts into a v16 database without changing existing tokens", () => {
     const db = openDatabase(tmp.dir);
     db.run("INSERT INTO users (id, name, created_at) VALUES ('u', 'U', 1)");
@@ -125,7 +143,7 @@ describe("openDatabase", () => {
     db.run("INSERT INTO users (id, name, created_at) VALUES ('u', 'U', 1)");
     const id = addLink(db, "https://a.com/1");
     db.run("INSERT INTO seen VALUES (?, 'u', 1)", [id]);
-    db.run("INSERT INTO reactions VALUES (?, 'u', '🔥')", [id]);
+    db.run("INSERT INTO reactions (link_id, person, emoji) VALUES (?, 'u', '🔥')", [id]);
     db.run("INSERT INTO sessions VALUES ('h', 'u', 1, 1)");
     db.run("DELETE FROM links WHERE id = ?", [id]);
     expect(db.query("SELECT COUNT(*) AS n FROM seen").get()).toEqual({ n: 0 });
@@ -172,7 +190,7 @@ describe("migrations", () => {
       .toEqual([{ id: 1, added_by: "legacy:Sam" }, { id: 2, added_by: "legacy:Jo" }, { id: 3, added_by: "legacy:Alex" }]);
     expect(db.query("SELECT * FROM seen ORDER BY link_id").all())
       .toEqual([{ link_id: 1, person: "legacy:Alex", seen_at: 11 }, { link_id: 3, person: "legacy:Jo", seen_at: 12 }]);
-    expect(db.query("SELECT * FROM reactions").all()).toEqual([{ link_id: 1, person: "legacy:Alex", emoji: "🔥" }]);
+    expect(db.query("SELECT * FROM reactions").all()).toEqual([{ link_id: 1, person: "legacy:Alex", emoji: "🔥", reacted_at: null }]);
     // ...and the later migrations ran too.
     expect(linksSql(db)).toContain("AUTOINCREMENT");
     expect(urls(db)).toEqual([
@@ -207,7 +225,7 @@ describe("migrations", () => {
     ]);
     expect(db.query("SELECT * FROM seen ORDER BY link_id").all())
       .toEqual([{ link_id: 1, person: "user_A", seen_at: 3 }, { link_id: 5, person: "legacy:Sam", seen_at: 4 }]);
-    expect(db.query("SELECT * FROM reactions").all()).toEqual([{ link_id: 5, person: "user_A", emoji: "😂" }]);
+    expect(db.query("SELECT * FROM reactions").all()).toEqual([{ link_id: 5, person: "user_A", emoji: "😂", reacted_at: null }]);
     expect(db.query("SELECT user_id FROM sessions").all()).toEqual([{ user_id: "user_A" }]);
     expect(pragma(db, "foreign_keys")).toBe(1);
     expect(db.query("PRAGMA foreign_key_check").all()).toEqual([]);

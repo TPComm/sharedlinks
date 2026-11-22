@@ -279,6 +279,16 @@ function migrateToV22(db: Database) {
   })();
 }
 
+function migrateToV19(db: Database) {
+  const { user_version } = db.query("PRAGMA user_version").get() as { user_version: number };
+  if (user_version >= 19) return;
+  db.transaction(() => {
+    const have = (db.query("PRAGMA table_info(reactions)").all() as { name: string }[]).map((c) => c.name);
+    if (!have.includes("reacted_at")) db.run("ALTER TABLE reactions ADD COLUMN reacted_at REAL");
+    db.run("PRAGMA user_version = 19");
+  })();
+}
+
 function migrateToV17(db: Database) {
   const { user_version } = db.query("PRAGMA user_version").get() as { user_version: number };
   if (user_version >= 17) return;

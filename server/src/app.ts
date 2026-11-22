@@ -676,7 +676,9 @@ export function createApp(config: Config, opts: AppOptions = {}) {
         throw new BadRequest("Choose a single emoji.");
       }
       const before = db.query("SELECT emoji FROM reactions WHERE link_id = ? AND person = ?").get(id, me) as { emoji: string } | null;
-      db.run("INSERT OR REPLACE INTO reactions (link_id, person, emoji) VALUES (?, ?, ?)", [id, me, emoji]);
+      if (before?.emoji !== emoji) {
+        db.run("INSERT OR REPLACE INTO reactions (link_id, person, emoji, reacted_at) VALUES (?, ?, ?, ?)", [id, me, emoji, now()]);
+      }
       return before?.emoji !== emoji;
     });
     if (changed) push.activity(id, me, "reacted");
@@ -867,6 +869,44 @@ export function createApp(config: Config, opts: AppOptions = {}) {
           top_sender: topSender ?? null,
           top_platform: platform ? { platform: platform[0], count: platform[1] } : null,
           most_reacted: best && best.count > 0 ? { ...toLink(best.row, me), sender_name: bestSender?.name ?? "Deleted user", reactions: best.count } : null });
+      }),
+    },
+    "/api/activity": {
+      GET: route((req, me) => {
+        const params = new URL(req.url).searchParams;
+        const before = params.get("before");
+        const limit = Number(params.get("limit") ?? 50);
+        if (!Number.isInteger(limit) || limit < 1 || limit > 100
+            || (before !== null && (!before.trim() || !Number.isFinite(Number(before))))) {
+          throw new BadRequest("Use a finite before timestamp and a limit from 1 to 100.");
+        }
+        const rows = db.query(`SELECT * FROM (
+          SELECT 'comment' AS kind, c.link_id, c.person, c.created_at AS at,
+            c.id AS comment_id, substr(c.body, 1, 120) AS snippet, NULL AS emoji, c.id AS sort_id
+          FROM comments c JOIN links ON links.id = c.link_id
+          WHERE ${VISIBLE} AND c.person != ?1
+            AND NOT EXISTS (SELECT 1 FROM blocks WHERE blocker = ?1 AND blocked = c.person)
+            AND NOT EXISTS (SELECT 1 FROM reports WHERE reporter = ?1 AND comment_id = c.id)
+          UNION ALL
+          SELECT 'reaction', r.link_id, r.person, r.reacted_at, NULL, NULL, r.emoji, r.link_id
+          FROM reactions r JOIN links ON links.id = r.link_id
+          WHERE ${VISIBLE} AND links.added_by = ?1 AND r.person != ?1 AND r.reacted_at IS NOT NULL
+            AND NOT EXISTS (SELECT 1 FROM blocks WHERE blocker = ?1 AND blocked = r.person)
+          UNION ALL
+          SELECT 'watched', s.link_id, s.person, s.seen_at, NULL, NULL, NULL, s.link_id
+          FROM seen s JOIN links ON links.id = s.link_id
+          WHERE ${VISIBLE} AND links.added_by = ?1 AND s.person != ?1
+            AND NOT EXISTS (SELECT 1 FROM blocks WHERE blocker = ?1 AND blocked = s.person)
+        ) WHERE (?2 IS NULL OR at < ?2)
+        ORDER BY at DESC, kind, sort_id DESC, person LIMIT ?3`).all(me, before === null ? null : Number(before), limit + 1) as {
+          kind: "comment" | "reaction" | "watched"; link_id: number; person: string; at: number;
+          comment_id: number | null; snippet: string | null; emoji: string | null; sort_id: number;
+        }[];
+        return json({ items: rows.slice(0, limit).map((r) => ({
+          kind: r.kind, link_id: r.link_id, person: r.person, at: r.at,
+          ...(r.kind === "comment" ? { comment_id: r.comment_id, snippet: r.snippet } : {}),
+          ...(r.kind === "reaction" ? { emoji: r.emoji } : {}),
+        })), has_more: rows.length > limit });
       }),
     },
     "/api/state": {

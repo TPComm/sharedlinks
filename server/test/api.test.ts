@@ -2230,6 +2230,69 @@ test("previews older than PREVIEW_VERSION are backfilled one at a time", async (
   }
 });
 
+describe("activity feed", () => {
+  test("lists others' visible activity, paginates, and hides blocked, reported and departed chats", async () => {
+    const ann = mint("ann@activity.test", "Activity Ann");
+    const bo = mint("bo@activity.test", "Activity Bo");
+    const me = (await call("/api/state", { token: ann })).data.me;
+    const person = (await call("/api/state", { token: bo })).data.me;
+    const feed = async (query = "") => (await call(`/api/activity${query}`, { token: ann })).data;
+    expect(await feed()).toEqual({ items: [], has_more: false });
+    expect((await call("/api/activity")).status).toBe(401);
+    for (const query of ["?limit=0", "?limit=101", "?limit=1.5", "?before=NaN", "?before="]) {
+      expect((await call(`/api/activity${query}`, { token: ann })).status).toBe(400);
+    }
+    const group = (await call("/api/groups", { token: ann, body: { members: [person] } })).data.group;
+    const link = (await call("/api/links", { token: ann, body: { url: `${origin}/plain?activity=1`, group_id: group.id } })).data.link;
+    const comment = (await call(`/api/links/${link.id}/comments`, { token: bo, body: { body: "x".repeat(140) } })).data.comment;
+    await call(`/api/links/${link.id}/react`, { token: bo, body: { emoji: "😂" } });
+    await call(`/api/links/${link.id}/comments`, { token: ann, body: { body: "Own reply" } });
+    await call(`/api/links/${link.id}/react`, { token: ann, body: { emoji: "😂" } });
+    const db = openDatabase(dataDir);
+    try {
+      db.run("UPDATE comments SET created_at = 30 WHERE id = ?", [comment.id]);
+      db.run("UPDATE reactions SET reacted_at = 20 WHERE link_id = ? AND person = ?", [link.id, person]);
+      db.run("UPDATE seen SET seen_at = 10 WHERE link_id = ? AND person = ?", [link.id, person]);
+      await call(`/api/links/${link.id}/react`, { token: bo, body: { emoji: "😂" } });
+      expect(db.query("SELECT reacted_at FROM reactions WHERE link_id = ? AND person = ?").get(link.id, person)).toEqual({ reacted_at: 20 });
+      const items = [
+        { kind: "comment", link_id: link.id, person, at: 30, comment_id: comment.id, snippet: "x".repeat(120) },
+        { kind: "reaction", link_id: link.id, person, at: 20, emoji: "😂" },
+        { kind: "watched", link_id: link.id, person, at: 10 },
+      ];
+      expect(await feed()).toEqual({ items, has_more: false });
+      expect(await feed("?limit=2")).toEqual({ items: items.slice(0, 2), has_more: true });
+      expect(await feed("?before=20&limit=2")).toEqual({ items: items.slice(2), has_more: false });
+      expect(await feed("?before=10")).toEqual({ items: [], has_more: false });
+      await call(`/api/links/${link.id}/react`, { token: bo, body: { emoji: "❤️" } });
+      expect((await feed()).items[0]).toMatchObject({ kind: "reaction", emoji: "❤️" });
+      db.run("UPDATE reactions SET reacted_at = NULL WHERE link_id = ?", [link.id]);
+      expect((await feed()).items.map((i: any) => i.kind)).toEqual(["comment", "watched"]);
+      await call("/api/blocks", { token: ann, body: { user_id: person } });
+      expect(await feed()).toEqual({ items: [], has_more: false });
+      await call(`/api/blocks/${person}`, { token: ann, method: "DELETE" });
+      await call("/api/reports", { token: ann, body: { comment_id: comment.id, reason: "spam" } });
+      expect((await feed()).items.map((i: any) => i.kind)).toEqual(["watched"]);
+      const incoming = (await call("/api/links", { token: bo, body: { url: `${origin}/plain?activity=2`, group_id: group.id } })).data.link;
+      const reply = (await call(`/api/links/${incoming.id}/comments`, { token: bo, body: { body: "Incoming" } })).data.comment;
+      await call(`/api/links/${incoming.id}/react`, { token: bo, body: { emoji: "😂" } });
+      expect((await feed()).items.filter((i: any) => i.link_id === incoming.id)).toEqual([
+        { kind: "comment", link_id: incoming.id, person, at: reply.created_at, comment_id: reply.id, snippet: "Incoming" },
+      ]);
+      await call("/api/blocks", { token: ann, body: { user_id: person } });
+      expect(await feed()).toEqual({ items: [], has_more: false });
+      await call(`/api/blocks/${person}`, { token: ann, method: "DELETE" });
+      await call("/api/reports", { token: ann, body: { link_id: incoming.id, reason: "spam" } });
+      expect((await feed()).items.every((i: any) => i.link_id !== incoming.id)).toBe(true);
+      await call(`/api/groups/${group.id}`, { token: ann, method: "DELETE" });
+      expect(await feed()).toEqual({ items: [], has_more: false });
+      expect(me).not.toBe(person);
+    } finally {
+      db.close();
+    }
+  });
+});
+
 describe("comment threads", () => {
   let ann: string, bo: string, cy: string, annId: string, boId: string;
   let sequence = 0;
