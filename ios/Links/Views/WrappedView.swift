@@ -9,13 +9,19 @@ struct WrappedView: View {
 
     enum Period: String, CaseIterable {
         case thisMonth = "This Month", lastMonth = "Last Month", thisYear = "This Year"
+        private var calendar: Calendar {
+            var calendar = Calendar(identifier: .gregorian)
+            calendar.timeZone = .current
+            return calendar
+        }
         var interval: DateInterval {
-            let calendar = Calendar.current
             let date = self == .lastMonth ? calendar.date(byAdding: .month, value: -1, to: .now)! : .now
             return calendar.dateInterval(of: self == .thisYear ? .year : .month, for: date)!
         }
         func title(for date: Date) -> String {
             let formatter = DateFormatter()
+            formatter.calendar = calendar
+            formatter.timeZone = calendar.timeZone
             formatter.dateFormat = self == .thisYear ? "yyyy" : "MMMM yyyy"
             return formatter.string(from: date)
         }
