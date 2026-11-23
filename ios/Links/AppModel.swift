@@ -51,6 +51,8 @@ final class AppModel {
     private(set) var featureTourRequest: FeatureTourRequest?
     private var featureTourAppeared = false
     var showFeatureTours = false
+    /// Swipe Through, while it's open.
+    var swipeQueue: SwipeQueue?
     var shouldPresentFeatureTours: Bool {
         #if DEBUG
         if droppingFeatureTourPresentation { return false }
@@ -201,6 +203,7 @@ final class AppModel {
         featureTourAppeared = false
         featureTourRequest = nil
         isProfileOpen = false
+        swipeQueue = nil
         pushRegistered = false
         registeredToken = nil
         SessionStore.clear()
@@ -619,7 +622,7 @@ final class AppModel {
     // MARK: Tour
 
     /// Gesture tips wait until nothing covers the inbox, so a popover never lands under a sheet.
-    var canShowTips: Bool { tourCompleted && !showTour && featureTourRequest == nil && !dismissingWelcomeTour && !requestingNotifications && !showClaimSheet && !showAddSheet && !isProfileOpen }
+    var canShowTips: Bool { tourCompleted && !showTour && featureTourRequest == nil && swipeQueue == nil && !dismissingWelcomeTour && !requestingNotifications && !showClaimSheet && !showAddSheet && !isProfileOpen }
 
     /// Starts onboarding after sign-in and after the claim sheet (if any) has closed.
     func showTourIfNeeded() {
@@ -647,6 +650,7 @@ final class AppModel {
         if showAddSheet { return "add sheet open" }
         if isProfileOpen { return "profile open" }
         if chatSheet != nil { return "chat sheet open" }
+        if swipeQueue != nil { return "Swipe Through open" }
         return nil
     }
 
@@ -981,6 +985,7 @@ final class AppModel {
             // A shared /l/ link, e.g. tapped in Messages: its page, when it's in my inbox.
             showPage { $0.token == token }
         case .add:
+            swipeQueue = nil
             addPrefill = ""
             showAddSheet = true
         case .invite(let invite):
@@ -1024,6 +1029,7 @@ final class AppModel {
 
     /// A chat's lists, from a deep link: the tab showing goes back to its list, off any link page.
     private func showChat(_ id: Int) {
+        swipeQueue = nil
         chat = id
         paths[tab] = []
     }
@@ -1035,6 +1041,7 @@ final class AppModel {
 
     /// A link's page on the tab whose list has it, e.g. from a widget.
     func showPage(_ link: SharedLink) {
+        swipeQueue = nil
         if let chat, link.groupID != chat { self.chat = nil } // e.g. a push from another chat
         let tab = InboxTab(inbox.home(of: link))
         self.tab = tab
