@@ -19,17 +19,22 @@ final class FeatureTourUITests: XCTestCase {
         XCTAssert(waitForTitle("Make Links Yours"))
         XCTAssert(app.buttons["featureTour.action.profilePhoto"].exists)
         let progress = app.descendants(matching: .any)["featureTour.progress"]
-        XCTAssertEqual(progress.label, "Page 1 of 3")
+        XCTAssertEqual(progress.label, "Page 1 of 4")
         capture("Profile photo action")
         app.buttons["featureTour.continue"].tap()
         XCTAssert(waitForTitle("Send Today's Links Together"))
         XCTAssert(app.buttons["featureTour.action.rollup"].exists)
-        XCTAssertEqual(progress.label, "Page 2 of 3")
+        XCTAssertEqual(progress.label, "Page 2 of 4")
         capture("Roll-up action")
         app.buttons["featureTour.continue"].tap()
         XCTAssert(waitForTitle("Links Wrapped"))
-        XCTAssertEqual(progress.label, "Page 3 of 3")
+        XCTAssertEqual(progress.label, "Page 3 of 4")
         capture("Wrapped page")
+        app.buttons["featureTour.continue"].tap()
+        XCTAssert(waitForTitle("See Who Shared It"))
+        XCTAssertFalse(app.buttons["featureTour.action.sharedWithYou"].exists)
+        XCTAssertEqual(progress.label, "Page 4 of 4")
+        capture("Shared with You")
         app.buttons["featureTour.done"].tap()
         XCTAssert(app.tabBars.buttons["Queue"].waitForExistence(timeout: 20))
 
@@ -58,6 +63,7 @@ final class FeatureTourUITests: XCTestCase {
         XCTAssert(app.tabBars.buttons["Queue"].waitForExistence(timeout: 20))
         XCTAssertFalse(app.staticTexts["Make Links Yours"].waitForExistence(timeout: 3))
         XCTAssertFalse(app.staticTexts["Send Today's Links Together"].exists)
+        XCTAssertFalse(app.staticTexts["See Who Shared It"].exists)
     }
 
     private func launch(reset: Bool) {
