@@ -95,7 +95,7 @@ struct WrappedCard: View {
                 highlight("Your top sender", wrapped.topSender?.name ?? "Just you so far")
                     .accessibilityIdentifier("wrapped.topSender")
                 HStack(alignment: .top, spacing: 24) {
-                    highlight("Watch rate", wrapped.watchRate.map { $0.formatted(.percent.precision(.fractionLength(0))) } ?? "—")
+                    highlight("Seen rate", wrapped.watchRate.map { $0.formatted(.percent.precision(.fractionLength(0))) } ?? "—")
                     highlight("Top platform", wrapped.topPlatform?.platform.capitalized ?? "—")
                 }
                 highlight("Most reacted", wrapped.mostReacted.map { $0.title ?? $0.url.host() ?? "A shared favorite" } ?? "The love is still loading")

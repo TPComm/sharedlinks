@@ -36,7 +36,7 @@ who hasn't seen it, or **Nudge Everyone**; each person can be nudged once per da
 even if iOS closed the app meanwhile. Long-press **Open in TikTok** still goes straight there and
 marks it seen in one go.
 
-**Profile → Links Wrapped** shows monthly and yearly highlights: your top sender, watch rate,
+**Profile → Links Wrapped** shows monthly and yearly highlights: your top sender, seen rate,
 top platform and most-reacted link, with an opt-in shareable card. It covers only links you can
 see in your current chats; dates use your local calendar and reactions/seen marks reflect now.
 

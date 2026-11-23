@@ -27,6 +27,7 @@ final class LinksUITests: XCTestCase {
         scrolledTo(app.buttons["profile.wrapped"]).tap()
         let sender = app.staticTexts["Friend"]
         XCTAssert(sender.waitForExistence(timeout: 20))
+        XCTAssert(app.staticTexts["Seen rate"].exists)
         scrolledTo(app.buttons["wrapped.share"])
         XCTAssert(app.buttons["wrapped.share"].exists)
         let attachment = XCTAttachment(screenshot: app.screenshot())
