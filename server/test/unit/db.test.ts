@@ -421,6 +421,32 @@ describe("v9: people who came in on a friend's invite move to a chat with that f
   });
 });
 
+describe("v19: daily catch-up", () => {
+  for (const partial of [false, true]) {
+    test(`upgrades v18 with ${partial ? "an existing catch-up column" : "no catch-up columns"} and preserves direct chats`, () => {
+      const db = openDatabase(tmp.dir);
+      db.exec(`ALTER TABLE users DROP COLUMN catchup_sent_on;
+        ALTER TABLE users DROP COLUMN catchup_tz;
+        ${partial ? "" : "ALTER TABLE users DROP COLUMN catchup_minute;"}
+        PRAGMA user_version = 18;
+        INSERT INTO users (id, name, created_at, member) VALUES ('a', 'A', 1, 1), ('b', 'B', 1, 1);
+        INSERT INTO groups (id, name, created_by, created_at, is_direct) VALUES (2, '', 'a', 1, 1);`);
+      db.close();
+      const upgraded = openDatabase(tmp.dir);
+      expect(pragma(upgraded, "user_version")).toBe(19);
+      expect(upgraded.query("SELECT catchup_minute, catchup_tz, catchup_sent_on FROM users WHERE id = 'a'").get())
+        .toEqual({ catchup_minute: null, catchup_tz: null, catchup_sent_on: null });
+      expect(upgraded.query("SELECT is_direct FROM groups WHERE id = 2").get()).toEqual({ is_direct: 1 });
+      upgraded.run("UPDATE users SET catchup_minute = 480, catchup_tz = 'UTC', catchup_sent_on = '2026-03-08' WHERE id = 'a'");
+      upgraded.close();
+      const reopened = openDatabase(tmp.dir);
+      expect(reopened.query("SELECT catchup_minute, catchup_tz, catchup_sent_on FROM users WHERE id = 'a'").get())
+        .toEqual({ catchup_minute: 480, catchup_tz: "UTC", catchup_sent_on: "2026-03-08" });
+      reopened.close();
+    });
+  }
+});
+
 describe("v18: direct chats", () => {
   test("backfills one chat per pair without changing existing chats, links or invites", () => {
     const db = openDatabase(tmp.dir);

@@ -265,15 +265,15 @@ function migrateToV21(db: Database) {
   })();
 }
 
-function migrateToV18(db: Database) {
+function migrateToV19(db: Database) {
   const { user_version } = db.query("PRAGMA user_version").get() as { user_version: number };
-  if (user_version >= 18) return;
+  if (user_version >= 19) return;
   db.transaction(() => {
     const have = (db.query("PRAGMA table_info(users)").all() as { name: string }[]).map((c) => c.name);
     for (const [column, type] of [["catchup_minute", "INTEGER"], ["catchup_tz", "TEXT"], ["catchup_sent_on", "TEXT"]]) {
       if (!have.includes(column!)) db.run(`ALTER TABLE users ADD COLUMN ${column} ${type}`);
     }
-    db.run("PRAGMA user_version = 18");
+    db.run("PRAGMA user_version = 19");
   })();
 }
 
