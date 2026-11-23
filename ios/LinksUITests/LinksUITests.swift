@@ -224,6 +224,17 @@ final class LinksUITests: XCTestCase {
         XCTAssertFalse(app.scrollViews["swipeQueue"].exists)
     }
 
+    func testInboxDeepLinkClosesSwipeThrough() throws {
+        let link = try seed(by: server.friend)
+        launch()
+        waitForRow(link, in: "toWatch")
+        app.buttons["swipeQueue.open"].tap()
+        let swipeQueue = app.scrollViews["swipeQueue"]
+        XCTAssert(swipeQueue.waitForExistence(timeout: 10))
+        app.open(URL(string: "sharedlinks://inbox")!)
+        XCTAssert(swipeQueue.waitForNonExistence(timeout: 10), "Swipe Through stayed open after the inbox deep link")
+    }
+
     func testSentShowsWhenTheFriendHasWatchedIt() throws {
         let link = try seed(by: server.me, note: "Sent \(shortID())")
         launch()
