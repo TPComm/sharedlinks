@@ -189,8 +189,8 @@ afterAll(() => {
   rmSync(dataDir, { recursive: true, force: true });
 });
 
-async function call(path: string, opts: { method?: string; token?: string; body?: unknown } = {}) {
-  const res = await fetch(api + path, {
+async function call(path: string, opts: { method?: string; token?: string; body?: unknown } = {}, endpoint = api) {
+  const res = await fetch(endpoint + path, {
     method: opts.method ?? (opts.body ? "POST" : "GET"),
     redirect: "manual",
     headers: {
@@ -291,6 +291,38 @@ test("nudges are sender-only, private, limited per person and skip ineligible me
     expect(app.db.query("SELECT * FROM nudges WHERE link_id = ?").all(id)).toEqual([]);
   } finally {
     delivery.mockRestore();
+    app.push.close();
+    server.stop(true);
+    await app.idle();
+    app.db.close();
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("nudging everyone skips unclaimed legacy people in the Everyone chat", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "links-legacy-nudges-"));
+  const { app, server } = startServer({ ...baseConfig, dataDir: dir, port: 0, previewBackfillMs: 0 });
+  try {
+    const endpoint = server.url.origin;
+    const sender = app.accounts.mintSession("legacy-nudge-sender@test.example", "Sender");
+    const friend = app.accounts.mintSession("legacy-nudge-friend@test.example", "Friend");
+    const other = app.accounts.mintSession("legacy-nudge-other@test.example", "Other Friend");
+    const recipientIds = await Promise.all([friend, other].map(async (token) => (await call("/api/state", { token }, endpoint)).data.me as string));
+    const legacy = "legacy:Sam";
+    app.db.run("INSERT INTO users (id, name, created_at) VALUES (?, 'Sam', 1)", [legacy]);
+    seedEveryoneMember(app.db, legacy);
+    const { data } = await call("/api/state", { token: sender }, endpoint);
+    const everyone = data.groups.find((g: any) => g.default);
+    expect(everyone.members).toContain(legacy);
+    const { status, data: added } = await call("/api/links", { token: sender,
+      body: { url: `${origin}/plain?legacy-nudge`, group_id: everyone.id },
+    }, endpoint);
+    expect(status).toBe(201);
+    const nudge = await call(`/api/links/${added.link.id}/nudge`, { token: sender, body: {} }, endpoint);
+    expect(nudge.status).toBe(200);
+    expect(nudge.data.nudged.sort()).toEqual(recipientIds.sort());
+    expect(Object.keys(nudge.data.link.nudged).sort()).toEqual(recipientIds);
+  } finally {
     app.push.close();
     server.stop(true);
     await app.idle();
