@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { startServer } from "../src/app.ts";
 import { configFromEnv } from "../src/config.ts";
+import { defaultGroup } from "../src/db.ts";
 import { Pusher } from "../src/push.ts";
 
 const VERIFIER = "v".repeat(43);
@@ -108,7 +109,7 @@ beforeAll(async () => {
   app = started.app;
   api = started.server.url.origin;
   stop = () => { app.push.close(); started.server.stop(true); };
-  for (const u of Object.values(users) as { email: string }[]) app.accounts.createInvite(null, u.email);
+  for (const u of Object.values(users) as { email: string }[]) app.accounts.createInvite(null, u.email, defaultGroup(app.db));
   [sam, alex, kim, gone] = await Promise.all(["sam", "alex", "kim", "gone"].map(signIn)) as [string, string, string, string];
   const kimOld = await signIn("kim");
   for (const [t, d] of [[sam, SAM], [alex, ALEX], [kim, KIM], [gone, GONE], [kimOld, KIM_OLD]] as const) {

@@ -895,6 +895,7 @@ export function createApp(config: Config, opts: AppOptions = {}) {
           groupOf(id, me); // still in it now the body is in
           const group = getGroup(id, me);
           if (group.direct) throw new BadRequest("Start a group chat to add more people.");
+          if (group.default) throw new BadRequest("Start a new group chat to add people. Everyone's history is private to its existing members.");
           const added = newMembers(data.members, me, group.members);
           const at = now();
           for (const user of added) {
@@ -917,7 +918,8 @@ export function createApp(config: Config, opts: AppOptions = {}) {
         const { invite, token } = asUser(me, () => {
           const group = group_id === undefined || group_id === null ? null : getGroup(groupOf(group_id, me), me);
           if (group?.direct) throw new BadRequest("You can't invite someone into a direct chat.");
-          return accounts.createInvite(me, email, group?.id ?? null);
+          // Older apps pass the selected chat, which may be Everyone.
+          return accounts.createInvite(me, email, group && !group.default ? group.id : null);
         });
         return json({ invite: { ...invite, url: `${config.publicUrl}/invite/${token}` } }, 201);
       }),

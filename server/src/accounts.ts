@@ -489,17 +489,16 @@ export class Accounts {
   }
 
   /**
-   * Let someone in (#75: they see only people they share a chat with). A friend's invite puts them in
-   * their group chat, or a direct chat with the friend. An admin's invite puts them in the default chat.
-   * Returns the chat they're in.
+   * Admit the account, granting only the chat that the invite allows. Admin invites without a
+   * destination admit the account without a chat; only an admin can explicitly grant Everyone.
    */
-  private admit(userId: string, invite?: InviteRow): number {
+  private admit(userId: string, invite?: InviteRow): number | null {
     this.db.run("UPDATE users SET member = 1 WHERE id = ?", [userId]);
     // An account from before invites that wasn't let in was still put in the default chat by v8.
     this.db.run("DELETE FROM group_members WHERE user_id = ?", [userId]);
     const friend = invite?.invited_by;
-    const group = friend ? this.inviteGroup(invite) : defaultGroup(this.db);
-    if (group === null) return ensureDirectChat(this.db, friend!, userId);
+    const group = friend ? this.inviteGroup(invite) : invite ? invite.group_id : defaultGroup(this.db);
+    if (group === null) return friend ? ensureDirectChat(this.db, friend, userId) : null;
     this.db.run("INSERT OR IGNORE INTO group_members (group_id, user_id, joined_at) VALUES (?, ?, ?)", [group, userId, now()]);
     ensureDirectChatsFor(this.db, userId, group);
     return group;
@@ -511,7 +510,7 @@ export class Accounts {
   private inviteGroup(invite: InviteRow): number | null {
     const row = this.db.query(`SELECT g.id FROM groups g
       JOIN group_members m ON m.group_id = g.id AND m.user_id = ?2
-      WHERE g.id = ?1 AND g.is_direct = 0
+      WHERE g.id = ?1 AND g.is_direct = 0 AND g.is_default = 0
         AND (SELECT COUNT(*) FROM group_members WHERE group_id = g.id) < ?3`)
       .get(invite.group_id, invite.invited_by, MAX_GROUP_MEMBERS) as { id: number } | null;
     return row?.id ?? null;
@@ -570,7 +569,7 @@ export class Accounts {
   }
 
   /** Marks it used, keeping the chat a friend's invite took them to, for when they open it again. */
-  private useUp(invite: InviteRow, userId: string, group: number) {
+  private useUp(invite: InviteRow, userId: string, group: number | null) {
     this.db.run("UPDATE invites SET used_by = ?, used_at = ?, group_id = ? WHERE id = ?",
       [userId, now(), invite.invited_by ? group : invite.group_id, invite.id]);
   }

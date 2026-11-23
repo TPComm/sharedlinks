@@ -215,7 +215,7 @@ describe("a day with Links", () => {
     await printed(server, "stderr", "warning: nobody is in yet. Run `links-server invite you@example.com`, then sign in with that email.\n");
     // Invites are the only way in; the admin sends the first ones from the CLI.
     for (const email of ["alice@example.com", "Bob.Smith@team.test", "new@team.test"]) {
-      const run = await cli(dataDir, "invite", email);
+      const run = await cli(dataDir, "invite", email, "--join-everyone");
       expect(run.code, run.logs()).toBe(0);
       expect(run.stdout).toMatch(new RegExp(`^${PUBLIC_URL}/invite/[A-Za-z0-9_-]{43}\n$`));
       expect(run.stderr).toContain(`signing in with ${email.toLowerCase()} (verified) uses it even without the link`);

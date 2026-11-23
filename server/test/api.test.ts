@@ -9,7 +9,7 @@ import { configFromEnv } from "../src/config.ts";
 import { canonical, expandShortLink, extractUrl, platformOf } from "../src/links.ts";
 import { BlockedAddressError, isPrivateAddress, safeFetch } from "../src/net.ts";
 import { decodeEntities, ogTags, PREVIEW_VERSION, previewFromTags } from "../src/previews.ts";
-import { openDatabase } from "../src/db.ts";
+import { defaultGroup, openDatabase } from "../src/db.ts";
 import { fakeFetch } from "./unit/helpers.ts";
 
 // 1x1 PNG
@@ -99,6 +99,8 @@ const fakeWorkOS = Bun.serve({
           max: { id: "user_01MAX", email: "max@else.test", email_verified: true, first_name: "Max" },
           ida: { id: "user_01IDA", email: "ida@else.test", email_verified: true, first_name: "Ida" },
           neo: { id: "user_01NEO", email: "neo@else.test", email_verified: true, first_name: "Neo" },
+          privateGuest: { id: "user_01PRIVATEGUEST", email: "privateguest@else.test", email_verified: true },
+          oldInviteGuest: { id: "user_01OLDINVITEGUEST", email: "oldinviteguest@else.test", email_verified: true },
           unverifiedGuest: { id: "user_01UNVGUEST", email: "unv@else.test", email_verified: false },
         };
         const user = users[body.code];
@@ -163,7 +165,7 @@ beforeAll(() => {
   const { app, server } = startServer(config);
   // Invites are the only way in: these people were sent one (by the admin, `links-server invite`).
   for (const email of ["friend@example.com", "jane.doe@team.test", "rude.person@team.test", "blocker@team.test", "friend2@team.test"]) {
-    app.accounts.createInvite(null, email);
+    app.accounts.createInvite(null, email, defaultGroup(app.db));
   }
   api = server.url.origin;
   origin = fakeOrigin.url.origin;
@@ -410,7 +412,11 @@ describe("invites", () => {
     expect(page.status).toBe(200);
     expect(page.data).toContain("<title>You&#39;re invited to Links</title>");
     expect(page.data).toContain("If the invite was sent to your email address");
-    expect((await signIn("pip", VERIFIER, token)).status).toBe(200);
+    const signedIn = await signIn("pip", VERIFIER, token);
+    expect(signedIn.status).toBe(200);
+    expect(signedIn.data.group_id).toBeNull();
+    const view = (await call("/api/state", { token: signedIn.data.token })).data;
+    expect(view).toMatchObject({ groups: [], links: [], users: [{ id: signedIn.data.user.id }] });
   });
 
   test("revoked and expired invites stop working", async () => {
@@ -1019,6 +1025,52 @@ describe("group chats", () => {
     expect(peerChats.map((g: any) => g.members.find((id: string) => id !== cyId))).toContain("user_01FRIEND");
     expect(data.links.length).toBeGreaterThan(0);
     expect(data.links.every((l: any) => l.group_id === everyone.id)).toBe(true);
+  });
+
+  test("a private invite doesn't let someone add their friend to Everyone", async () => {
+    const before = await state(ann);
+    const everyone = before.groups.find((g: any) => g.default);
+    const historicalLink = before.links.find((l: any) => l.group_id === everyone.id);
+    // Older apps send the active inbox filter with a friend invite.
+    const made = await call("/api/invites", { token: ann, body: { group_id: everyone.id } });
+    expect(made.data.invite.group_id).toBeNull();
+    const guest = await signIn("privateGuest", VERIFIER, made.data.invite.url.split("/invite/")[1]);
+    expect(guest.status).toBe(200);
+    const { token, user } = guest.data;
+    const add = await call(`/api/groups/${everyone.id}/members`, { token: ann, body: { members: [user.id] } });
+    expect(add.status).toBe(400);
+
+    const after = await state(token);
+    expect(after.users.map((u: any) => u.id).sort()).toEqual([annId, user.id].sort());
+    expect(after.groups).toHaveLength(1);
+    expect(after.groups[0]).toMatchObject({ default: false, direct: true });
+    expect(after.links).toEqual([]);
+    expect((await call(`/api/state?group_id=${everyone.id}`, { token })).status).toBe(404);
+    expect((await call(`/api/links/${historicalLink.id}/comments`, { token })).status).toBe(404);
+    expect((await state(ann)).groups.find((g: any) => g.default).members).toEqual(everyone.members);
+  });
+
+  test("old pending invitations to Everyone grant only a direct chat", async () => {
+    const everyone = (await state(ann)).groups.find((g: any) => g.default);
+    const db = new Database(join(dataDir, "links.db"));
+    const tokens = ["b".repeat(43), "c".repeat(43)];
+    for (const [index, token] of tokens.entries()) {
+      db.run(`INSERT INTO invites (token_hash, invited_by, group_id, created_at, expires_at)
+        VALUES (?, ?, ?, unixepoch(), unixepoch() + 86400)`,
+        [new Bun.CryptoHasher("sha256").update(token).digest("hex"), [annId, boId][index]!, everyone.id]);
+    }
+    db.close();
+    const guest = await signIn("oldInviteGuest", VERIFIER, tokens[0]);
+    expect(guest.status).toBe(200);
+    const { token, user } = guest.data;
+    expect((await state(token)).groups).toHaveLength(1);
+    const accepted = await call("/api/invites/accept", { token, body: { token: tokens[1] } });
+    expect(accepted.status).toBe(200);
+    expect(accepted.data.group).toMatchObject({ default: false, direct: true });
+    const view = await state(token);
+    expect(view.groups).toHaveLength(2);
+    expect(view.users.map((u: any) => u.id).sort()).toEqual([annId, boId, user.id].sort());
+    expect(view.links).toEqual([]);
   });
 
   test("mute settings are per member, expire, and validate without renaming the chat", async () => {
