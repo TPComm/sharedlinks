@@ -132,6 +132,14 @@ struct GroupsTests {
         #expect(blocking.addable(to: try #require(blocking.group(2))).isEmpty)
     }
 
+    @Test func cannotAddFriendsToEveryone() throws {
+        var everyone = try #require(state.defaultGroup)
+        everyone.members.removeAll { $0 == "user_ALEX" }
+        let inbox = state.updating(everyone)
+        #expect(inbox.otherPeople.contains { $0.id == "user_ALEX" })
+        #expect(inbox.addable(to: everyone).isEmpty)
+    }
+
     @Test func newLinksGoToTheDefaultChat() {
         #expect(state.preferredGroup?.id == 1)
         var left = state.leaving(group: 1)
