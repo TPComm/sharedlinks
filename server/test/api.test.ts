@@ -957,6 +957,24 @@ describe("wrapped", () => {
     }
   });
 
+  test("breaks tied sender counts in JavaScript display-name order", async () => {
+    const viewer = mint("wrapped-tie-viewer@test.com", "Viewer");
+    const emoji = mint("wrapped-tie-emoji@test.com", "😀 Amy");
+    const fullwidth = mint("wrapped-tie-fullwidth@test.com", "Ｚoe");
+    const emojiId = (await call("/api/state", { token: emoji })).data.me;
+    const fullwidthId = (await call("/api/state", { token: fullwidth })).data.me;
+    const chat = await call("/api/groups", { token: viewer, body: { members: [emojiId, fullwidthId] } });
+    expect(chat.status).toBe(201);
+    const groupId = chat.data.group.id;
+    const start = Math.floor(Date.now() / 1000);
+    for (const [token, name] of [[emoji, "emoji"], [fullwidth, "fullwidth"]]) {
+      const link = await call("/api/links", { token, body: { group_id: groupId, url: `${origin}/plain?wrapped-tie=${name}` } });
+      expect(link.status).toBe(201);
+    }
+    const wrapped = await call(`/api/wrapped?start=${start}&end=${start + 3600}&group_id=${groupId}`, { token: viewer });
+    expect(wrapped.data.top_sender).toEqual({ id: emojiId, name: "😀 Amy", count: 1 });
+  });
+
   test("aggregates visible shares, ranges and chat filters with deterministic ties", async () => {
     const db = new Database(join(dataDir, "links.db"));
     const viewer = mint("wrapped-viewer@test.com", "Viewer");
