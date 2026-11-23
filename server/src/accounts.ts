@@ -93,6 +93,9 @@ export class Accounts {
       bound = String(email).trim().toLowerCase();
       if (bound.length > 254 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(bound)) throw new BadRequest("That doesn't look like an email address.");
     }
+    if (userId === null && groupId !== null && !bound) {
+      throw new BadRequest("--join-everyone requires an email; it grants access to Everyone's history.");
+    }
     const t = now();
     const pending = userId === null ? 0 : this.pendingInvites(userId).length;
     if (pending >= MAX_PENDING_INVITES) throw new BadRequest("You have a lot of invites waiting. Cancel some first.");
@@ -138,8 +141,12 @@ export class Accounts {
     if (token && INVITE_TOKEN_RE.test(token)) {
       const row = this.db.query("SELECT * FROM invites WHERE token_hash = ? AND used_at IS NULL AND expires_at > ?")
         .get(sha256(token), t) as InviteRow | null;
-      // Hide My Email: the link was sent to them, but Apple signs them in with a relay address.
-      if (row && (!row.email || (verified && (row.email.toLowerCase() === email.toLowerCase() || appleRelay(email))))) return row;
+      if (row) {
+        // An admin invite granting history requires the exact verified email even with the link.
+        const grantsHistory = row.invited_by === null && row.group_id !== null;
+        const exact = verified && row.email?.toLowerCase() === email.toLowerCase();
+        if (exact || (!grantsHistory && (!row.email || (verified && appleRelay(email))))) return row;
+      }
     }
     if (!email || !verified) return null;
     return this.db.query("SELECT * FROM invites WHERE email = ? COLLATE NOCASE AND used_at IS NULL AND expires_at > ? ORDER BY created_at LIMIT 1")

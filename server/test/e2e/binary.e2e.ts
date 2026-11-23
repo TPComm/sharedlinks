@@ -32,6 +32,7 @@ const PEOPLE: Record<string, object> = {
   bob: { id: "user_01BOB", email: "bob.smith@team.test", email_verified: true, first_name: "", profile_picture_url: null },
   stranger: { id: "user_01STRANGER", email: "stranger@evil.test", email_verified: true },
   unverified: { id: "user_01UNVERIFIED", email: "new@team.test", email_verified: false },
+  relay: { id: "user_01RELAY", email: "relay@privaterelay.appleid.com", email_verified: true },
 };
 const grants = new Map<string, { user: object; challenge: string }>();
 const exchanges: Record<string, string>[] = [];
@@ -248,8 +249,8 @@ describe("a day with Links", () => {
     return { endpoint: authkit.origin + authkit.pathname, params, state, challenge, verifier, code: callback.searchParams.get("code")! };
   }
 
-  const exchange = (code: string, verifier: string) =>
-    call("/api/auth/token", { body: { code, code_verifier: verifier }, headers: { "User-Agent": "Links/1.0 (e2e)" } });
+  const exchange = (code: string, verifier: string, invite?: string) =>
+    call("/api/auth/token", { body: { code, code_verifier: verifier, invite }, headers: { "User-Agent": "Links/1.0 (e2e)" } });
 
   async function signIn(person: string) {
     const { code, verifier } = await authorize(person);
@@ -342,6 +343,19 @@ describe("a day with Links", () => {
     expect((await call("/api/me", { token: alice.token })).data.user.name).toBe("Ally A");
     expect(await call("/api/me", { method: "PATCH", token: alice.token, body: { name: "   " } }))
       .toMatchObject({ status: 400, data: { error: "Missing name." } });
+  });
+
+  e2e("requires a verified email match for invites granting Everyone history", async () => {
+    const blank = await cli(dataDir, "invite", "   ", "--join-everyone");
+    expect(blank.code).toBe(1);
+    expect(blank.stdout).toBe("");
+    expect(blank.stderr).toContain("--join-everyone requires an email");
+    const bound = await cli(dataDir, "invite", "trusted@team.test", "--join-everyone");
+    expect(bound.code, bound.logs()).toBe(0);
+    const path = new URL(bound.stdout.trim()).pathname;
+    const { code, verifier } = await authorize("relay");
+    expect((await exchange(code, verifier, path.split("/").at(-1))).status).toBe(403);
+    expect((await call(path)).status).toBe(200);
   });
 
   e2e("shares a link: unseen by the other person, then seen, reacted to and noted", async () => {

@@ -53,7 +53,6 @@ if (command === "mint-session") {
   const db = openDatabase(config.dataDir, config.legacyAllowedEmails);
   try {
     const everyone = rest.includes("--join-everyone") ? defaultGroup(db) : null;
-    if (everyone !== null && !email) throw new BadRequest("--join-everyone requires an email; it grants access to Everyone's history.");
     const { invite, token } = new Accounts(db, config).createInvite(null, email, everyone);
     const days = Math.round((invite.expires_at - invite.created_at) / 86400);
     console.log(`${config.publicUrl}/invite/${token}`);

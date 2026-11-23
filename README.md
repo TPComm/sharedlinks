@@ -116,8 +116,9 @@ New conversations stay SMS, with the iMessage app drawer disabled.
 **Sign in with Apple and email invites.** Someone who picks *Hide My Email* signs in with a relay
 address (`…@privaterelay.appleid.com`, and `…@private.icloud.com` for new ones from late 2026), not
 the email you invited, so that invite doesn't match them without its link: have them tap the invite
-link before signing in (an invite's link lets in a relay address even if it was sent to an email),
-or ask them to choose *Share My Email*. Someone already in who later signs in with Hide My Email is
+link before signing in (a normal invite's link lets in a relay address even if it was sent to an
+email), or ask them to choose *Share My Email*. Admin invites granting Everyone history always
+require the exact verified email. Someone already in who later signs in with Hide My Email is
 a different account to WorkOS, so the server turns them away and asks them to sign in the way they
 did before.
 
