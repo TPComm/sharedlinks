@@ -94,7 +94,7 @@ test("empty queues and muted chats stay silent but record the run", async () => 
   enable();
   await push.catchUp(new Date("2026-03-08T08:00:00Z"));
   expect(bodies).toHaveLength(0);
-  expect(db.query("SELECT catchup_sent_on FROM users WHERE id = 'Reader'").get()).toEqual({ catchup_sent_on: "2026-03-08" });
+  expect(db.query("SELECT catchup_sent_on FROM users WHERE id = 'Reader'").get()).toEqual({ catchup_sent_on: "skipped:2026-03-08" });
   add("Maya");
   db.run("UPDATE group_members SET muted = 1 WHERE user_id = 'Reader'");
   await push.catchUp(new Date("2026-03-09T08:00:00Z"));
@@ -134,6 +134,61 @@ test("moving the time later or changing zone preserves today's completed run", a
   expect(bodies).toHaveLength(1);
   await push.catchUp(new Date("2026-03-09T18:00:00Z"));
   expect(bodies).toHaveLength(2);
+});
+
+test("moving an undelivered catch-up from 18:00 to 21:00 at 19:00 allows tonight's summary", async () => {
+  setSystemTime(new Date("2026-03-08T19:00:00Z"));
+  add("Maya");
+  accounts.setNotifications("Reader", { catchup: { time: "18:00", timeZone: "UTC" } });
+  await push.catchUp(new Date());
+  expect(bodies).toHaveLength(0);
+  accounts.setNotifications("Reader", { catchup: { time: "21:00", timeZone: "UTC" } });
+  await push.catchUp(new Date("2026-03-08T20:59:00Z"));
+  expect(bodies).toHaveLength(0);
+  await push.catchUp(new Date("2026-03-08T21:00:00Z"));
+  expect(bodies).toHaveLength(1);
+  await push.catchUp(new Date("2026-03-08T22:00:00Z"));
+  expect(bodies).toHaveLength(1);
+});
+
+test("rescheduling after an empty run allows a later summary when links arrive", async () => {
+  setSystemTime(new Date("2026-03-08T19:00:00Z"));
+  enable("Reader", "UTC", 1080);
+  await push.catchUp(new Date());
+  expect(bodies).toHaveLength(0);
+  add("Maya");
+  accounts.setNotifications("Reader", { catchup: { time: "21:00", timeZone: "UTC" } });
+  await push.catchUp(new Date("2026-03-08T21:00:00Z"));
+  expect(bodies).toHaveLength(1);
+});
+
+test("turning catch-up off and on preserves a delivered summary", async () => {
+  setSystemTime(new Date("2026-03-08T19:00:00Z"));
+  enable("Reader", "UTC", 1080);
+  add("Maya");
+  await push.catchUp(new Date());
+  expect(bodies).toHaveLength(1);
+  accounts.setNotifications("Reader", { catchup: null });
+  accounts.setNotifications("Reader", { catchup: { time: "21:00", timeZone: "UTC" } });
+  await push.catchUp(new Date("2026-03-08T21:00:00Z"));
+  expect(bodies).toHaveLength(1);
+});
+
+test("a failed delivery retains its claim when the schedule changes", async () => {
+  setSystemTime(new Date("2026-03-08T19:00:00Z"));
+  enable("Reader", "UTC", 1080);
+  add("Maya");
+  spyOn(push, "send").mockRejectedValueOnce(new Error("APNs unavailable"));
+  const error = spyOn(console, "error").mockImplementation(() => {});
+  try {
+    await push.catchUp(new Date());
+    expect(error).toHaveBeenCalledWith(expect.stringContaining("APNs unavailable"));
+  } finally {
+    error.mockRestore();
+  }
+  accounts.setNotifications("Reader", { catchup: { time: "21:00", timeZone: "UTC" } });
+  await push.catchUp(new Date("2026-03-08T21:00:00Z"));
+  expect(push.send).toHaveBeenCalledTimes(1);
 });
 
 test("enabling after the chosen time waits until tomorrow; unchanged settings do not reset delivery", async () => {

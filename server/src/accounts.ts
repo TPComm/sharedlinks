@@ -205,7 +205,7 @@ export class Accounts {
     }
     if (catchup !== undefined) {
       if (catchup === null) {
-        this.db.run("UPDATE users SET catchup_minute = NULL, catchup_tz = NULL, catchup_sent_on = NULL WHERE id = ?", [userId]);
+        this.db.run("UPDATE users SET catchup_minute = NULL, catchup_tz = NULL WHERE id = ?", [userId]);
       } else {
         if (typeof catchup !== "object" || Array.isArray(catchup)) throw new BadRequest("catchup must be an object or null.");
         const { time, timeZone } = catchup as Record<string, unknown>;
@@ -219,7 +219,7 @@ export class Accounts {
         const current = this.db.query("SELECT catchup_minute, catchup_tz, catchup_sent_on FROM users WHERE id = ?").get(userId) as UserRow;
         if (current.catchup_minute !== minute || current.catchup_tz !== timeZone) {
           this.db.run("UPDATE users SET catchup_minute = ?, catchup_tz = ?, catchup_sent_on = ? WHERE id = ?",
-            [minute, timeZone, current.catchup_sent_on === clock.date || clock.minute >= minute ? clock.date : null, userId]);
+            [minute, timeZone, current.catchup_sent_on === clock.date ? clock.date : clock.minute >= minute ? `skipped:${clock.date}` : null, userId]);
         }
       }
     }

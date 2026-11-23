@@ -58,6 +58,7 @@ export interface UserRow {
   photo: string | null;
   catchup_minute: number | null;
   catchup_tz: string | null;
+  /** Local date claimed for delivery, or skipped:YYYY-MM-DD when no summary was attempted. */
   catchup_sent_on: string | null;
 }
 

@@ -338,7 +338,7 @@ export class Pusher {
     const users = this.db.query("SELECT * FROM users WHERE catchup_minute IS NOT NULL AND member = 1").all() as UserRow[];
     for (const user of users) {
       const clock = localClock(date, user.catchup_tz!);
-      if (clock.minute < user.catchup_minute! || user.catchup_sent_on === clock.date) continue;
+      if (clock.minute < user.catchup_minute! || user.catchup_sent_on === clock.date || user.catchup_sent_on === `skipped:${clock.date}`) continue;
       const claimed = this.db.run("UPDATE users SET catchup_sent_on = ? WHERE id = ? AND catchup_sent_on IS NOT ? AND catchup_minute = ? AND catchup_tz = ?",
         [clock.date, user.id, clock.date, user.catchup_minute, user.catchup_tz]);
       if (!claimed.changes) continue;
@@ -349,7 +349,10 @@ export class Pusher {
         AND NOT EXISTS (SELECT 1 FROM blocks WHERE blocker = ?1 AND blocked = l.added_by)
         AND NOT (m.muted = 1 AND (m.muted_until IS NULL OR m.muted_until > ?2))
         ORDER BY l.added_at DESC, l.id DESC`).all(user.id, date.getTime() / 1000) as { id: string | null; name: string | null }[];
-      if (!links.length) continue;
+      if (!links.length) {
+        this.db.run("UPDATE users SET catchup_sent_on = ? WHERE id = ? AND catchup_sent_on = ?", [`skipped:${clock.date}`, user.id, clock.date]);
+        continue;
+      }
       const names = [...new Map(links.filter((l) => l.id !== null && l.name !== null).map((l) => [l.id, l.name])).values()];
       const senders = names.length === 1 ? names[0] : names.length === 2 ? names.join(" and ")
         : `${names[0]}, ${names[1]} and ${names.length - 2} ${names.length === 3 ? "other" : "others"}`;

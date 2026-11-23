@@ -235,7 +235,10 @@ Daily Catch-Up is off by default. `GET /api/me` includes `notifications.catchup`
 to enable/change it, or `catchup: null` to disable; omitted fields stay unchanged. Times are 24-hour
 HH:MM with an IANA time zone. Catch-up replaces individual new-link alerts, not comments or activity
 alerts. Once daily at or after that local time, it summarises unwatched links outside muted chats;
-an empty Queue stays silent. Enabling after today's time starts tomorrow. Delivery dates are stored
+an empty Queue stays silent. Enabling after today's time starts tomorrow, unless you choose a later
+time that is still ahead today. Skipped dates are recorded separately from delivery claims in the
+same bookkeeping field, so rescheduling cannot repeat a summary already attempted today, even after
+turning catch-up off and on. Delivery dates are stored
 before sending, so restarts cannot duplicate a day's summary (failed delivery is not retried that day).
 `CATCHUP_INTERVAL_MS` controls the server check interval (default 60000; 0 disables checks); checks
 only run when APNs is configured. The deployment default needs no additional VPS setting.
