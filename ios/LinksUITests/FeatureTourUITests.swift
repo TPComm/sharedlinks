@@ -93,6 +93,17 @@ final class FeatureTourUITests: XCTestCase {
                 return
             }
         } while ContinuousClock.now < deadline
+        // Keep what was on screen, so the next failure says what the app was stuck on.
+        let screen = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
+        screen.name = "Neither the notification prompt nor the feature tour"
+        screen.lifetime = .keepAlways
+        add(screen)
+        for (name, target) in [("App", app), ("SpringBoard", XCUIApplication(bundleIdentifier: "com.apple.springboard"))] {
+            let tree = XCTAttachment(string: target.debugDescription)
+            tree.name = "\(name) accessibility hierarchy"
+            tree.lifetime = .keepAlways
+            add(tree)
+        }
         XCTFail("neither the notification prompt nor the feature tour appeared")
     }
 

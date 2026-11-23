@@ -495,8 +495,18 @@ final class AppModel {
         Task {
             _ = try? await UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .badge, .sound])
             requestingNotifications = false
+            // The answer can arrive before the app is active again (the prompt still closing, or a
+            // fresh Simulator answering without a prompt mid-launch). Nothing else asks for the feature
+            // tours then, so wait instead of dropping them.
+            await Self.untilActive()
             showFeatureToursIfNeeded()
         }
+    }
+
+    private static func untilActive() async {
+        let activations = NotificationCenter.default.notifications(named: UIApplication.didBecomeActiveNotification)
+        guard UIApplication.shared.applicationState != .active else { return }
+        for await _ in activations { return }
     }
 
     // MARK: Comments
