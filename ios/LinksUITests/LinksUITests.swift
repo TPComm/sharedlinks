@@ -562,7 +562,8 @@ final class LinksUITests: XCTestCase {
         app.buttons["Cancel"].tap()
         app.buttons["Done"].tap()
 
-        pickChat("Everyone")
+        let everyone = try XCTUnwrap(server.state(as: server.me).groups.first(where: \.isDefault))
+        pickChat(everyone.name.isEmpty ? "Everyone" : everyone.name)
         app.buttons["account"].tap()
         app.buttons["People"].tap()
         app.buttons["inviteFriend"].tap()
@@ -1057,12 +1058,18 @@ final class LinksUITests: XCTestCase {
         XCTAssert(row(everyone, in: "toWatch").waitForNonExistence(timeout: 5), "a link from another chat still shows")
         XCTAssert(row(inChat, in: "toWatch").exists)
 
-        // An invite from here is into this chat.
+        // An invite from a group still starts a chat with just the inviter.
         app.buttons["account"].tap()
         app.buttons["People"].tap()
         app.buttons["inviteFriend"].tap()
-        XCTAssert(app.staticTexts["They’ll join \(name)."].waitForExistence(timeout: 5), "the invite isn't into the picked chat")
-        app.buttons["Cancel"].tap()
+        XCTAssert(app.staticTexts["Starts a chat with just you two."].waitForExistence(timeout: 5))
+        let existing = Set(try server.pendingInvites(as: server.me).map(\.id))
+        app.buttons["createInvite"].tap()
+        XCTAssert(app.buttons["sendInvite"].waitForExistence(timeout: 10), "no invite link to send")
+        let created = try XCTUnwrap(server.pendingInvites(as: server.me).first { !existing.contains($0.id) })
+        defer { try? server.cancelInvite(created.id, as: server.me) }
+        XCTAssertNil(created.groupID, "an invite from a named group must not grant access to the group")
+        app.buttons["Done"].firstMatch.tap()
         app.buttons["Done"].tap()
 
         // Every tab shows the same chat.
