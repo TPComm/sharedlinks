@@ -23,7 +23,7 @@ enum FeatureTour: String, CaseIterable, Identifiable {
         switch self {
         case .wrapped:
             Page(symbol: "sparkles.rectangle.stack", title: "Links Wrapped",
-                 body: "Profile → Links Wrapped shows who sent you the most links, your watch rate and your top platform. Share your highlights as a card whenever you like.",
+                 body: "Profile → Links Wrapped shows who sent you the most links, your seen rate and your top platform. Share your highlights as a card whenever you like.",
                  action: nil)
         case .profilePhoto:
             Page(symbol: "person.crop.circle", title: "Make Links Yours",
