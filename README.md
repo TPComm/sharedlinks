@@ -119,6 +119,13 @@ Extension and widgets use the same session (no refresh-token races between proce
 
 ## Develop locally
 
+Failed link previews retry in the background after roughly 1 minute, 5 minutes, 30 minutes,
+2 hours, then every 12 hours, one at a time. Retry history is in memory and resets on server
+restart. “Try Loading the Preview Again” bypasses this delay. Reddit previews combine its
+public oEmbed title/author with thumbnail metadata fetched as a link-preview bot.
+An incomplete thumbnail fetch also retries with this backoff, even after the title arrives;
+Reddit title-only results remain eligible because HTML and oEmbed can recover separately.
+
 ```bash
 curl -fsSL https://bun.sh/install | bash        # once; then add ~/.bun/bin to your PATH
 cd server && bun install
@@ -359,6 +366,7 @@ API endpoints except sign-in need `Authorization: Bearer <session token>`; pages
 | DELETE | `/api/groups/:id` | Leave the chat; the links I sent stay in it. The last one out deletes it and its links (never the default chat). Leave shared group chats before leaving the direct chat with a group mate |
 | POST | `/api/links/:id/seen` | `{seen: true/false}` |
 | POST | `/api/links/:id/react` | `{emoji}` (`null` removes) |
+| POST | `/api/links/:id/refresh` | `{}` → `{link}`; fetch the preview again immediately, unless already pending |
 | PATCH / DELETE | `/api/links/:id` | `{note}` (sender only) / –; 403 if the sender blocked you |
 | GET/POST | `/api/links/:id/comments` | Chat members only. GET → `{comments}` oldest first (ties by id); POST `{body}` (nonempty text, trimmed and clipped to 1000 Unicode characters) → 201 `{comment}`, and marks the link seen for the commenter. Comments are `{id, link_id, person, body, created_at, edited_at}`; blocked authors and reported comments are hidden for the reader |
 | PATCH/DELETE | `/api/comments/:id` | Author only, while still in the chat. PATCH `{body}` → `{comment}` (sets `edited_at`); DELETE → `{ok:true}`. Deleting a link or account cascades its comments |
