@@ -139,6 +139,10 @@ struct ProfileSheet: View {
                     row("Show Tour Again", systemImage: "sparkles") {
                         close { model.startTour() }
                     }
+                    row("What's New", systemImage: "gift") {
+                        close { model.startFeatureTours() }
+                    }
+                    .accessibilityIdentifier("profile.whatsNew")
                 }
                 Section("Help") {
                     if let support = LinksConfig.supportURL {

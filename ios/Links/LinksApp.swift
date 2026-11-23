@@ -47,13 +47,15 @@ struct RootView: View {
                     .task(id: scenePhase) {
                         guard scenePhase == .active else { return }
                         model.showTourIfNeeded()
-                        model.requestNotificationPermission()
                         await model.loadAccount()
                         if let token = delegate.deviceToken { await model.registerDevice(token) }
                         await model.pollWhileActive()
                     }
-                    .fullScreenCover(isPresented: $model.showTour) {
+                    .fullScreenCover(isPresented: $model.showTour, onDismiss: model.welcomeTourDismissed) {
                         TourView(start: model.tourStart)
+                    }
+                    .sheet(isPresented: $model.showFeatureTours, onDismiss: model.finishFeatureTours) {
+                        FeatureTourView(tours: model.pendingFeatureTours)
                     }
             } else {
                 SignInView()
