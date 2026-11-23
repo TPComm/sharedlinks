@@ -84,13 +84,6 @@ struct InviteSheet: View {
     @State private var failure: String?
 
     private var inviter: String { model.me?.name ?? "A friend" }
-    private var chat: LinkGroup? {
-        guard let group = model.inbox.group(model.chat), !group.isDirect else { return nil }
-        return group
-    }
-    private var joining: String {
-        if let chat { "They’ll join \(model.inbox.title(of: chat))." } else { "Starts a chat with just you two." }
-    }
 
     var body: some View {
         NavigationStack {
@@ -106,9 +99,9 @@ struct InviteSheet: View {
                         .accessibilityIdentifier("sendInvite")
                     } footer: {
                         if let email = invite.email {
-                            Text("\(joining) The link works once, for a week. \(email) can also get in just by signing in with that address.")
+                            Text("Starts a chat with just you two. The link works once, for a week. \(email) can also get in just by signing in with that address.")
                         } else {
-                            Text("\(joining) The link works once, for a week.")
+                            Text("Starts a chat with just you two. The link works once, for a week.")
                         }
                     }
                 } else {
@@ -122,10 +115,10 @@ struct InviteSheet: View {
                         Text("With their email, they can get in even if the link gets lost while they install Links.")
                     }
                     Section {
-                        LabeledContent("Chat", value: chat.map(model.inbox.title(of:)) ?? "Just You Two")
+                        LabeledContent("Chat", value: "Just You Two")
                             .accessibilityIdentifier("invite.chat")
                     } footer: {
-                        Text(joining)
+                        Text("Starts a chat with just you two.")
                     }
                     Section {
                         Button {
@@ -156,7 +149,7 @@ struct InviteSheet: View {
         failure = nil
         defer { creating = false }
         do {
-            invite = try await model.createInvite(email: email, groupID: chat?.id)
+            invite = try await model.createInvite(email: email, groupID: nil)
         } catch {
             failure = error.localizedDescription
         }
