@@ -329,6 +329,27 @@ final class LinksUITests: XCTestCase {
         XCTAssertNil(try server.state(as: server.friend).link(link.id)?.seen[me], "the shared link marked it watched")
     }
 
+    func testChatDeepLinkOpensTheChatFromFavorites() throws {
+        let meID = try server.state(as: server.me).me
+        let name = "Chat link \(shortID())"
+        let chat = try server.startChat(name: name, members: [meID], as: server.friend)
+        leaveAfterwards(chat.id)
+        let link = try server.add(uniqueURL(), to: chat.id, as: server.friend)
+        deleteAfterwards(link.id)
+
+        launch()
+        waitForRow(link, in: "toWatch")
+        app.tabBars.buttons["Favorites"].tap()
+        XCTAssert(app.navigationBars["Favorites"].waitForExistence(timeout: 10))
+
+        app.open(URL(string: "sharedlinks://g/\(chat.id)")!)
+        let picker = app.buttons["chatPicker"]
+        XCTAssert(picker.waitForExistence(timeout: 10), "chat link left Favorites open")
+        waitFor(picker, labelContaining: name)
+        XCTAssert(app.tabBars.buttons["Queue"].isSelected)
+        waitForRow(link, in: "toWatch")
+    }
+
     func testWidgetDeepLinkOpensTheNewLinkSheet() throws {
         launch()
         app.open(URL(string: "sharedlinks://add")!)
