@@ -303,6 +303,29 @@ final class LinksUITests: XCTestCase {
         waitFor(receipt, labelContaining: "now")
     }
 
+    func testNudgeAnUnwatchedRecipientFromTheLinkPage() throws {
+        let friendID = try server.state(as: server.friend).me
+        let name = "Nudge \(shortID())"
+        let chat = try server.startChat(name: name, members: [friendID], as: server.me)
+        leaveAfterwards(chat.id)
+        let link = try server.add(uniqueURL(), note: "Worth a watch", to: chat.id, as: server.me)
+        launch()
+        pickChat(name)
+        app.tabBars.buttons["Sent"].tap()
+        waitForRow(link, in: "sent").tap()
+        let button = app.buttons["nudge.\(friendID)"]
+        for _ in 0..<4 where !(button.exists && button.isHittable) { app.swipeUp() }
+        XCTAssert(button.waitForExistence(timeout: 5))
+        XCTAssertEqual(button.label, "Nudge")
+        button.tap()
+        waitFor(button, labelContaining: "Nudged")
+        XCTAssertFalse(button.isEnabled)
+        let screenshot = XCTAttachment(screenshot: app.screenshot())
+        screenshot.name = "Nudged recipient on link detail"
+        screenshot.lifetime = .keepAlways
+        add(screenshot)
+    }
+
     // MARK: Comments
 
     func testCommentThreadCRUDAndUnreadState() throws {

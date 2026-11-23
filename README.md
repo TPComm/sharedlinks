@@ -31,7 +31,8 @@ Plus: a **Home Screen / Lock Screen widget** (Queue or Sent receipts, small/medi
 lock screen sizes) whose ✓ buttons mark things seen without opening the app, an **app icon
 badge** with the Queue count, reactions, notes, search and swipe actions. Tapping a row (or a
 widget row) opens the link's page: **Open in TikTok** (or Instagram, YouTube…), react, see who
-has seen it, and mark it seen when you're back. Coming back from TikTok lands on that page,
+has seen it, and mark it seen when you're back. On a link you sent, tap **Nudge** next to someone
+who hasn't watched, or **Nudge Everyone**; each person can be nudged once per day. Coming back from TikTok lands on that page,
 even if iOS closed the app meanwhile. Long-press **Open in TikTok** still goes straight there and
 marks it seen in one go.
 
@@ -387,6 +388,7 @@ API endpoints except sign-in need `Authorization: Bearer <session token>`; pages
 | POST | `/api/groups/:id/members` | `{members}`: any group member adds people who are in Links → `{group}`. The legacy Everyone chat and direct chats cannot accept more members. Direct chats cannot be renamed. Nobody removes anyone else |
 | DELETE | `/api/groups/:id` | Leave the chat; the links I sent stay in it. The last one out deletes it and its links (never the default chat). Leave shared group chats before leaving the direct chat with a group mate |
 | POST | `/api/links/:id/seen` | `{seen: true/false}` |
+| POST | `/api/links/:id/nudge` | Sender only: `{people?: [userId, …]}`; omitted or empty means all eligible unwatched chat members. Skips reports and blocks in either direction; at most once per person per link per 24 hours (even without devices or when muted) → `{nudged: [userId, …], link}`. 429 if only the cooldown prevents a nudge, otherwise 400 when nobody is eligible. Only the sender's link JSON includes `nudged: {personId: UnixSeconds, …}` (all recorded times) |
 | POST | `/api/links/:id/react` | `{emoji}` (`null` removes) |
 | POST | `/api/links/:id/refresh` | `{}` → `{link}`; fetch the preview again immediately, unless already pending |
 | PATCH / DELETE | `/api/links/:id` | `{note}` (sender only) / –; 403 if the sender blocked you |

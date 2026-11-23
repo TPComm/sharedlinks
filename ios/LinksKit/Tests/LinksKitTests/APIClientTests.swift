@@ -10,6 +10,7 @@ enum Endpoint: String, CaseIterable, Sendable {
     case addToGroup, createGroup, renameGroup, addMembers, leaveGroup
     case muteWatched, muteReactions, notifyBoth
     case setPhoto, removePhoto
+    case nudge, nudgeEveryone, nudgeEmpty
 
     var method: String {
         switch self {
@@ -34,6 +35,7 @@ enum Endpoint: String, CaseIterable, Sendable {
         case .renameGroup, .leaveGroup: "/api/groups/5"
         case .addMembers: "/api/groups/5/members"
         case .seen, .unseen: "/api/links/7/seen"
+        case .nudge, .nudgeEveryone, .nudgeEmpty: "/api/links/7/nudge"
         case .react, .unreact: "/api/links/7/react"
         case .note, .delete: "/api/links/7"
         case .thumbnail: "/thumbs/7"
@@ -66,6 +68,9 @@ enum Endpoint: String, CaseIterable, Sendable {
         case .renameGroup: #"{"name":"Cinema"}"#
         case .addMembers: #"{"members":["user_01AL","user_01BO"]}"#
         case .seen: #"{"seen":true}"#
+        case .nudge: #"{"people":["user_01JO"]}"#
+        case .nudgeEveryone: #"{}"#
+        case .nudgeEmpty: #"{"people":[]}"#
         case .unseen: #"{"seen":false}"#
         case .react: #"{"emoji":"🔥"}"#
         case .unreact: #"{"emoji":null}"#
@@ -94,7 +99,7 @@ enum Endpoint: String, CaseIterable, Sendable {
         case .muteWatched, .muteReactions, .notifyBoth: .json(Fixture.meWithNotifications())
         case .state: .json(#"{"me": "user_01SAM", "users": [\#(Fixture.sam)], "links": [\#(Fixture.link())]}"#)
         case .add, .addToGroup: .json(#"{"link": \#(Fixture.link()), "duplicate": false}"#, status: 201)
-        case .seen, .unseen, .react, .unreact, .note: .json(#"{"link": \#(Fixture.link())}"#)
+        case .seen, .unseen, .react, .unreact, .note, .nudge, .nudgeEveryone, .nudgeEmpty: .json(#"{"link": \#(Fixture.link())}"#)
         case .thumbnail: .http(status: 200, body: Data([0xFF, 0xD8, 0xFF]), contentType: "image/jpeg")
         case .reportLink, .reportPerson: .json(#"{"ok": true}"#, status: 201)
         case .block: .json(#"{"blocked": ["user_01SAM"]}"#)
@@ -117,6 +122,9 @@ enum Endpoint: String, CaseIterable, Sendable {
         case .state: _ = try await client.state()
         case .add: _ = try await client.add("lol https://vm.tiktok.com/ZMabc/", note: "for you")
         case .seen: _ = try await client.setSeen(7, true)
+        case .nudge: #expect(try await client.nudge(7, people: ["user_01JO"]).id == 7)
+        case .nudgeEveryone: _ = try await client.nudge(7)
+        case .nudgeEmpty: _ = try await client.nudge(7, people: [])
         case .unseen: _ = try await client.setSeen(7, false)
         case .react: _ = try await client.react(7, "🔥")
         case .unreact: _ = try await client.react(7, nil)
@@ -305,6 +313,12 @@ struct APIClientErrorTests {
         await #expect(throws: APIError.signedOut) { try await server.client().state() }
         await #expect(throws: APIError.signedOut) { try await server.client().delete(1) }
         await #expect(throws: APIError.signedOut) { try await server.client().deleteAccount() }
+    }
+
+    @Test func nudgeCooldownMessageReachesTheUser() async {
+        let message = "You've already nudged them. Try again after 24 hours."
+        let server = StubServer(always: .json(#"{"error":"\#(message)"}"#, status: 429))
+        await #expect(throws: APIError.server(message)) { try await server.client().nudge(7, people: ["user_01JO"]) }
     }
 
     @Test(arguments: [

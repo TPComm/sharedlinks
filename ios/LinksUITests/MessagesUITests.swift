@@ -14,7 +14,6 @@ final class MessagesUITests: XCTestCase {
     override func tearDown() async throws {
         await MainActor.run {
             attachMessagesHost()
-            messages.terminate()
         }
         try await super.tearDown()
     }
@@ -90,7 +89,7 @@ final class MessagesUITests: XCTestCase {
     }
 
     private func openLinksInMessages() throws {
-        messages.launch()
+        messages.activate()
         let continueButton = messages.buttons["Continue"]
         if continueButton.waitForExistence(timeout: 5) { continueButton.tap() }
         let cancel = messages.navigationBars["CKComposeChat"].buttons["Cancel"]
