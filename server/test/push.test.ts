@@ -5,8 +5,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { startServer } from "../src/app.ts";
 import { configFromEnv } from "../src/config.ts";
-import { defaultGroup } from "../src/db.ts";
 import { Pusher } from "../src/push.ts";
+import { seedEveryoneMember } from "./unit/helpers.ts";
 
 const VERIFIER = "v".repeat(43);
 const dataDir = mkdtempSync(join(tmpdir(), "links-push-"));
@@ -109,8 +109,9 @@ beforeAll(async () => {
   app = started.app;
   api = started.server.url.origin;
   stop = () => { app.push.close(); started.server.stop(true); };
-  for (const u of Object.values(users) as { email: string }[]) app.accounts.createInvite(null, u.email, defaultGroup(app.db));
+  for (const u of Object.values(users) as { email: string }[]) app.accounts.createInvite(null, u.email);
   [sam, alex, kim, gone] = await Promise.all(["sam", "alex", "kim", "gone"].map(signIn)) as [string, string, string, string];
+  for (const id of ["user_01SAM", "user_01ALEX", "user_01KIM", "user_01GONE"]) seedEveryoneMember(app.db, id);
   const kimOld = await signIn("kim");
   for (const [t, d] of [[sam, SAM], [alex, ALEX], [kim, KIM], [gone, GONE], [kimOld, KIM_OLD]] as const) {
     expect((await register(t, d)).data).toEqual({ ok: true, push: true });
@@ -613,6 +614,7 @@ describe("pushes", () => {
 
   test("deleting an account updates the badges of people who hadn't watched its links", async () => {
     const carol = await signIn("carol");
+    seedEveryoneMember(app.db, "user_01CAROL");
     const { data } = await call("/api/links", { token: carol, body: { url: `${fakeOrigin.url.origin}/video?n=acct` } });
     await call(`/api/links/${data.link.id}/seen`, { token: kim, body: { seen: true } });
     await settle();

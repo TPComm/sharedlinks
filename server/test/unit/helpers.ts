@@ -2,6 +2,17 @@ import { spyOn } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import type { Database } from "bun:sqlite";
+import { defaultGroup, ensureDirectChatsFor, now } from "../../src/db.ts";
+
+/** Model a user who already belonged to Everyone before that chat became private. */
+export function seedEveryoneMember(db: Database, user: string) {
+  db.transaction(() => {
+    const group = defaultGroup(db);
+    db.run("INSERT INTO group_members (group_id, user_id, joined_at) VALUES (?, ?, ?)", [group, user, now()]);
+    ensureDirectChatsFor(db, user, group);
+  }).immediate();
+}
 
 /** A fresh temp directory and a function that deletes it. */
 export function tempDir(prefix = "links-unit-") {

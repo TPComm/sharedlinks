@@ -63,7 +63,7 @@ export const INVITE_TOKEN_RE = /^[A-Za-z0-9_-]{43}$/;
 
 /** What the app sees of an invite: never the token, which only the response that made it carries. */
 export const publicInvite = (i: InviteRow) => ({
-  id: i.id, email: i.email, group_id: i.group_id, created_at: i.created_at, expires_at: i.expires_at,
+  id: i.id, email: i.email, group_id: null, created_at: i.created_at, expires_at: i.expires_at,
 });
 
 /** "jane.doe" -> "Jane Doe" */
@@ -87,25 +87,19 @@ export class Accounts {
   // -- invites (#5)
 
   /** `userId` null: an admin's invite from `links-server invite`, which no one's 20 count includes. */
-  createInvite(userId: string | null, email: unknown, groupId: number | null = null): { invite: ReturnType<typeof publicInvite>; token: string } {
+  createInvite(userId: string | null, email: unknown): { invite: ReturnType<typeof publicInvite>; token: string } {
     let bound: string | null = null;
     if (email !== undefined && email !== null && String(email).trim() !== "") {
       bound = String(email).trim().toLowerCase();
       if (bound.length > 254 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(bound)) throw new BadRequest("That doesn't look like an email address.");
     }
-    if (userId === null && groupId !== null) {
-      if (!bound) throw new BadRequest("--join-everyone requires an email; it grants access to Everyone's history.");
-      if (this.db.query("SELECT 1 FROM users WHERE email = ? COLLATE NOCASE AND member = 1").get(bound)) {
-        throw new BadRequest("--join-everyone is only for accounts that haven't joined Links yet.");
-      }
-    }
     const t = now();
     const pending = userId === null ? 0 : this.pendingInvites(userId).length;
     if (pending >= MAX_PENDING_INVITES) throw new BadRequest("You have a lot of invites waiting. Cancel some first.");
     const token = randomToken();
-    const row = this.db.query(`INSERT INTO invites (token_hash, email, invited_by, created_at, expires_at, group_id)
-        VALUES (?, ?, ?, ?, ?, ?) RETURNING *`)
-      .get(sha256(token), bound, userId, t, t + INVITE_DAYS * 86400, groupId) as InviteRow;
+    const row = this.db.query(`INSERT INTO invites (token_hash, email, invited_by, created_at, expires_at)
+        VALUES (?, ?, ?, ?, ?) RETURNING *`)
+      .get(sha256(token), bound, userId, t, t + INVITE_DAYS * 86400) as InviteRow;
     return { invite: publicInvite(row), token };
   }
 
@@ -113,8 +107,10 @@ export class Accounts {
   pendingInvites(userId: string) {
     return (this.db.query(`SELECT i.* FROM invites i WHERE i.invited_by = ? AND i.used_at IS NULL AND i.expires_at > ?
         AND NOT EXISTS (SELECT 1 FROM users u JOIN group_members m ON m.user_id = u.id
+          JOIN groups g ON g.id = m.group_id AND g.is_direct = 1
+          JOIN group_members f ON f.group_id = g.id AND f.user_id = i.invited_by
           WHERE u.email = i.email COLLATE NOCASE AND u.email_verified = 1 AND u.member = 1
-            AND m.group_id = i.group_id AND u.id != i.invited_by)
+            AND u.id != i.invited_by)
         ORDER BY i.created_at DESC, i.id DESC`)
       .all(userId, now()) as InviteRow[]).map(publicInvite);
   }
@@ -144,12 +140,8 @@ export class Accounts {
     if (token && INVITE_TOKEN_RE.test(token)) {
       const row = this.db.query("SELECT * FROM invites WHERE token_hash = ? AND used_at IS NULL AND expires_at > ?")
         .get(sha256(token), t) as InviteRow | null;
-      if (row) {
-        // An admin invite granting history requires the exact verified email even with the link.
-        const grantsHistory = row.invited_by === null && row.group_id !== null;
-        const exact = verified && row.email?.toLowerCase() === email.toLowerCase();
-        if (exact || (!grantsHistory && (!row.email || (verified && appleRelay(email))))) return row;
-      }
+      // Hide My Email: the link was sent to them, but Apple signs them in with a relay address.
+      if (row && (!row.email || (verified && (row.email.toLowerCase() === email.toLowerCase() || appleRelay(email))))) return row;
     }
     if (!email || !verified) return null;
     return this.db.query("SELECT * FROM invites WHERE email = ? COLLATE NOCASE AND used_at IS NULL AND expires_at > ? ORDER BY created_at LIMIT 1")
@@ -498,39 +490,21 @@ export class Accounts {
     return { token: this.newSession(user.id), ...this.mePayload(user.id), group_id: groupId };
   }
 
-  /**
-   * Admit the account, granting only the chat that the invite allows. Admin invites without a
-   * destination admit the account without a chat; only an admin can explicitly grant Everyone.
-   */
+  /** An invite never gives access to a group; only the local mint-session command seeds Everyone. */
   private admit(userId: string, invite?: InviteRow): number | null {
     this.db.run("UPDATE users SET member = 1 WHERE id = ?", [userId]);
     // An account from before invites that wasn't let in was still put in the default chat by v8.
     this.db.run("DELETE FROM group_members WHERE user_id = ?", [userId]);
-    const friend = invite?.invited_by;
-    const group = friend ? this.inviteGroup(invite) : invite ? invite.group_id : defaultGroup(this.db);
-    if (group === null) return friend ? ensureDirectChat(this.db, friend, userId) : null;
+    if (invite) return invite.invited_by ? ensureDirectChat(this.db, invite.invited_by, userId) : null;
+    const group = defaultGroup(this.db);
     this.db.run("INSERT OR IGNORE INTO group_members (group_id, user_id, joined_at) VALUES (?, ?, ?)", [group, userId, now()]);
     ensureDirectChatsFor(this.db, userId, group);
     return group;
   }
 
   /**
-   * The group a friend's invite can let someone into; otherwise it opens their direct chat.
-   */
-  private inviteGroup(invite: InviteRow): number | null {
-    const row = this.db.query(`SELECT g.id FROM groups g
-      JOIN group_members m ON m.group_id = g.id AND m.user_id = ?2
-      WHERE g.id = ?1 AND g.is_direct = 0 AND g.is_default = 0
-        AND (SELECT COUNT(*) FROM group_members WHERE group_id = g.id) < ?3`)
-      .get(invite.group_id, invite.invited_by, MAX_GROUP_MEMBERS) as { id: number } | null;
-    return row?.id ?? null;
-  }
-
-  /**
-   * Someone who's already in opens a friend's invite link: they join the chat it's for (#75 left the
-   * link doing nothing for them). Returns that chat, or null when there's nothing to join (an admin's
-   * invite, or their own). An open invite stays pending for whoever it was meant for; a verified
-   * recipient uses up an email-bound invite even if they're already in its chat.
+   * Someone already in opens a friend's invite link: connect the two people. An open invite stays
+   * pending if they were already connected; a verified recipient uses up an email-bound invite.
    */
   joinWithInvite(userId: string, token: string): number | null {
     return this.db.transaction(() => this.useInviteAsMember(userId, token)).immediate();
@@ -550,38 +524,25 @@ export class Accounts {
     const me = this.db.query("SELECT email, email_verified FROM users WHERE id = ?").get(userId) as
       { email: string | null; email_verified: number } | null;
     const email = me?.email ?? "";
-    const existing = row.group_id !== null && this.inGroup(row.group_id, userId);
+    const pair = directChat(this.db, row.invited_by, userId);
     if (row.email) {
       if (row.email.toLowerCase() !== email.toLowerCase() && !appleRelay(email)) {
         throw new AuthError("This invite is for a different email address.", 403);
       }
       if (!me?.email_verified) {
-        if (existing) return row.group_id;
+        if (pair !== null) return pair;
         throw new AuthError("Verify your email address, then sign in again.", 403);
       }
     }
-    if (existing) {
-      if (row.email) this.useUp(row, userId, row.group_id!);
-      return row.group_id;
-    }
-    const group = this.inviteGroup(row);
-    if (group === null) {
-      const pair = directChat(this.db, row.invited_by, userId);
-      const direct = pair ?? ensureDirectChat(this.db, row.invited_by, userId);
-      if (pair === null || row.email) this.useUp(row, userId, direct);
-      return direct;
-    }
-    this.db.run("INSERT INTO group_members (group_id, user_id, joined_at) VALUES (?, ?, ?)", [group, userId, now()]);
-    ensureDirectChatsFor(this.db, userId, group);
-    this.useUp(row, userId, group);
-    console.log(`invite ${row.id} from ${row.invited_by} used by member ${userId}`);
-    return group;
+    const direct = pair ?? ensureDirectChat(this.db, row.invited_by, userId);
+    if (pair === null || row.email) this.useUp(row, userId, direct);
+    return direct;
   }
 
   /** Marks it used, keeping the chat a friend's invite took them to, for when they open it again. */
   private useUp(invite: InviteRow, userId: string, group: number | null) {
     this.db.run("UPDATE invites SET used_by = ?, used_at = ?, group_id = ? WHERE id = ?",
-      [userId, now(), invite.invited_by ? group : invite.group_id, invite.id]);
+      [userId, now(), group, invite.id]);
   }
 
   private inGroup(groupId: number, userId: string): boolean {

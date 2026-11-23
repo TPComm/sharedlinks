@@ -21,10 +21,10 @@ Sign-in is [WorkOS AuthKit](https://workos.com/docs/authkit).
 | **In the app** | **+** opens a sheet with the system Paste button (no "Allow Paste" prompt). Drag a link from Safari onto the list (iPad, iPhone). |
 | **Sharing out** | Long-press or swipe a row, or Share on a link's page: the system share sheet sends the link's public `/l/` page (the original URL on servers without one), with the thumbnail as the preview. Opening an `/l/` link in the app shows that link's page when it's in your inbox. |
 
-Everyone you share a group with gets a private one-to-one chat with you, listed under their name
-when you choose where to share. Group chats stay separate. Everyone is a legacy chat: its existing
-members can still use it, but adding or inviting a friend won't give them access to its history.
-Start a new group to share links with more people. If you leave a group, the direct chats stay;
+An invite starts a private one-to-one chat with the inviter. Once a friend joins, you can add
+them to an ordinary group or start a new group with them; people who share a group also get
+one-to-one chats. Everyone is a legacy chat: its existing members can still use it, but nobody
+can add or invite new members. If you leave a group, the direct chats stay;
 leave a direct chat once you no longer share any groups with that person.
 
 Plus: a **Home Screen / Lock Screen widget** (Queue or Sent receipts, small/medium/large and
@@ -116,9 +116,8 @@ New conversations stay SMS, with the iMessage app drawer disabled.
 **Sign in with Apple and email invites.** Someone who picks *Hide My Email* signs in with a relay
 address (`…@privaterelay.appleid.com`, and `…@private.icloud.com` for new ones from late 2026), not
 the email you invited, so that invite doesn't match them without its link: have them tap the invite
-link before signing in (a normal invite's link lets in a relay address even if it was sent to an
-email), or ask them to choose *Share My Email*. Admin invites granting Everyone history always
-require the exact verified email. Someone already in who later signs in with Hide My Email is
+link before signing in (an invite's link lets in a relay address even if it was sent to an email),
+or ask them to choose *Share My Email*. Someone already in who later signs in with Hide My Email is
 a different account to WorkOS, so the server turns them away and asks them to sign in the way they
 did before.
 
@@ -393,8 +392,8 @@ API endpoints except sign-in need `Authorization: Bearer <session token>`; pages
 | POST | `/api/reports` | `{link_id \| comment_id \| user_id, reason, details?}`; reason is `spam`, `offensive`, `harassment` or `other` → 201 |
 | POST | `/api/blocks` | `{user_id}` → `{blocked}` |
 | DELETE | `/api/blocks/:user_id` | unblock (URL-encode the id) → `{blocked}` |
-| GET/POST | `/api/invites` | GET → `{invites}` (mine, still pending); POST `{email?, group_id?}` → 201 `{invite: {id, email, group_id, created_at, expires_at, url}}`; whoever uses it joins that group chat of mine and gets direct chats with its members. With no `group_id`, or if it names the legacy Everyone chat, they get just the direct chat with me |
-| POST | `/api/invites/accept` | `{token}` → `{group}`: someone already in opens an invite link and joins its chat (as `/api/invites` says), using it up; `group` null for their own or an admin's invite. An open invite to a chat they're already in stays pending; an email-bound invite is used up by its verified recipient. Invites addressed to verified members already in the named chat are omitted from the sender's pending list but their links remain usable until accepted. Without recorded email verification, they can return to a chat they're already in without claiming the invite, but cannot join a new one; 404 when it doesn't work anymore, 403 when it's for another email, or joining needs email verification |
+| GET/POST | `/api/invites` | GET → `{invites}` (mine, still pending); POST `{email?}` → 201 `{invite: {id, email, group_id, created_at, expires_at, url}}`. Using the invite opens a direct chat with me, never a group. Older clients' `group_id` is ignored and returned as null |
+| POST | `/api/invites/accept` | `{token}` → `{group}`: someone already in opens or starts a direct chat with the inviter; `group` is null for their own or an admin's invite. An open invite stays pending if the pair already had a chat; a verified recipient uses up an email-bound invite. Invites addressed to verified people already paired with the sender are omitted from the sender's pending list but their links remain usable. Without recorded email verification they can return to an existing direct chat without claiming an email-bound invite, but can't use it to start a new one; 404 for inactive links, 403 for a mismatched or unverified email |
 | DELETE | `/api/invites/:id` | cancels a pending invite → `{invites}` |
 | GET | `/invite/:token` | public page for an invite link: who sent it, Open in Links, the Smart App Banner. Loading it never uses the invite up |
 | GET | `/.well-known/apple-app-site-association` | public; which paths open the app (only with `APPLE_APP_IDS`) |
@@ -419,10 +418,7 @@ Edits, deletions and reports stay silent. Posting a comment marks the link seen 
 first comment on someone else's unseen link leaves the author's Queue and lowers their badge. Other
 members' counts and badges don't change; the app tracks read threads locally.
 
-Admin: `links-server invite [email]` admits a new account without any chats. To explicitly grant a
-trusted new account access to the legacy Everyone chat and its history, use
-`links-server invite <email> --join-everyone`. The invite must be used on first admission, with the
-exact verified email.
+Admin: `links-server invite [email]` admits a new account without any chats.
 `links-server mint-session <email> [name]` is the trusted local development shortcut and puts newly
 minted accounts in Everyone. Other commands: `links-server delete-user <email>` (what the app's Delete Account does),
 `links-server claim [<email> <legacy name>]` (list legacy people, or let that account claim one),

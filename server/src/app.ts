@@ -914,17 +914,12 @@ export function createApp(config: Config, opts: AppOptions = {}) {
     "/api/invites": {
       GET: route((_req, me) => json({ invites: accounts.pendingInvites(me) })),
       POST: route(async (req, me) => {
-        const { email, group_id } = await readJson(req);
-        const { invite, token } = asUser(me, () => {
-          const group = group_id === undefined || group_id === null ? null : getGroup(groupOf(group_id, me), me);
-          if (group?.direct) throw new BadRequest("You can't invite someone into a direct chat.");
-          // Older apps pass the selected chat, which may be Everyone.
-          return accounts.createInvite(me, email, group && !group.default ? group.id : null);
-        });
+        const { email } = await readJson(req);
+        const { invite, token } = asUser(me, () => accounts.createInvite(me, email));
         return json({ invite: { ...invite, url: `${config.publicUrl}/invite/${token}` } }, 201);
       }),
     },
-    // Someone who's already in opens an invite link: they join its chat (see Accounts.joinWithInvite).
+    // Someone who's already in opens an invite link: connect them with the inviter.
     "/api/invites/accept": {
       POST: route(async (req, me) => {
         const { token } = await readJson(req);

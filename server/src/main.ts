@@ -4,7 +4,7 @@
  *
  *   links-server                                    start the server (http://localhost:8000)
  *   links-server mint-session you@example.com [Name]   print a session token (admin / Simulator)
- *   links-server invite [email] [--join-everyone]    print an invite link, without chat access by default
+ *   links-server invite [email]    print an invite link without chat access
  *   links-server delete-user you@example.com         delete an account and the links it sent
  *   links-server claim [you@example.com Name]        list legacy people, or let that account claim one
  *   links-server backup [dir]                        snapshot the database (keeps the newest 14 nightly)
@@ -25,7 +25,7 @@ import { join } from "node:path";
 import { Accounts } from "./accounts.ts";
 import { startServer } from "./app.ts";
 import { configFromEnv } from "./config.ts";
-import { defaultGroup, openDatabase } from "./db.ts";
+import { openDatabase } from "./db.ts";
 import { BadRequest } from "./links.ts";
 import { Pusher, pushEnabled } from "./push.ts";
 import { formatReport, openReports, resolveReport } from "./moderation.ts";
@@ -45,21 +45,19 @@ if (command === "mint-session") {
   db.close();
 } else if (command === "invite") {
   // Invites are the only way in, so this is how the first person (and anyone else, by email) gets one.
-  const [email, ...extra] = rest.filter((arg) => arg !== "--join-everyone");
+  const [email, ...extra] = rest;
   if (extra.length || email?.startsWith("--")) {
-    console.error("usage: links-server invite [email] [--join-everyone]");
+    console.error("usage: links-server invite [email]");
     process.exit(1);
   }
   const db = openDatabase(config.dataDir, config.legacyAllowedEmails);
   try {
-    const everyone = rest.includes("--join-everyone") ? defaultGroup(db) : null;
-    const { invite, token } = new Accounts(db, config).createInvite(null, email, everyone);
+    const { invite, token } = new Accounts(db, config).createInvite(null, email);
     const days = Math.round((invite.expires_at - invite.created_at) / 86400);
     console.log(`${config.publicUrl}/invite/${token}`);
     console.error(invite.email
       ? `works for ${days} days; signing in with ${invite.email} (verified) uses it even without the link`
       : `works for ${days} days, once, for whoever signs in with it`);
-    if (everyone !== null) console.error("grants access to Everyone and its history");
   } catch (e) {
     if (!(e instanceof BadRequest)) throw e;
     console.error(e.message);

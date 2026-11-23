@@ -14,6 +14,7 @@ import { basename, join } from "node:path";
 import {
   killAll, locateBinary, pkce, request, runProcess, s256, startEgressTrap, startServer, until, withLogs, type Server,
 } from "./harness.ts";
+import { seedEveryoneMember } from "../unit/helpers.ts";
 
 const CLIENT_ID = "client_E2E";
 const PUBLIC_URL = "https://links.e2e.test";
@@ -32,7 +33,6 @@ const PEOPLE: Record<string, object> = {
   bob: { id: "user_01BOB", email: "bob.smith@team.test", email_verified: true, first_name: "", profile_picture_url: null },
   stranger: { id: "user_01STRANGER", email: "stranger@evil.test", email_verified: true },
   unverified: { id: "user_01UNVERIFIED", email: "new@team.test", email_verified: false },
-  relay: { id: "user_01RELAY", email: "relay@privaterelay.appleid.com", email_verified: true },
 };
 const grants = new Map<string, { user: object; challenge: string }>();
 const exchanges: Record<string, string>[] = [];
@@ -216,7 +216,7 @@ describe("a day with Links", () => {
     await printed(server, "stderr", "warning: nobody is in yet. Run `links-server invite you@example.com`, then sign in with that email.\n");
     // Invites are the only way in; the admin sends the first ones from the CLI.
     for (const email of ["alice@example.com", "Bob.Smith@team.test", "new@team.test"]) {
-      const run = await cli(dataDir, "invite", email, "--join-everyone");
+      const run = await cli(dataDir, "invite", email);
       expect(run.code, run.logs()).toBe(0);
       expect(run.stdout).toMatch(new RegExp(`^${PUBLIC_URL}/invite/[A-Za-z0-9_-]{43}\n$`));
       expect(run.stderr).toContain(`signing in with ${email.toLowerCase()} (verified) uses it even without the link`);
@@ -249,8 +249,8 @@ describe("a day with Links", () => {
     return { endpoint: authkit.origin + authkit.pathname, params, state, challenge, verifier, code: callback.searchParams.get("code")! };
   }
 
-  const exchange = (code: string, verifier: string, invite?: string) =>
-    call("/api/auth/token", { body: { code, code_verifier: verifier, invite }, headers: { "User-Agent": "Links/1.0 (e2e)" } });
+  const exchange = (code: string, verifier: string) =>
+    call("/api/auth/token", { body: { code, code_verifier: verifier }, headers: { "User-Agent": "Links/1.0 (e2e)" } });
 
   async function signIn(person: string) {
     const { code, verifier } = await authorize(person);
@@ -316,6 +316,12 @@ describe("a day with Links", () => {
     const b = await signIn("bob");
     expect(b.user).toEqual({ id: "user_01BOB", name: "Bob Smith", avatar: null, email: "bob.smith@team.test" });
     Object.assign(bob, { token: b.token, id: b.user.id });
+    for (const person of [alice, bob]) {
+      expect((await call("/api/state", { token: person.token })).data).toMatchObject({ groups: [], links: [] });
+    }
+    const db = new Database(join(dataDir, "links.db"));
+    for (const person of [alice, bob]) seedEveryoneMember(db, person.id);
+    db.close();
   });
 
   e2e("turns away strangers, unverified emails and a wrong PKCE verifier", async () => {
@@ -343,26 +349,6 @@ describe("a day with Links", () => {
     expect((await call("/api/me", { token: alice.token })).data.user.name).toBe("Ally A");
     expect(await call("/api/me", { method: "PATCH", token: alice.token, body: { name: "   " } }))
       .toMatchObject({ status: 400, data: { error: "Missing name." } });
-  });
-
-  e2e("requires a verified email match for invites granting Everyone history", async () => {
-    const blank = await cli(dataDir, "invite", "   ", "--join-everyone");
-    expect(blank.code).toBe(1);
-    expect(blank.stdout).toBe("");
-    expect(blank.stderr).toContain("--join-everyone requires an email");
-    const bound = await cli(dataDir, "invite", "trusted@team.test", "--join-everyone");
-    expect(bound.code, bound.logs()).toBe(0);
-    const path = new URL(bound.stdout.trim()).pathname;
-    const { code, verifier } = await authorize("relay");
-    expect((await exchange(code, verifier, path.split("/").at(-1))).status).toBe(403);
-    expect((await call(path)).status).toBe(200);
-  });
-
-  e2e("doesn't issue a history-granting invite for someone already in Links", async () => {
-    const existing = await cli(dataDir, "invite", " ALICE@example.com ", "--join-everyone");
-    expect(existing.code).toBe(1);
-    expect(existing.stdout).toBe("");
-    expect(existing.stderr).toContain("--join-everyone is only for accounts that haven't joined Links yet.");
   });
 
   e2e("shares a link: unseen by the other person, then seen, reacted to and noted", async () => {
