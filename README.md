@@ -33,6 +33,10 @@ has seen it, and mark it seen when you're back. Coming back from TikTok lands on
 even if iOS closed the app meanwhile. Long-press **Open in TikTok** still goes straight there and
 marks it seen in one go.
 
+**Profile → Links Wrapped** shows monthly and yearly highlights: your top sender, watch rate,
+top platform and most-reacted link, with an opt-in shareable card. It covers only links you can
+see in your current chats; dates use your local calendar and reactions/seen marks reflect now.
+
 The **Throwback** card in Seen resurfaces links from at least a week ago that you and a friend
 loved, with a different starting pick each day.
 
@@ -357,6 +361,7 @@ API endpoints except sign-in need `Authorization: Bearer <session token>`; pages
 
 | Method | Path | Body / notes |
 | --- | --- | --- |
+| GET | `/api/wrapped` | `?start=<unix seconds>&end=<unix seconds>[&group_id=<id>]` → `{start, end, received, sent, watched, top_sender, top_platform, most_reacted}`; integer half-open range up to 366 days, current visible chats only; top fields null without qualifying shares, `most_reacted` contains link fields with `sender_name` and a numeric `reactions` count; 400 for invalid dates, 404 for a chat you aren't in |
 | GET | `/` | public browser landing page; opens the iPhone app, explains invites, and links to support and privacy; `APP_STORE_ID` adds an App Store link and Smart App Banner |
 | GET | `/app-preview.png` | public iPhone app screenshot with fictional sample data, embedded in the server binary for the landing page |
 | GET | `/auth/authorize` | `?code_challenge=&state=[&screen_hint=sign-up]` → redirects to AuthKit |

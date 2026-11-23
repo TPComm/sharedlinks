@@ -15,6 +15,26 @@ final class LinksUITests: XCTestCase {
 
     // MARK: Inbox
 
+    func testWrappedShowsTopSenderAndShare() throws {
+        let meID = try server.state(as: server.me).me
+        let chat = try server.startChat(name: "Wrapped \(shortID())", members: [meID], as: server.friend)
+        leaveAfterwards(chat.id)
+        let link = try server.add(uniqueURL(), to: chat.id, as: server.friend)
+        deleteAfterwards(link.id)
+        try server.react(link.id, emoji: "❤️", as: server.me)
+        launch()
+        app.buttons["account"].tap()
+        scrolledTo(app.buttons["profile.wrapped"]).tap()
+        let sender = app.staticTexts["Friend"]
+        XCTAssert(sender.waitForExistence(timeout: 20))
+        scrolledTo(app.buttons["wrapped.share"])
+        XCTAssert(app.buttons["wrapped.share"].exists)
+        let attachment = XCTAttachment(screenshot: app.screenshot())
+        attachment.name = "Wrapped seeded card"
+        attachment.lifetime = .keepAlways
+        add(attachment)
+    }
+
     func testSeenStartsWithTheLinkWhenNoThrowbackIsEligible() throws {
         let meID = try server.state(as: server.me).me
         let name = "Throwback \(shortID())"

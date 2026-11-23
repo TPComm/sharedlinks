@@ -4,7 +4,7 @@ import SwiftUI
 
 /// Add a stable case in display order, its page content below, and a UI test assertion.
 enum FeatureTour: String, CaseIterable, Identifiable {
-    case profilePhoto, rollup, swipeQueue
+    case profilePhoto, rollup, wrapped, swipeQueue
 
     var id: String { rawValue }
 
@@ -21,6 +21,10 @@ enum FeatureTour: String, CaseIterable, Identifiable {
 
     var page: Page {
         switch self {
+        case .wrapped:
+            Page(symbol: "sparkles.rectangle.stack", title: "Links Wrapped",
+                 body: "Profile → Links Wrapped shows who sent you the most links, your watch rate and your top platform. Share your highlights as a card whenever you like.",
+                 action: nil)
         case .profilePhoto:
             Page(symbol: "person.crop.circle", title: "Make Links Yours",
                  body: "Your profile photo now appears next to the links you send. Add a photo so your friends can spot you at a glance.",

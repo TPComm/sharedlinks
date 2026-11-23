@@ -772,6 +772,51 @@ export function createApp(config: Config, opts: AppOptions = {}) {
     "/support": new Response(supportPage(config.supportEmail), { headers: { "Content-Type": "text/html; charset=utf-8" } }),
     "/privacy": new Response(privacyPage(config.supportEmail, config.sessionDays), { headers: { "Content-Type": "text/html; charset=utf-8" } }),
 
+    "/api/wrapped": {
+      GET: route((req, me) => {
+        const params = new URL(req.url).searchParams;
+        const parse = (key: string) => {
+          const value = params.get(key);
+          if (value === null || !/^-?\d+$/.test(value) || !Number.isSafeInteger(Number(value))) throw new BadRequest("Choose a valid date range.");
+          return Number(value);
+        };
+        const start = parse("start"), end = parse("end");
+        if (start >= end || end - start > 366 * 86400) throw new BadRequest("Choose a range of up to 366 days.");
+        const group = params.get("group_id");
+        const groupId = group === null ? null : groupOf(group, me);
+        const scope = `${VISIBLE} AND added_at >= ?2 AND added_at < ?3 AND (?4 IS NULL OR group_id = ?4)`;
+        const rows = db.query(`WITH scoped AS (SELECT * FROM links WHERE ${scope}),
+          reaction_counts AS (SELECT r.link_id, count(*) AS total FROM reactions r
+            JOIN scoped ON scoped.id = r.link_id WHERE r.emoji != '👎'
+              AND NOT EXISTS (SELECT 1 FROM blocks WHERE blocker = ?1 AND blocked = r.person)
+            GROUP BY r.link_id)
+          SELECT scoped.*, coalesce(reaction_counts.total, 0) AS reaction_count, seen.person IS NOT NULL AS watched
+          FROM scoped LEFT JOIN reaction_counts ON reaction_counts.link_id = scoped.id
+          LEFT JOIN seen ON seen.link_id = scoped.id AND seen.person = ?1
+          ORDER BY scoped.added_at DESC, scoped.id DESC`).all(me, start, end, groupId) as (LinkRow & { reaction_count: number; watched: number })[];
+        const received = rows.filter(r => r.added_by !== me);
+        const counts = (values: string[]) => {
+          const result = new Map<string, number>();
+          for (const value of values) result.set(value, (result.get(value) ?? 0) + 1);
+          return [...result];
+        };
+        const compare = (a: string, b: string) => a < b ? -1 : a > b ? 1 : 0;
+        const sender = db.query(`SELECT links.added_by AS id, coalesce(users.name, 'Deleted user') AS name, count(*) AS count
+          FROM links LEFT JOIN users ON users.id = links.added_by WHERE ${scope} AND links.added_by != ?1
+          GROUP BY links.added_by ORDER BY count DESC, name, links.added_by LIMIT 1`)
+          .get(me, start, end, groupId) as { id: string; name: string; count: number } | null;
+        const platform = counts(received.map(r => r.platform)).sort((a, b) => b[1] - a[1] || compare(a[0], b[0]))[0];
+        const ranked = rows.map(r => ({ row: r, count: r.reaction_count })).sort((a, b) => b.count - a.count);
+        const best = ranked[0];
+        const bestSender = best && best.count > 0
+          ? db.query("SELECT name FROM users WHERE id = ?").get(best.row.added_by) as { name: string } | null : null;
+        return json({ start, end, received: received.length, sent: rows.length - received.length,
+          watched: received.filter(r => r.watched).length,
+          top_sender: sender,
+          top_platform: platform ? { platform: platform[0], count: platform[1] } : null,
+          most_reacted: best && best.count > 0 ? { ...toLink(best.row), sender_name: bestSender?.name ?? "Deleted user", reactions: best.count } : null });
+      }),
+    },
     "/api/state": {
       GET: route((req, me) => {
         const groupId = new URL(req.url).searchParams.get("group_id");
