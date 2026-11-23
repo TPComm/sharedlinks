@@ -89,7 +89,8 @@ final class TourUITests: XCTestCase {
         // Straight to the share-sheet step, which remembers it's done.
         app.buttons["account"].tap()
         scrolledTo(app.buttons["How to Share to Links"]).tap()
-        XCTAssert(waitForPage("Links Is in Your Share Sheet"), "How to Share to Links didn't")
+        XCTAssert(app.buttons["tour.tryAgain"].waitForExistence(timeout: 60), "How to Share to Links didn't")
+        XCTAssert(app.staticTexts["Links Is in Your Share Sheet"].exists)
         app.buttons["tour.skip"].tap()
         XCTAssert(app.staticTexts["Links Is in Your Share Sheet"].waitForNonExistence(timeout: 20))
     }
