@@ -971,6 +971,9 @@ export function createApp(config: Config, opts: AppOptions = {}) {
         return json({ group: id === null ? null : getGroup(id, me) });
       }),
     },
+    "/api/invites/kind/:token": {
+      GET: route<Request & { params: { token: string } }>((req) => json({ open: !!accounts.openInvite(req.params.token) }), pub),
+    },
     "/api/invites/:id": {
       DELETE: route<WithId>((req, me) => {
         if (!/^\d+$/.test(req.params.id) || !accounts.revokeInvite(me, Number(req.params.id))) {

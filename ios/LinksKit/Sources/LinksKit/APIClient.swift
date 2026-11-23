@@ -62,6 +62,12 @@ public struct APIClient: Sendable {
         let _: [String: Bool]? = try? await send("POST", "api/auth/logout")
     }
 
+    public func inviteIsOpen(_ token: String) async throws -> Bool {
+        struct Kind: Decodable { let open: Bool }
+        let kind: Kind = try await send("GET", "api/invites/kind", component: token)
+        return kind.open
+    }
+
     /// Hands the server this phone's APNs token for the session (signing out removes it).
     /// Returns whether the server sends push notifications at all.
     public func registerDevice(token: String, env: String) async throws -> Bool {

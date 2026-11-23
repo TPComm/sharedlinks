@@ -890,6 +890,40 @@ final class LinksUITests: XCTestCase {
         }
     }
 
+    func testSignedOutChatInviteExplainsWhoCanJoin() throws {
+        let chat = try server.startChat(name: "Invites \(shortID())", as: server.me)
+        leaveAfterwards(chat.id)
+        let chatToken = try server.chatInvite(to: chat.id, as: server.me)
+        let personalToken = try server.invite(as: server.friend)
+        app.launchEnvironment = [
+            "LINKS_SERVER_URL": server.url.absoluteString,
+            "LINKS_DEV_TOKEN": "expired-session",
+            "LINKS_UI_TESTS": "1",
+        ]
+        app.launch()
+        XCTAssert(app.buttons["signIn"].waitForExistence(timeout: 20), "no signed-out screen")
+        XCTAssertFalse(app.descendants(matching: .any)["invited"].exists)
+        app.launchEnvironment.removeValue(forKey: "LINKS_DEV_TOKEN")
+
+        app.open(URL(string: "sharedlinks://invite/\(chatToken)")!)
+        let invited = app.descendants(matching: .any)["invited"]
+        XCTAssert(invited.waitForExistence(timeout: 10))
+        let chatCopy = "You’re invited to a chat. Sign in with your Links account to join. New to Links? Ask a friend for a personal invite."
+        let resolved = XCTNSPredicateExpectation(predicate: NSPredicate(format: "label CONTAINS %@", chatCopy), object: invited)
+        wait(for: [resolved], timeout: 10)
+        XCTAssert(app.buttons["Create Account"].exists)
+        let attachment = XCTAttachment(screenshot: app.screenshot())
+        attachment.name = "Signed-out chat invite"
+        attachment.lifetime = .keepAlways
+        add(attachment)
+
+        for token in [personalToken, "invalid"] {
+            app.open(URL(string: "sharedlinks://invite/\(token)")!)
+            XCTAssert(invited.waitForExistence(timeout: 10))
+            XCTAssertEqual(invited.label, "You’re invited. Sign in or create an account to join.")
+        }
+    }
+
     func testDeletingTheAccountSignsOutAndDeletesTheLinksItSent() throws {
         // An account of its own: deleting "Me" would sign every later test out.
         let sent = try seed(by: server.deletable, note: "Mine \(shortID())")

@@ -229,6 +229,22 @@ struct APIClientRequestTests {
 
 @Suite("APIClient responses")
 struct APIClientResponseTests {
+    @Test(arguments: [true, false]) func inviteKindIsAvailableWithoutSigningIn(_ open: Bool) async throws {
+        let server = StubServer(always: .json(open ? #"{"open":true}"# : #"{"open":false}"#))
+        #expect(try await server.client(token: nil).inviteIsOpen("inv_tok") == open)
+        let request = try #require(server.requests.only)
+        #expect(request.method == "GET")
+        #expect(request.url.path() == "/api/invites/kind/inv_tok")
+        #expect(request.header("Authorization") == nil)
+    }
+
+    @Test func inviteKindLookupPropagatesFailures() async {
+        let server = StubServer(always: .json(#"{"error":"Try again."}"#, status: 503))
+        await #expect(throws: APIError.server("Try again.")) {
+            try await server.client(token: nil).inviteIsOpen("inv_tok")
+        }
+    }
+
     @Test func exchangeReturnsTheSessionAndUser() async throws {
         let server = StubServer(always: .json(#"{"token": "tok_new", "user": \#(Fixture.sam), "claimable": [\#(Fixture.jo)]}"#))
         let result = try await server.client(token: nil).exchange(code: "c", verifier: "v")

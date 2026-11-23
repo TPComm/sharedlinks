@@ -1662,6 +1662,15 @@ describe("group chats", () => {
     expect((await call(path, { token: ann, body: { reset: "true" } })).status).toBe(400);
     const token = made.data.link.url.split("/invite/")[1];
     expect(token).toMatch(/^[A-Za-z0-9_-]{43}$/);
+    const kind = await fetch(`${api}/api/invites/kind/${token}`);
+    expect(kind.status).toBe(200);
+    expect(kind.headers.get("cache-control")).toBe("no-store");
+    expect(await kind.json()).toEqual({ open: true });
+    const personal = await call("/api/invites", { token: ann, body: {} });
+    const personalToken = personal.data.invite.url.split("/invite/")[1];
+    for (const value of [personalToken, "z".repeat(43), "invalid"]) {
+      expect(await (await fetch(`${api}/api/invites/kind/${value}`)).json()).toEqual({ open: false });
+    }
     const page = await fetch(`${api}/invite/${token}`);
     expect(page.status).toBe(200);
     const html = await page.text();
@@ -1681,10 +1690,12 @@ describe("group chats", () => {
     expect(signed.data.group_id).toBe(chat.id);
     const reset = await call(path, { token: bo, body: { reset: true } });
     expect(reset.data.link.url).not.toBe(made.data.link.url);
+    expect(await (await fetch(`${api}/api/invites/kind/${token}`)).json()).toEqual({ open: false });
     expect((await accept(token)).status).toBe(404);
     expect((await call(path, { token: bo, method: "DELETE" })).data.link).toBeNull();
     expect((await call(path, { token: ann })).data.link).toBeNull();
     expect((await accept(reset.data.link.url.split("/invite/")[1])).status).toBe(404);
+    expect(await (await fetch(`${api}/api/invites/kind/${reset.data.link.url.split("/invite/")[1]}`)).json()).toEqual({ open: false });
   });
 
   test("chat links enforce the same member cap as adding people", async () => {
