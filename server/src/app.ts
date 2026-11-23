@@ -801,10 +801,11 @@ export function createApp(config: Config, opts: AppOptions = {}) {
           return [...result];
         };
         const compare = (a: string, b: string) => a < b ? -1 : a > b ? 1 : 0;
-        const sender = db.query(`SELECT links.added_by AS id, coalesce(users.name, 'Deleted user') AS name, count(*) AS count
+        const senders = db.query(`SELECT links.added_by AS id, coalesce(users.name, 'Deleted user') AS name, count(*) AS count
           FROM links LEFT JOIN users ON users.id = links.added_by WHERE ${scope} AND links.added_by != ?1
-          GROUP BY links.added_by ORDER BY count DESC, name, links.added_by LIMIT 1`)
-          .get(me, start, end, groupId) as { id: string; name: string; count: number } | null;
+          GROUP BY links.added_by`)
+          .all(me, start, end, groupId) as { id: string; name: string; count: number }[];
+        const topSender = senders.sort((a, b) => b.count - a.count || compare(a.name, b.name) || compare(a.id, b.id))[0];
         const platform = counts(received.map(r => r.platform)).sort((a, b) => b[1] - a[1] || compare(a[0], b[0]))[0];
         const ranked = rows.map(r => ({ row: r, count: r.reaction_count })).sort((a, b) => b.count - a.count);
         const best = ranked[0];
@@ -812,7 +813,7 @@ export function createApp(config: Config, opts: AppOptions = {}) {
           ? db.query("SELECT name FROM users WHERE id = ?").get(best.row.added_by) as { name: string } | null : null;
         return json({ start, end, received: received.length, sent: rows.length - received.length,
           watched: received.filter(r => r.watched).length,
-          top_sender: sender,
+          top_sender: topSender ?? null,
           top_platform: platform ? { platform: platform[0], count: platform[1] } : null,
           most_reacted: best && best.count > 0 ? { ...toLink(best.row), sender_name: bestSender?.name ?? "Deleted user", reactions: best.count } : null });
       }),
