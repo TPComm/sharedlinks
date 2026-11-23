@@ -825,6 +825,10 @@ final class AppModel {
         await perform { self.patch(try await self.client.setNote(link.id, note)) }
     }
 
+    func nudge(_ link: SharedLink, people: [String]? = nil) async {
+        await perform { self.patch(try await self.client.nudge(link.id, people: people)) }
+    }
+
     /// "Try Loading the Preview Again" on a link whose preview failed.
     func refreshPreview(_ link: SharedLink) async {
         await perform { self.patch(try await self.client.refreshPreview(link.id)) }

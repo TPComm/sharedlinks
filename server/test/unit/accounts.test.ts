@@ -627,7 +627,8 @@ describe("signIn (WorkOS stub)", () => {
     const a = signer();
     const { token } = a.createInvite(null, null);
     expect(a.pendingInvite(token)).toMatchObject({ invited_by: null, inviter: null });
-    expect((await a.signIn("stranger", VERIFIER, "", token)).user.id).toBe("user_04");
+    expect(await a.signIn("stranger", VERIFIER, "", token)).toMatchObject({ user: { id: "user_04" }, group_id: null });
+    expect(rows("SELECT group_id FROM group_members WHERE user_id = 'user_04'")).toEqual([]);
     expect(a.pendingInvite(token)).toBeNull();
   });
 
@@ -639,15 +640,14 @@ describe("signIn (WorkOS stub)", () => {
     expect(() => a.createInvite("host", null)).toThrow("Cancel some first");
   });
 
-  test("invites hidden for verified existing chat members do not count toward the limit", () => {
+  test("invites hidden for verified existing direct partners do not count toward the limit", () => {
     const a = signer();
     a.mintSession("host@example.com", "Host");
     a.mintSession("recipient@example.com", "Recipient");
     const host = a.usersWithEmail("host@example.com")[0]!;
-    const group = (db.query("SELECT group_id FROM group_members WHERE user_id = ?").get(host.id) as { group_id: number }).group_id;
-    for (let i = 0; i < MAX_PENDING_INVITES; i++) a.createInvite(host.id, "recipient@example.com", group);
+    for (let i = 0; i < MAX_PENDING_INVITES; i++) a.createInvite(host.id, "recipient@example.com");
     expect(a.pendingInvites(host.id)).toEqual([]);
-    expect(() => a.createInvite(host.id, "new@example.com", group)).not.toThrow();
+    expect(() => a.createInvite(host.id, "new@example.com")).not.toThrow();
     expect(a.pendingInvites(host.id)).toHaveLength(1);
   });
 
