@@ -10,7 +10,7 @@ import { canonical, expandShortLink, extractUrl, platformOf } from "../src/links
 import { BlockedAddressError, isPrivateAddress, safeFetch } from "../src/net.ts";
 import { decodeEntities, ogTags, PREVIEW_VERSION, previewFromTags } from "../src/previews.ts";
 import { openDatabase } from "../src/db.ts";
-import { fakeFetch } from "./unit/helpers.ts";
+import { fakeFetch, seedEveryoneMember } from "./unit/helpers.ts";
 
 // 1x1 PNG
 const PNG = Uint8Array.from(atob("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="), (c) => c.charCodeAt(0));
@@ -99,6 +99,9 @@ const fakeWorkOS = Bun.serve({
           max: { id: "user_01MAX", email: "max@else.test", email_verified: true, first_name: "Max" },
           ida: { id: "user_01IDA", email: "ida@else.test", email_verified: true, first_name: "Ida" },
           neo: { id: "user_01NEO", email: "neo@else.test", email_verified: true, first_name: "Neo" },
+          privateGuest: { id: "user_01PRIVATEGUEST", email: "privateguest@else.test", email_verified: true },
+          oldInviteGuest: { id: "user_01OLDINVITEGUEST", email: "oldinviteguest@else.test", email_verified: true },
+          existingGuest: { id: "user_01EXISTINGGUEST", email: "existingguest@else.test", email_verified: true },
           unverifiedGuest: { id: "user_01UNVGUEST", email: "unv@else.test", email_verified: false },
         };
         const user = users[body.code];
@@ -127,7 +130,7 @@ const fakeOrigin = Bun.serve({
   },
 });
 
-beforeAll(() => {
+beforeAll(async () => {
   // Start from a v0 database (people identified by typed names) to exercise the migration.
   const legacy = new Database(join(dataDir, "links.db"), { create: true });
   legacy.exec(`
@@ -171,6 +174,12 @@ beforeAll(() => {
   mint = (email, name) => app.accounts.mintSession(email, name);
   approveClaim = (email, name) => app.accounts.approveClaim(email, name);
   stop = () => server.stop(true);
+  for (const code of ["good", "domain", "rude", "blocker"]) {
+    const { status, data } = await signIn(code);
+    expect(status).toBe(200);
+    expect(data.group_id).toBeNull();
+    seedEveryoneMember(app.db, data.user.id);
+  }
 });
 
 afterAll(() => {
@@ -195,6 +204,100 @@ async function call(path: string, opts: { method?: string; token?: string; body?
   try { data = JSON.parse(text); } catch {}
   return { status: res.status, data, headers: res.headers };
 }
+
+test("nudges are sender-only, private, limited per person and skip ineligible members", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "links-nudges-"));
+  const { app, server } = startServer({ ...baseConfig, dataDir: dir, port: 0, previewBackfillMs: 0 });
+  const request = async (path: string, token: string, body?: unknown) => {
+    const res = await fetch(server.url.origin + path, {
+      method: body === undefined ? "GET" : "POST",
+      headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+      body: body === undefined ? undefined : JSON.stringify(body),
+    });
+    return { status: res.status, data: await res.json() as any };
+  };
+  const sender = app.accounts.mintSession("nudge-sender@test.example", "Sender");
+  const recipient = app.accounts.mintSession("nudge-recipient@test.example", "Recipient");
+  const watcher = app.accounts.mintSession("nudge-watcher@test.example", "Watcher");
+  const outsider = app.accounts.mintSession("nudge-outsider@test.example", "Outsider");
+  const who = async (token: string) => (await request("/api/state", token)).data.me as string;
+  const [s, r, w] = await Promise.all([sender, recipient, watcher].map(who)) as [string, string, string];
+  const group = (await request("/api/groups", sender, { name: "Nudges", members: [r, w] })).data.group.id;
+  const direct = (await request("/api/state", sender)).data.groups.find((g: any) => g.direct && g.members.includes(r));
+  const directLink = (await request("/api/links", sender, { url: `${origin}/plain?direct-nudge`, group_id: direct.id })).data.link;
+  const directNudge = await request(`/api/links/${directLink.id}/nudge`, sender, {});
+  expect(directNudge.status).toBe(200);
+  expect(directNudge.data.nudged).toEqual([r]);
+  expect(directNudge.data.link.nudged[r]).toBeNumber();
+  expect((await request(`/api/links/${directLink.id}/nudge`, sender, {})).status).toBe(429);
+  const added = await request("/api/links", sender, { url: `${origin}/plain?nudge`, group_id: group });
+  const id = added.data.link.id;
+  await app.idle();
+  const title = (await request("/api/state", sender)).data.links.find((l: any) => l.id === id).title;
+  Object.defineProperty(app.push, "enabled", { value: true });
+  const delivery = spyOn(app.push as any, "toPerson").mockImplementation(async (...args: any[]) => {
+    const payload = args[2](0);
+    expect(payload.aps.category).toBe("NUDGE");
+    expect(payload.aps.alert.title).toBe("Sender nudged you");
+    expect(payload.aps.alert.body).toBe(title || "link");
+    expect(payload.link_id).toBe(id);
+    expect(payload.sender_id).toBe(s);
+    expect(payload.group_id).toBe(group);
+  });
+  try {
+    const path = `/api/links/${id}/nudge`;
+    expect((await request(path, recipient, { people: [w] })).status).toBe(403);
+    expect((await request(path, outsider, {})).status).toBe(404);
+    expect((await request(path, sender, { people: "bad" })).status).toBe(400);
+    const first = await request(path, sender, { people: [r, r] });
+    expect(first.status).toBe(200);
+    expect(first.data.nudged).toEqual([r]);
+    expect(first.data.link.nudged[r]).toBeNumber();
+    await app.idle();
+    expect(delivery).toHaveBeenCalledTimes(1);
+    expect(delivery.mock.calls[0]![0]).toBe(r);
+    expect((await request(path, sender, { people: [r] })).status).toBe(429);
+    expect((await request("/api/state", sender)).data.links.find((l: any) => l.id === id).nudged).toEqual(first.data.link.nudged);
+    expect((await request("/api/state", recipient)).data.links.find((l: any) => l.id === id).nudged).toBeUndefined();
+    app.db.run("INSERT INTO blocks (blocker, blocked, created_at) VALUES (?, ?, 1)", [s, r]);
+    expect((await request(path, sender, { people: [r] })).status).toBe(400);
+    app.db.run("DELETE FROM blocks WHERE blocker = ? AND blocked = ?", [s, r]);
+    // Their block stays private: the reply is the same as without it.
+    app.db.run("INSERT INTO blocks (blocker, blocked, created_at) VALUES (?, ?, 1)", [r, s]);
+    expect((await request(path, sender, { people: [r] })).status).toBe(429);
+    app.db.run("DELETE FROM blocks WHERE blocker = ? AND blocked = ?", [r, s]);
+    app.db.run("INSERT INTO seen (link_id, person, seen_at) VALUES (?, ?, 1)", [id, w]);
+    app.db.run("UPDATE nudges SET nudged_at = nudged_at - 86401 WHERE link_id = ?", [id]);
+    app.db.run("UPDATE group_members SET muted = 1 WHERE group_id = ? AND user_id = ?", [group, r]);
+    const everyone = await request(path, sender, {});
+    expect(everyone.data.nudged).toEqual([r]);
+    await app.idle();
+    expect(delivery).toHaveBeenCalledTimes(1);
+    expect((await request(path, sender, { people: [] })).status).toBe(429);
+    app.db.run("UPDATE group_members SET muted = 0 WHERE group_id = ? AND user_id = ?", [group, r]);
+    // Reporting the link or blocking the sender still looks like a nudge to the sender, but sends no push.
+    app.db.run("INSERT INTO reports (reporter, link_id, reason, details, snapshot, created_at) VALUES (?, ?, 'spam', '', '{}', 1)", [r, id]);
+    app.db.run("UPDATE nudges SET nudged_at = nudged_at - 86401 WHERE link_id = ?", [id]);
+    expect((await request(path, sender, {})).data.nudged).toEqual([r]);
+    app.db.run("DELETE FROM reports WHERE reporter = ? AND link_id = ?", [r, id]);
+    app.db.run("INSERT INTO blocks (blocker, blocked, created_at) VALUES (?, ?, 1)", [r, s]);
+    app.db.run("UPDATE nudges SET nudged_at = nudged_at - 86401 WHERE link_id = ?", [id]);
+    expect((await request(path, sender, {})).data.nudged).toEqual([r]);
+    await app.idle();
+    expect(delivery).toHaveBeenCalledTimes(1);
+    app.db.run("INSERT INTO seen (link_id, person, seen_at) VALUES (?, ?, 1)", [id, r]);
+    expect((await request(path, sender, {})).data).toEqual({ error: "There's nobody to nudge right now." });
+    app.db.run("DELETE FROM links WHERE id = ?", [id]);
+    expect(app.db.query("SELECT * FROM nudges WHERE link_id = ?").all(id)).toEqual([]);
+  } finally {
+    delivery.mockRestore();
+    app.push.close();
+    server.stop(true);
+    await app.idle();
+    app.db.close();
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
 
 const signIn = (code: string, verifier = VERIFIER, invite?: string) =>
   call("/api/auth/token", { body: { code, code_verifier: verifier, ...(invite ? { invite } : {}) } });
@@ -410,7 +513,11 @@ describe("invites", () => {
     expect(page.status).toBe(200);
     expect(page.data).toContain("<title>You&#39;re invited to Links</title>");
     expect(page.data).toContain("If the invite was sent to your email address");
-    expect((await signIn("pip", VERIFIER, token)).status).toBe(200);
+    const signedIn = await signIn("pip", VERIFIER, token);
+    expect(signedIn.status).toBe(200);
+    expect(signedIn.data.group_id).toBeNull();
+    const view = (await call("/api/state", { token: signedIn.data.token })).data;
+    expect(view).toMatchObject({ groups: [], links: [], users: [{ id: signedIn.data.user.id }] });
   });
 
   test("revoked and expired invites stop working", async () => {
@@ -484,7 +591,7 @@ describe("links", () => {
     const db = new Database(join(dataDir, "links.db"), { readonly: true });
     const { sql } = db.query("SELECT sql FROM sqlite_master WHERE name = 'links'").get() as { sql: string };
     expect(sql).toContain("AUTOINCREMENT");
-    expect((db.query("PRAGMA user_version").get() as any).user_version).toBe(18);
+    expect((db.query("PRAGMA user_version").get() as any).user_version).toBe(19);
     db.close();
     const { data } = await call("/api/state", { token });
     expect(data.links.map((l: any) => l.url)).toContain("https://de.wikipedia.org/wiki/M%C3%BCnchen");
@@ -957,6 +1064,33 @@ describe("wrapped", () => {
     }
   });
 
+  test("accepts a local leap year that gained an hour in Almaty", async () => {
+    const token = mint("wrapped-leap-year@test.com", "Viewer");
+    const start = Date.parse("2024-01-01T00:00:00+06:00") / 1000;
+    const end = Date.parse("2025-01-01T00:00:00+05:00") / 1000;
+    const wrapped = await call(`/api/wrapped?start=${start}&end=${end}`, { token });
+    expect(wrapped.status).toBe(200);
+    expect(wrapped.data).toMatchObject({ start, end });
+  });
+
+  test("breaks tied sender counts in JavaScript display-name order", async () => {
+    const viewer = mint("wrapped-tie-viewer@test.com", "Viewer");
+    const emoji = mint("wrapped-tie-emoji@test.com", "😀 Amy");
+    const fullwidth = mint("wrapped-tie-fullwidth@test.com", "Ｚoe");
+    const emojiId = (await call("/api/state", { token: emoji })).data.me;
+    const fullwidthId = (await call("/api/state", { token: fullwidth })).data.me;
+    const chat = await call("/api/groups", { token: viewer, body: { members: [emojiId, fullwidthId] } });
+    expect(chat.status).toBe(201);
+    const groupId = chat.data.group.id;
+    const start = Math.floor(Date.now() / 1000);
+    for (const [token, name] of [[emoji, "emoji"], [fullwidth, "fullwidth"]]) {
+      const link = await call("/api/links", { token, body: { group_id: groupId, url: `${origin}/plain?wrapped-tie=${name}` } });
+      expect(link.status).toBe(201);
+    }
+    const wrapped = await call(`/api/wrapped?start=${start}&end=${start + 3600}&group_id=${groupId}`, { token: viewer });
+    expect(wrapped.data.top_sender).toEqual({ id: emojiId, name: "😀 Amy", count: 1 });
+  });
+
   test("aggregates visible shares, ranges and chat filters with deterministic ties", async () => {
     const db = new Database(join(dataDir, "links.db"));
     const viewer = mint("wrapped-viewer@test.com", "Viewer");
@@ -1019,6 +1153,52 @@ describe("group chats", () => {
     expect(peerChats.map((g: any) => g.members.find((id: string) => id !== cyId))).toContain("user_01FRIEND");
     expect(data.links.length).toBeGreaterThan(0);
     expect(data.links.every((l: any) => l.group_id === everyone.id)).toBe(true);
+  });
+
+  test("a private invite doesn't let someone add their friend to Everyone", async () => {
+    const before = await state(ann);
+    const everyone = before.groups.find((g: any) => g.default);
+    const historicalLink = before.links.find((l: any) => l.group_id === everyone.id);
+    // Older apps send the active inbox filter with a friend invite.
+    const made = await call("/api/invites", { token: ann, body: { group_id: everyone.id } });
+    expect(made.data.invite.group_id).toBeNull();
+    const guest = await signIn("privateGuest", VERIFIER, made.data.invite.url.split("/invite/")[1]);
+    expect(guest.status).toBe(200);
+    const { token, user } = guest.data;
+    const add = await call(`/api/groups/${everyone.id}/members`, { token: ann, body: { members: [user.id] } });
+    expect(add.status).toBe(400);
+
+    const after = await state(token);
+    expect(after.users.map((u: any) => u.id).sort()).toEqual([annId, user.id].sort());
+    expect(after.groups).toHaveLength(1);
+    expect(after.groups[0]).toMatchObject({ default: false, direct: true });
+    expect(after.links).toEqual([]);
+    expect((await call(`/api/state?group_id=${everyone.id}`, { token })).status).toBe(404);
+    expect((await call(`/api/links/${historicalLink.id}/comments`, { token })).status).toBe(404);
+    expect((await state(ann)).groups.find((g: any) => g.default).members).toEqual(everyone.members);
+  });
+
+  test("old pending invitations to Everyone grant only a direct chat", async () => {
+    const everyone = (await state(ann)).groups.find((g: any) => g.default);
+    const db = new Database(join(dataDir, "links.db"));
+    const tokens = ["b".repeat(43), "c".repeat(43)];
+    for (const [index, token] of tokens.entries()) {
+      db.run(`INSERT INTO invites (token_hash, invited_by, group_id, created_at, expires_at)
+        VALUES (?, ?, ?, unixepoch(), unixepoch() + 86400)`,
+        [new Bun.CryptoHasher("sha256").update(token).digest("hex"), [annId, boId][index]!, everyone.id]);
+    }
+    db.close();
+    const guest = await signIn("oldInviteGuest", VERIFIER, tokens[0]);
+    expect(guest.status).toBe(200);
+    const { token, user } = guest.data;
+    expect((await state(token)).groups).toHaveLength(1);
+    const accepted = await call("/api/invites/accept", { token, body: { token: tokens[1] } });
+    expect(accepted.status).toBe(200);
+    expect(accepted.data.group).toMatchObject({ default: false, direct: true });
+    const view = await state(token);
+    expect(view.groups).toHaveLength(2);
+    expect(view.users.map((u: any) => u.id).sort()).toEqual([annId, boId, user.id].sort());
+    expect(view.links).toEqual([]);
   });
 
   test("mute settings are per member, expire, and validate without renaming the chat", async () => {
@@ -1171,19 +1351,25 @@ describe("group chats", () => {
     expect((await call("/api/groups", { token: ann, body: { members: people } })).status).toBe(400);
   });
 
-  test("people see only who they share a chat with; an invite brings them into the inviter's chat", async () => {
+  test("a group-scoped invite starts a direct chat; group access needs an explicit addition", async () => {
     const chat = (await call("/api/groups", { token: ann, body: { name: "Invited", members: [boId] } })).data.group;
     const sent = await call("/api/links", { token: bo, body: { url: `${origin}/plain?n=before-lee`, group_id: chat.id } });
-    expect((await call("/api/invites", { token: cy, body: { group_id: chat.id } })).status).toBe(404); // not cy's chat
     const made = await call("/api/invites", { token: ann, body: { group_id: chat.id } });
     expect(made.status).toBe(201);
-    expect(made.data.invite.group_id).toBe(chat.id);
+    expect(made.data.invite.group_id).toBeNull();
     const lee = await signIn("lee", VERIFIER, made.data.invite.url.split("/invite/")[1]);
     expect(lee.status).toBe(200);
 
-    // Lee joins the named chat, gets a direct chat with each member, and still sees no one else.
-    const view = await state(lee.data.token);
     const leeId = "user_01LEE";
+    const privateView = await state(lee.data.token);
+    expect(privateView.groups).toHaveLength(1);
+    expect(privateView.groups[0]).toMatchObject({ direct: true });
+    expect(privateView.users.map((u: any) => u.id).sort()).toEqual([annId, leeId].sort());
+    expect(privateView.links).toEqual([]);
+    expect((await call(`/api/groups/${chat.id}/members`, { token: ann, body: { members: [leeId] } })).status).toBe(200);
+
+    // Adding Lee later grants the group and connects them to the other member, not to Everyone.
+    const view = await state(lee.data.token);
     expect(view.groups.filter((g: any) => !g.direct).map((g: any) => g.id)).toEqual([chat.id]);
     const peerChats = view.groups.filter((g: any) => g.direct);
     expect(peerChats.map((g: any) => g.members.find((id: string) => id !== leeId)).sort()).toEqual([annId, boId].sort());
@@ -1212,7 +1398,6 @@ describe("group chats", () => {
     expect((await state(ann)).links.map((l: any) => l.id)).not.toContain(privateLink.data.link.id);
     expect((await call(`/api/groups/${boDirect.id}/members`, { token: bo, body: { members: [annId] } })).status).toBe(400);
     expect((await call(`/api/groups/${boDirect.id}`, { token: bo, method: "PATCH", body: { name: "Group" } })).status).toBe(400);
-    expect((await call("/api/invites", { token: bo, body: { group_id: boDirect.id } })).status).toBe(400);
     expect((await call(`/api/groups/${boDirect.id}`, { token: bo, method: "DELETE" })).status).toBe(400);
 
     // Leaving the group doesn't break the direct chat, but it can now be left independently.
@@ -1242,20 +1427,21 @@ describe("group chats", () => {
     expect((await state(cy)).groups.map((g: any) => g.id)).toContain(view.groups[0].id);
   });
 
-  test("an invite whose chat is gone, or that its sender left, starts a chat with just the two of them", async () => {
-    const gone = (await call("/api/groups", { token: ann, body: { name: "Gone" } })).data.group;
-    const left = (await call("/api/groups", { token: ann, body: { name: "Left", members: [boId] } })).data.group;
-    const toGone = await call("/api/invites", { token: ann, body: { group_id: gone.id } });
-    const toLeft = await call("/api/invites", { token: ann, body: { group_id: left.id } });
-    await call(`/api/groups/${gone.id}`, { method: "DELETE", token: ann });
-    await call(`/api/groups/${left.id}`, { method: "DELETE", token: ann });
-    for (const [code, made] of [["max", toGone], ["ida", toLeft]] as const) {
-      const them = await signIn(code, VERIFIER, made.data.invite.url.split("/invite/")[1]);
-      const view = await state(them.data.token);
-      expect(view.groups).toHaveLength(1);
-      expect(view.groups[0].id).not.toBe(left.id);
-      expect(view.groups[0].members.sort()).toEqual([annId, them.data.user.id].sort());
-    }
+  test("a legacy pending ordinary-group invite also starts only a direct chat", async () => {
+    const chat = (await call("/api/groups", { token: ann, body: { members: [boId] } })).data.group;
+    const token = Buffer.from(crypto.getRandomValues(new Uint8Array(32))).toString("base64url");
+    const raw = new Database(join(dataDir, "links.db"));
+    raw.run(`INSERT INTO invites (token_hash, invited_by, group_id, created_at, expires_at)
+      VALUES (?, ?, ?, unixepoch(), unixepoch() + 86400)`,
+      [new Bun.CryptoHasher("sha256").update(token).digest("hex"), annId, chat.id]);
+    raw.close();
+    const guest = await signIn("max", VERIFIER, token);
+    expect(guest.status).toBe(200);
+    const view = await state(guest.data.token);
+    expect(view.groups).toHaveLength(1);
+    expect(view.groups[0]).toMatchObject({ direct: true });
+    expect(view.groups[0].members.sort()).toEqual([annId, guest.data.user.id].sort());
+    expect(view.links).toEqual([]);
   });
 
   test("someone from before invites who wasn't let in joins only their friend's chat", async () => {
@@ -1271,25 +1457,23 @@ describe("group chats", () => {
     expect(view.groups[0].members.sort()).toEqual([cyId, "user_01STRANGER"].sort());
   });
 
-  test("a pre-v13 member can return to an existing chat without claiming an email invite", async () => {
+  test("a pre-v13 member can return to an existing direct chat without claiming an email invite", async () => {
     const old = mint("old-invite@groups.test", "Old member");
     const oldId = (await state(old)).me;
-    const chat = (await call("/api/groups", { token: ann, body: { members: [oldId] } })).data.group;
+    const pair = (await state(ann)).groups.find((g: any) => g.direct && g.members.includes(oldId));
     const raw = new Database(join(dataDir, "links.db"));
     raw.run("UPDATE users SET email_verified = 0 WHERE id = ?", [oldId]);
     raw.close();
-    const made = await call("/api/invites", { token: ann, body: { email: "old-invite@groups.test", group_id: chat.id } });
+    const made = await call("/api/invites", { token: ann, body: { email: "old-invite@groups.test" } });
     const accepted = await call("/api/invites/accept", { token: old, body: { token: made.data.invite.url.split("/invite/")[1] } });
     expect(accepted.status).toBe(200);
-    expect(accepted.data.group.id).toBe(chat.id);
+    expect(accepted.data.group.id).toBe(pair.id);
     expect((await call("/api/invites", { token: ann })).data.invites.map((i: any) => i.id)).toContain(made.data.invite.id);
-    const other = await call("/api/invites", { token: ann, body: { email: "old-invite@groups.test" } });
-    expect((await call("/api/invites/accept", { token: old, body: { token: other.data.invite.url.split("/invite/")[1] } })).status).toBe(403);
   });
 
-  test("an email invite is no longer pending when its verified recipient is already in the chat", async () => {
-    const chat = (await call("/api/groups", { token: ann, body: { members: [boId] } })).data.group;
-    const made = await call("/api/invites", { token: ann, body: { email: "bo@groups.test", group_id: chat.id } });
+  test("an email invite is not listed as pending when the verified recipient already has a direct chat", async () => {
+    const pair = (await state(ann)).groups.find((g: any) => g.direct && g.members.includes(boId));
+    const made = await call("/api/invites", { token: ann, body: { email: "bo@groups.test" } });
     const token = made.data.invite.url.split("/invite/")[1];
     expect((await call("/api/invites", { token: ann })).data.invites.map((i: any) => i.id)).not.toContain(made.data.invite.id);
     const page = await fetch(`${api}/invite/${token}`);
@@ -1297,39 +1481,43 @@ describe("group chats", () => {
     expect(await page.text()).toContain('>Open in Links</a>');
     const accepted = await call("/api/invites/accept", { token: bo, body: { token } });
     expect(accepted.status).toBe(200);
-    expect(accepted.data.group.id).toBe(chat.id);
+    expect(accepted.data.group.id).toBe(pair.id);
     expect((await call("/api/invites", { token: ann })).data.invites.map((i: any) => i.id)).not.toContain(made.data.invite.id);
-    expect((await call("/api/invites/accept", { token: bo, body: { token } })).data.group.id).toBe(chat.id);
-    const later = (await call("/api/groups", { token: ann, body: {} })).data.group;
-    const waiting = await call("/api/invites", { token: ann, body: { email: "bo@groups.test", group_id: later.id } });
-    await call(`/api/groups/${later.id}/members`, { token: ann, body: { members: [boId] } });
-    expect((await call("/api/invites/accept", { token: bo, body: { token: waiting.data.invite.url.split("/invite/")[1] } })).data.group.id).toBe(later.id);
-    expect((await call("/api/invites", { token: ann })).data.invites.map((i: any) => i.id)).not.toContain(waiting.data.invite.id);
+    expect((await call("/api/invites/accept", { token: bo, body: { token } })).data.group.id).toBe(pair.id);
   });
 
-  test("someone already in who opens an invite link joins its chat", async () => {
+  test("someone already in who accepts a legacy group invite connects only with the inviter", async () => {
     const tokenOf = (made: any) => made.data.invite.url.split("/invite/")[1];
     const accept = (token: string, invite: unknown) => call("/api/invites/accept", { token, body: { token: invite } });
     const chat = (await call("/api/groups", { token: ann, body: { name: "Join me", members: [boId] } })).data.group;
-    const sent = await call("/api/links", { token: bo, body: { url: `${origin}/plain?n=before-cy`, group_id: chat.id } });
-    const made = await call("/api/invites", { token: ann, body: { group_id: chat.id } });
+    const sent = await call("/api/links", { token: bo, body: { url: `${origin}/plain?n=before-accept`, group_id: chat.id } });
+    const first = await call("/api/invites", { token: cy, body: {} });
+    const existing = await signIn("existingGuest", VERIFIER, tokenOf(first));
+    expect(existing.status).toBe(200);
+    const existingId = existing.data.user.id;
+    const legacy = Buffer.from(crypto.getRandomValues(new Uint8Array(32))).toString("base64url");
+    const db = new Database(join(dataDir, "links.db"));
+    const inviteId = Number(db.run(`INSERT INTO invites (token_hash, invited_by, group_id, created_at, expires_at)
+      VALUES (?, ?, ?, unixepoch(), unixepoch() + 86400)`,
+      [new Bun.CryptoHasher("sha256").update(legacy).digest("hex"), annId, chat.id]).lastInsertRowid);
+    db.close();
 
-    expect((await call("/api/invites/accept", { body: { token: tokenOf(made) } })).status).toBe(401);
-    const joined = await accept(cy, tokenOf(made));
+    expect((await call("/api/invites/accept", { body: { token: legacy } })).status).toBe(401);
+    const joined = await accept(existing.data.token, legacy);
     expect(joined.status).toBe(200);
-    expect(joined.data.group).toMatchObject({ id: chat.id, name: "Join me" });
-    expect(joined.data.group.members.sort()).toEqual([annId, boId, cyId].sort());
-    const view = await state(cy);
-    expect(view.groups.map((g: any) => g.id)).toContain(chat.id);
-    expect(view.links.map((l: any) => l.id)).toContain(sent.data.link.id);
+    expect(joined.data.group).toMatchObject({ direct: true });
+    expect(joined.data.group.members.sort()).toEqual([annId, existingId].sort());
+    const view = await state(existing.data.token);
+    expect(view.groups.map((g: any) => g.id)).not.toContain(chat.id);
+    expect(view.links.map((l: any) => l.id)).not.toContain(sent.data.link.id);
     // Used up, though opening it again still goes to the chat.
-    expect((await call("/api/invites", { token: ann })).data.invites.map((i: any) => i.id)).not.toContain(made.data.invite.id);
-    expect((await accept(cy, tokenOf(made))).data.group.id).toBe(chat.id);
-    expect(await accept(bo, tokenOf(made))).toMatchObject({ status: 404, data: { error: "This invite doesn't work anymore." } });
+    expect((await call("/api/invites", { token: ann })).data.invites.map((i: any) => i.id)).not.toContain(inviteId);
+    expect((await accept(existing.data.token, legacy)).data.group.id).toBe(joined.data.group.id);
+    expect(await accept(bo, legacy)).toMatchObject({ status: 404, data: { error: "This invite doesn't work anymore." } });
 
     // Someone already in the chat goes to it, and the invite stays for whoever it was for.
     const another = await call("/api/invites", { token: ann, body: { group_id: chat.id } });
-    expect((await accept(bo, tokenOf(another))).data.group.id).toBe(chat.id);
+    expect((await accept(bo, tokenOf(another))).data.group).toMatchObject({ direct: true });
     expect((await call("/api/invites", { token: ann })).data.invites.map((i: any) => i.id)).toContain(another.data.invite.id);
     // So does its sender, with nothing to join.
     expect((await accept(ann, tokenOf(another))).data).toEqual({ group: null });
@@ -1342,26 +1530,12 @@ describe("group chats", () => {
     expect((await accept(cy, tokenOf(forCy))).status).toBe(200);
   });
 
-  test("an invite link opened by someone already in: their own, a full chat's, an unverified email's", async () => {
+  test("an invite link opened by someone already in: their own, or an unverified email's", async () => {
     const tokenOf = (made: any) => made.data.invite.url.split("/invite/")[1];
     const accept = (token: string, invite: unknown) => call("/api/invites/accept", { token, body: { token: invite } });
     // Its sender, even one addressed to someone else, has nothing to join.
     const forSomeone = await call("/api/invites", { token: ann, body: { email: "someone@else.test" } });
     expect(await accept(ann, tokenOf(forSomeone))).toMatchObject({ status: 200, data: { group: null } });
-
-    // A member of a full chat goes back to it, without a new chat or using the invite.
-    const chat = (await call("/api/groups", { token: ann, body: { name: "Packed", members: [cyId] } })).data.group;
-    const raw = new Database(join(dataDir, "links.db"));
-    for (let i = 0; i < 48; i++) {
-      raw.run("INSERT OR IGNORE INTO users (id, email, name, created_at, member) VALUES (?, NULL, 'Filler', 1, 1)", [`user_fill${i}`]);
-      raw.run("INSERT INTO group_members (group_id, user_id, joined_at) VALUES (?, ?, 1)", [chat.id, `user_fill${i}`]);
-    }
-    raw.close();
-    const toFull = await call("/api/invites", { token: ann, body: { group_id: chat.id } });
-    const before = (await state(cy)).groups.length;
-    expect((await accept(cy, tokenOf(toFull))).data.group.id).toBe(chat.id);
-    expect((await state(cy)).groups).toHaveLength(before);
-    expect((await call("/api/invites", { token: ann })).data.invites.map((i: any) => i.id)).toContain(toFull.data.invite.id);
 
     // An email-bound invite needs that email verified.
     const open = await call("/api/invites", { token: ann, body: {} });
@@ -1391,23 +1565,28 @@ describe("group chats", () => {
     expect((await state(cy)).groups.filter((g: any) => g.members.includes(dotId))).toHaveLength(2); // and the default chat
   });
 
-  test("signing in with an invite link takes someone already in to its chat", async () => {
+  test("signing in with an invite takes first-time and returning users only to the inviter's direct chat", async () => {
     const tokenOf = (made: any) => made.data.invite.url.split("/invite/")[1];
     expect((await signIn("good")).data.group_id).toBeNull();
     const chat = (await call("/api/groups", { token: ann, body: { name: "Riley's" } })).data.group;
     const made = await call("/api/invites", { token: ann, body: { group_id: chat.id } });
     const riley = await signIn("good", VERIFIER, tokenOf(made));
     expect(riley.status).toBe(200);
-    expect(riley.data.group_id).toBe(chat.id);
-    expect((await state(riley.data.token)).groups.map((g: any) => g.id)).toContain(chat.id);
+    const pair = (await state(riley.data.token)).groups.find((g: any) => g.id === riley.data.group_id);
+    expect(pair).toMatchObject({ direct: true });
+    expect(pair.members.sort()).toEqual([annId, riley.data.user.id].sort());
     // A link that doesn't work doesn't stop them signing in.
     const again = await signIn("good", VERIFIER, "y".repeat(43));
     expect(again.status).toBe(200);
     expect(again.data.group_id).toBeNull();
 
-    // Someone new lands in the chat the invite let them in to.
+    // Someone new also lands in their own direct chat, even if the caller sends a group ID.
     const forNeo = await call("/api/invites", { token: ann, body: { group_id: chat.id } });
-    expect((await signIn("neo", VERIFIER, tokenOf(forNeo))).data.group_id).toBe(chat.id);
+    const neo = await signIn("neo", VERIFIER, tokenOf(forNeo));
+    expect(neo.status).toBe(200);
+    const [neoPair] = (await state(neo.data.token)).groups;
+    expect(neoPair).toMatchObject({ id: neo.data.group_id, direct: true });
+    expect(neoPair.members.sort()).toEqual([annId, neo.data.user.id].sort());
   });
 
   test("an app from before groups sends to the default chat, or the only chat left", async () => {

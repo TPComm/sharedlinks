@@ -247,6 +247,7 @@ public struct SharedLink: Codable, Sendable, Hashable, Identifiable {
     public var addedAt: Date
     public var seen: [String: Date]
     public var reactions: [String: String]
+    public var nudged: [String: Double]
     public var commentCount: Int
     public var lastComment: CommentActivity?
     /// Its unguessable share token and public `https://HOST/l/<token>` page. Nil from servers
@@ -255,7 +256,7 @@ public struct SharedLink: Codable, Sendable, Hashable, Identifiable {
     public var shareURL: URL?
 
     enum CodingKeys: String, CodingKey {
-        case id, url, platform, title, author, note, thumb, meta, seen, reactions, token
+        case id, url, platform, title, author, note, thumb, meta, seen, reactions, token, nudged
         case shareURL = "share_url"
         case summary = "description"
         case siteName = "site_name"
@@ -291,6 +292,7 @@ public struct SharedLink: Codable, Sendable, Hashable, Identifiable {
         addedAt = try c.decode(Date.self, forKey: .addedAt)
         seen = try c.decodeIfPresent([String: Date].self, forKey: .seen) ?? [:]
         reactions = try c.decodeIfPresent([String: String].self, forKey: .reactions) ?? [:]
+        nudged = try c.decodeIfPresent([String: Double].self, forKey: .nudged) ?? [:]
         commentCount = try c.decodeIfPresent(Int.self, forKey: .commentCount) ?? 0
         lastComment = try c.decodeIfPresent(CommentActivity.self, forKey: .lastComment)
         token = try? c.decodeIfPresent(String.self, forKey: .token)
@@ -303,7 +305,8 @@ public struct SharedLink: Codable, Sendable, Hashable, Identifiable {
                 note: String = "", thumb: String? = nil, summary: String? = nil, siteName: String? = nil,
                 thumbWidth: Int? = nil, thumbHeight: Int? = nil, meta: String = "done", addedBy: String,
                 addedAt: Date = .now, seen: [String: Date] = [:], reactions: [String: String] = [:],
-                commentCount: Int = 0, lastComment: CommentActivity? = nil, token: String? = nil, shareURL: URL? = nil) {
+                commentCount: Int = 0, lastComment: CommentActivity? = nil, token: String? = nil, shareURL: URL? = nil,
+                nudged: [String: Double] = [:]) {
         self.id = id
         self.groupID = groupID
         self.url = url
@@ -321,6 +324,7 @@ public struct SharedLink: Codable, Sendable, Hashable, Identifiable {
         self.addedAt = addedAt
         self.seen = seen
         self.reactions = reactions
+        self.nudged = nudged
         self.commentCount = commentCount
         self.lastComment = lastComment
         self.token = token

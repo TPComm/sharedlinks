@@ -21,21 +21,27 @@ Sign-in is [WorkOS AuthKit](https://workos.com/docs/authkit).
 | **In the app** | **+** opens a sheet with the system Paste button (no "Allow Paste" prompt). Drag a link from Safari onto the list (iPad, iPhone). |
 | **Sharing out** | Long-press or swipe a row, or Share on a link's page: the system share sheet sends the link's public `/l/` page (the original URL on servers without one), with the thumbnail as the preview. Opening an `/l/` link in the app shows that link's page when it's in your inbox. |
 
-Everyone you share a group with gets a private one-to-one chat with you, listed under their name
-when you choose where to share. Group chats, including Everyone, stay separate. If you leave a group,
-the direct chats stay; leave a direct chat once you no longer share any groups with that person.
+An invite starts a private one-to-one chat with the inviter. Once a friend joins, you can add
+them to an ordinary group or start a new group with them; people who share a group also get
+one-to-one chats. Everyone is a legacy chat: its existing members can still use it, but nobody
+can add or invite new members. If you leave a group, the direct chats stay;
+leave a direct chat once you no longer share any groups with that person.
 
 Plus: a **Home Screen / Lock Screen widget** (Queue or Sent receipts, small/medium/large and
 lock screen sizes) whose ✓ buttons mark things seen without opening the app, an **app icon
 badge** with the Queue count, reactions, notes, search and swipe actions. Tapping a row (or a
 widget row) opens the link's page: **Open in TikTok** (or Instagram, YouTube…), react, see who
-has seen it, and mark it seen when you're back. Coming back from TikTok lands on that page,
+has seen it, and mark it seen when you're back. On a link you sent, tap **Nudge** next to someone
+who hasn't watched, or **Nudge Everyone**; each person can be nudged once per day. Coming back from TikTok lands on that page,
 even if iOS closed the app meanwhile. Long-press **Open in TikTok** still goes straight there and
 marks it seen in one go.
 
 **Profile → Links Wrapped** shows monthly and yearly highlights: your top sender, watch rate,
 top platform and most-reacted link, with an opt-in shareable card. It covers only links you can
 see in your current chats; dates use your local calendar and reactions/seen marks reflect now.
+
+**Shared with You** shows who shared a Links universal link in Messages on the link's page,
+when available. Tap their name to return to the conversation and reply.
 
 The **Throwback** card in Seen resurfaces links from at least a week ago that you and a friend
 loved, with a different starting pick each day.
@@ -92,7 +98,8 @@ New conversations stay SMS, with the iMessage app drawer disabled.
    alone).
 4. Links is invite-only: signing in to your AuthKit isn't enough, someone has to let you in.
    Let yourself in first: on the server, `links-server invite you@x.com` prints an invite, and
-   signing in with that (verified) email uses it. After that, anyone who's in can let a friend in
+   signing in with that (verified) email uses it. This grants access to the app, not to any chats.
+   After that, anyone who's in can let a friend in
    from the app (**People → Invite a Friend**): the invite link works once, for 7 days, and an
    invite sent to an email address also lets that (verified) address in without the link. Set
    `APP_STORE_ID` (the app's numeric App Store ID) to show a Smart App Banner on invite pages.
@@ -361,7 +368,7 @@ API endpoints except sign-in need `Authorization: Bearer <session token>`; pages
 
 | Method | Path | Body / notes |
 | --- | --- | --- |
-| GET | `/api/wrapped` | `?start=<unix seconds>&end=<unix seconds>[&group_id=<id>]` → `{start, end, received, sent, watched, top_sender, top_platform, most_reacted}`; integer half-open range up to 366 days, current visible chats only; top fields null without qualifying shares, `most_reacted` contains link fields with `sender_name` and a numeric `reactions` count; 400 for invalid dates, 404 for a chat you aren't in |
+| GET | `/api/wrapped` | `?start=<unix seconds>&end=<unix seconds>[&group_id=<id>]` → `{start, end, received, sent, watched, top_sender, top_platform, most_reacted}`; integer half-open range shorter than 367 days to allow local leap years with offset changes, current visible chats only; top fields null without qualifying shares, `most_reacted` contains link fields with `sender_name` and a numeric `reactions` count; 400 for invalid dates, 404 for a chat you aren't in |
 | GET | `/` | public browser landing page; opens the iPhone app, explains invites, and links to support and privacy; `APP_STORE_ID` adds an App Store link and Smart App Banner |
 | GET | `/app-preview.png` | public iPhone app screenshot with fictional sample data, embedded in the server binary for the landing page |
 | GET | `/auth/authorize` | `?code_challenge=&state=[&screen_hint=sign-up]` → redirects to AuthKit |
@@ -378,9 +385,10 @@ API endpoints except sign-in need `Authorization: Bearer <session token>`; pages
 | POST | `/api/links` | `{url, note?, group_id?}`; `url` may be any text containing a link; without `group_id` (apps from before chats) it goes to the default chat, or my only chat if I left that → `{link, duplicate}` (a duplicate only within the same chat) |
 | POST | `/api/groups` | `{name?, members?}` (user ids; I'm added) → 201 `{group}`. An empty name means the app names it after its members; up to 50 people |
 | PATCH | `/api/groups/:id` | `{name?, muted?, muted_until?}` (at least one): rename the chat or change only my mute → `{group}`. `muted: true` mutes indefinitely with an omitted/null deadline, or until `muted_until` (finite future Unix seconds); `muted: false` clears the deadline. A deadline alone updates the existing mute's deadline. Muting suppresses new-link, comment and watched/reaction alerts, not Queue counts or badges |
-| POST | `/api/groups/:id/members` | `{members}`: any group member adds people who are in Links → `{group}`. Direct chats cannot be renamed or accept more members. Nobody removes anyone else |
+| POST | `/api/groups/:id/members` | `{members}`: any group member adds people who are in Links → `{group}`. The legacy Everyone chat and direct chats cannot accept more members. Direct chats cannot be renamed. Nobody removes anyone else |
 | DELETE | `/api/groups/:id` | Leave the chat; the links I sent stay in it. The last one out deletes it and its links (never the default chat). Leave shared group chats before leaving the direct chat with a group mate |
 | POST | `/api/links/:id/seen` | `{seen: true/false}` |
+| POST | `/api/links/:id/nudge` | Sender only: `{people?: [userId, …]}`; omitted or empty means all eligible unwatched chat members. Skips reports and blocks in either direction; at most once per person per link per 24 hours (even without devices or when muted) → `{nudged: [userId, …], link}`. 429 if only the cooldown prevents a nudge, otherwise 400 when nobody is eligible. Only the sender's link JSON includes `nudged: {personId: UnixSeconds, …}` (all recorded times) |
 | POST | `/api/links/:id/react` | `{emoji}` (`null` removes) |
 | POST | `/api/links/:id/refresh` | `{}` → `{link}`; fetch the preview again immediately, unless already pending |
 | PATCH / DELETE | `/api/links/:id` | `{note}` (sender only) / –; 403 if the sender blocked you |
@@ -389,8 +397,8 @@ API endpoints except sign-in need `Authorization: Bearer <session token>`; pages
 | POST | `/api/reports` | `{link_id \| comment_id \| user_id, reason, details?}`; reason is `spam`, `offensive`, `harassment` or `other` → 201 |
 | POST | `/api/blocks` | `{user_id}` → `{blocked}` |
 | DELETE | `/api/blocks/:user_id` | unblock (URL-encode the id) → `{blocked}` |
-| GET/POST | `/api/invites` | GET → `{invites}` (mine, still pending); POST `{email?, group_id?}` → 201 `{invite: {id, email, group_id, created_at, expires_at, url}}`; whoever uses it joins that group chat of mine and gets direct chats with its members, or with no `group_id` just the direct chat with me (an admin's invite joins the default chat) |
-| POST | `/api/invites/accept` | `{token}` → `{group}`: someone already in opens an invite link and joins its chat (as `/api/invites` says), using it up; `group` null for their own or an admin's invite. An open invite to a chat they're already in stays pending; an email-bound invite is used up by its verified recipient. Invites addressed to verified members already in the named chat are omitted from the sender's pending list but their links remain usable until accepted. Without recorded email verification, they can return to a chat they're already in without claiming the invite, but cannot join a new one; 404 when it doesn't work anymore, 403 when it's for another email, or joining needs email verification |
+| GET/POST | `/api/invites` | GET → `{invites}` (mine, still pending); POST `{email?}` → 201 `{invite: {id, email, group_id, created_at, expires_at, url}}`. Using the invite opens a direct chat with me, never a group. Older clients' `group_id` is ignored and returned as null |
+| POST | `/api/invites/accept` | `{token}` → `{group}`: someone already in opens or starts a direct chat with the inviter; `group` is null for their own or an admin's invite. An open invite stays pending if the pair already had a chat; a verified recipient uses up an email-bound invite. Invites addressed to verified people already paired with the sender are omitted from the sender's pending list but their links remain usable. Without recorded email verification they can return to an existing direct chat without claiming an email-bound invite, but can't use it to start a new one; 404 for inactive links, 403 for a mismatched or unverified email |
 | DELETE | `/api/invites/:id` | cancels a pending invite → `{invites}` |
 | GET | `/invite/:token` | public page for an invite link: who sent it, Open in Links, the Smart App Banner. Loading it never uses the invite up |
 | GET | `/.well-known/apple-app-site-association` | public; which paths open the app (only with `APPLE_APP_IDS`) |
@@ -415,7 +423,9 @@ Edits, deletions and reports stay silent. Posting a comment marks the link seen 
 first comment on someone else's unseen link leaves the author's Queue and lowers their badge. Other
 members' counts and badges don't change; the app tracks read threads locally.
 
-Admin: `links-server mint-session <email> [name]`, `links-server delete-user <email>` (what the app's Delete Account does),
+Admin: `links-server invite [email]` admits a new account without any chats.
+`links-server mint-session <email> [name]` is the trusted local development shortcut and puts newly
+minted accounts in Everyone. Other commands: `links-server delete-user <email>` (what the app's Delete Account does),
 `links-server claim [<email> <legacy name>]` (list legacy people, or let that account claim one),
 `links-server reports`, `links-server reports resolve <id> [--remove]`, `links-server backup [dir]` and
 `links-server version` (the commit it was built from).

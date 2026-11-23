@@ -163,6 +163,67 @@ final class LinksUITests: XCTestCase {
         try server.eventually("seen by me") { try server.state(as: server.friend).link(link.id)?.seen[me] }
     }
 
+    func testSwipingThroughTheQueueMarksEachLinkLeftBehindSeen() throws {
+        // Only this test's links in the Queue, so they're its first two cards (oldest first).
+        let me = try server.state(as: server.me).me
+        for link in try server.state(as: server.me).links where link.addedBy != me && link.seen[me] == nil {
+            try server.setSeen(link.id, true, as: server.me)
+        }
+        let first = try seed(by: server.friend, note: "First \(shortID())")
+        let second = try seed(by: server.friend, note: "Second \(shortID())")
+        launch()
+        waitForRow(second, in: "toWatch")
+        app.buttons["swipeQueue.open"].tap()
+
+        let progress = app.staticTexts["swipeQueue.progress"]
+        XCTAssert(app.descendants(matching: .any)["swipeQueue.card.\(first.id)"].waitForExistence(timeout: 10))
+        XCTAssertEqual(progress.label, "1 of 2")
+        XCTAssert(app.staticTexts[first.note].exists)
+        XCTAssert(app.buttons["swipeQueue.openLink"].firstMatch.exists)
+        XCTAssert(app.buttons["swipeQueue.comments"].firstMatch.exists)
+        app.scrollViews["swipeQueue"].swipeUp()
+        waitFor(progress, labelContaining: "2 of 2")
+        try server.eventually(timeout: 20, "first seen by me") { try server.state(as: server.friend).link(first.id)?.seen[me] }
+
+        app.buttons["swipeQueue.close"].tap()
+        XCTAssert(row(first, in: "toWatch").waitForNonExistence(timeout: 10), "first still in the Queue")
+        XCTAssert(row(second, in: "toWatch").exists, "closing marked the card it was on")
+        XCTAssertNil(try server.state(as: server.friend).link(second.id)?.seen[me])
+        app.tabBars.buttons["Seen"].tap()
+        XCTAssert(row(first, in: "watched").waitForExistence(timeout: 5), "first not in Seen")
+    }
+
+    func testSwipingPastTheLastLinkShowsAllCaughtUpAndMarksIt() throws {
+        let me = try server.state(as: server.me).me
+        for link in try server.state(as: server.me).links where link.addedBy != me && link.seen[me] == nil {
+            try server.setSeen(link.id, true, as: server.me)
+        }
+        let only = try seed(by: server.friend)
+        launch()
+        waitForRow(only, in: "toWatch")
+        app.buttons["swipeQueue.open"].tap()
+        XCTAssert(app.descendants(matching: .any)["swipeQueue.card.\(only.id)"].waitForExistence(timeout: 10))
+        app.scrollViews["swipeQueue"].swipeUp()
+        let done = app.buttons["swipeQueue.done"]
+        XCTAssert(done.waitForExistence(timeout: 10), "no end card")
+        XCTAssert(app.staticTexts["All Caught Up"].exists)
+        try server.eventually(timeout: 20, "seen by me") { try server.state(as: server.friend).link(only.id)?.seen[me] }
+        done.tap()
+        XCTAssert(row(only, in: "toWatch").waitForNonExistence(timeout: 10), "still in the Queue")
+        XCTAssertFalse(app.buttons["swipeQueue.open"].exists, "Swipe Through offered on an empty Queue")
+    }
+
+    func testNewLinkDeepLinkClosesSwipeThrough() throws {
+        let link = try seed(by: server.friend)
+        launch()
+        waitForRow(link, in: "toWatch")
+        app.buttons["swipeQueue.open"].tap()
+        XCTAssert(app.scrollViews["swipeQueue"].waitForExistence(timeout: 10))
+        app.open(URL(string: "sharedlinks://add")!)
+        XCTAssert(app.textFields["addLink.text"].waitForExistence(timeout: 10), "New Link stuck behind Swipe Through")
+        XCTAssertFalse(app.scrollViews["swipeQueue"].exists)
+    }
+
     func testSentShowsWhenTheFriendHasWatchedIt() throws {
         let link = try seed(by: server.me, note: "Sent \(shortID())")
         launch()
@@ -301,6 +362,29 @@ final class LinksUITests: XCTestCase {
         try server.setSeen(link.id, true, as: server.friend)
         // The page follows the inbox, which the app polls every few seconds.
         waitFor(receipt, labelContaining: "now")
+    }
+
+    func testNudgeAnUnwatchedRecipientFromTheLinkPage() throws {
+        let friendID = try server.state(as: server.friend).me
+        let name = "Nudge \(shortID())"
+        let chat = try server.startChat(name: name, members: [friendID], as: server.me)
+        leaveAfterwards(chat.id)
+        let link = try server.add(uniqueURL(), note: "Worth a watch", to: chat.id, as: server.me)
+        launch()
+        pickChat(name)
+        app.tabBars.buttons["Sent"].tap()
+        waitForRow(link, in: "sent").tap()
+        let button = app.buttons["nudge.\(friendID)"]
+        for _ in 0..<4 where !(button.exists && button.isHittable) { app.swipeUp() }
+        XCTAssert(button.waitForExistence(timeout: 5))
+        XCTAssertEqual(button.label, "Nudge")
+        button.tap()
+        waitFor(button, labelContaining: "Nudged")
+        XCTAssertFalse(button.isEnabled)
+        let screenshot = XCTAttachment(screenshot: app.screenshot())
+        screenshot.name = "Nudged recipient on link detail"
+        screenshot.lifetime = .keepAlways
+        add(screenshot)
     }
 
     // MARK: Comments
@@ -1060,19 +1144,20 @@ final class LinksUITests: XCTestCase {
     }
 
     func testInviteLinkWhileSignedInOpensItsChat() throws {
-        let name = "Invited \(shortID())"
-        let chat = try server.startChat(name: name, as: server.friend)
+        let me = try server.state(as: server.me).me
+        let friend = try server.state(as: server.friend)
+        let direct = try XCTUnwrap(friend.groups.first { $0.isDirect == true && $0.members.contains(me) })
+        let chat = try server.startChat(name: "Private \(shortID())", as: server.friend)
         leaveAfterwards(chat.id)
-        let inChat = try server.add(uniqueURL(), to: chat.id, as: server.friend)
-        deleteAfterwards(inChat.id)
+        let inDirect = try server.add(uniqueURL(), to: direct.id, as: server.friend)
+        deleteAfterwards(inDirect.id)
         let invite = try server.invite(to: chat.id, as: server.friend)
 
         launch()
         app.open(URL(string: "sharedlinks://invite/\(invite)")!)
-        XCTAssert(row(inChat, in: "toWatch").waitForExistence(timeout: 15), "the chat's link isn't in To Watch")
-        XCTAssert(app.buttons["chatPicker"].label.contains(name), app.buttons["chatPicker"].label)
-        let me = try server.state(as: server.me).me
-        XCTAssert(try server.state(as: server.friend).group(chat.id)?.members.contains(me) == true, "not in the chat")
+        waitFor(app.buttons["chatPicker"], labelContaining: "Friend")
+        XCTAssert(row(inDirect, in: "toWatch").waitForExistence(timeout: 5))
+        XCTAssertNil(try server.state(as: server.me).group(chat.id), "the invite granted access to the group")
     }
 
     func testRenamingAddingPeopleToAndLeavingAChat() throws {

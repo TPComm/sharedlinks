@@ -123,6 +123,7 @@ struct SharedLinkTests {
         #expect(link.note == "")
         #expect(link.meta == "done")
         #expect(link.seen.isEmpty && link.reactions.isEmpty)
+        #expect(link.nudged.isEmpty)
         #expect(link.addedAt == Date(timeIntervalSince1970: 1_700_000_000))
     }
 
@@ -130,6 +131,19 @@ struct SharedLinkTests {
         let json = #"{\#(Self.required), "title": null, "author": null, "note": null, "thumb": null, "meta": null, "seen": null, "reactions": null, "new_field": {"x": 1}}"#
         let link = try Fixture.decode(SharedLink.self, json)
         #expect(try Fixture.decode(SharedLink.self, "{\(Self.required)}") == link)
+    }
+
+    @Test func nudgeTimesDecodeAndRoundTrip() throws {
+        let link = try Fixture.decode(SharedLink.self, #"{\#(Self.required), "nudged": {"u2": 1700000000.5}}"#)
+        #expect(link.nudged == ["u2": 1_700_000_000.5])
+        let encoded = try JSONEncoder().encode(link)
+        #expect(try JSONDecoder().decode(SharedLink.self, from: encoded).nudged == link.nudged)
+    }
+
+    @Test(arguments: ["null", "{}"])
+    func emptyNudgeHistory(_ value: String) throws {
+        let link = try Fixture.decode(SharedLink.self, "{\(Self.required), \"nudged\": \(value)}")
+        #expect(link.nudged.isEmpty)
     }
 
     @Test(arguments: ["id", "url", "added_by", "added_at", "platform"])
