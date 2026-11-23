@@ -95,7 +95,21 @@ final class FeatureTourUITests: XCTestCase {
         capture("What's New recovered the dropped sheet")
     }
 
-    private func launch(reset: Bool, dropPresentation: String? = nil) {
+    func testFeatureTourResumesAfterDismissingNewLink() {
+        launch(reset: true, openNewLink: true)
+        let cancel = app.navigationBars["New Link"].buttons["Cancel"]
+        XCTAssert(cancel.waitForExistence(timeout: 20), "New Link did not open on launch")
+        XCTAssertFalse(app.buttons["featureTour.skip"].exists, "feature tour opened over New Link")
+        cancel.tap()
+        XCTAssert(cancel.waitForNonExistence(timeout: 20), "New Link did not dismiss")
+
+        waitForNotificationsBeforeFeatureTour(in: app)
+        XCTAssert(waitForTitle("Make Links Yours"))
+        app.buttons["featureTour.skip"].tap()
+        XCTAssert(app.buttons["featureTour.skip"].waitForNonExistence(timeout: 20))
+    }
+
+    private func launch(reset: Bool, dropPresentation: String? = nil, openNewLink: Bool = false) {
         app.launchEnvironment = [
             "LINKS_SERVER_URL": server.url.absoluteString,
             "LINKS_DEV_TOKEN": server.me,
@@ -103,6 +117,7 @@ final class FeatureTourUITests: XCTestCase {
         ]
         if reset { app.launchEnvironment["LINKS_RESET_FEATURE_TOURS"] = "1" }
         app.launchEnvironment["LINKS_TEST_DROP_FEATURE_TOUR_PRESENTATION"] = dropPresentation
+        if openNewLink { app.launchEnvironment["LINKS_TEST_OPEN_NEW_LINK_ON_LAUNCH"] = "1" }
         app.launch()
     }
 

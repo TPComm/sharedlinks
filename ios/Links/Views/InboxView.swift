@@ -40,10 +40,12 @@ struct InboxView: View {
                     .searchable(text: $query, prompt: "Titles, people, notes")
             }
         }
-        .sheet(isPresented: $model.showAddSheet) {
+        .sheet(isPresented: $model.showAddSheet, onDismiss: { model.showTourIfNeeded() }) {
             AddLinkSheet(prefill: model.addPrefill)
         }
-        .sheet(item: $model.chatSheet) { ChatSheetView(sheet: $0) }
+        .sheet(item: $model.chatSheet, onDismiss: { model.showTourIfNeeded() }) {
+            ChatSheetView(sheet: $0)
+        }
         .fullScreenCover(item: $model.swipeQueue) { SwipeQueueView(queue: $0) }
         // The tour waits for the claim sheet to be gone, not just going.
         .sheet(isPresented: $model.showClaimSheet, onDismiss: { model.showTourIfNeeded() }) {

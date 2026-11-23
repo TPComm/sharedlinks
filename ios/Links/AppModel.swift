@@ -132,6 +132,9 @@ final class AppModel {
             Onboarding.shared.completeTour()
             tourCompleted = true
         }
+        if ProcessInfo.processInfo.environment["LINKS_TEST_OPEN_NEW_LINK_ON_LAUNCH"] == "1" {
+            showAddSheet = true
+        }
         // Extensions don't inherit the UI test runner's environment.
         LinksConfig.sharedDefaults.set(
             ProcessInfo.processInfo.environment["LINKS_DEV_TOKEN"] != nil

@@ -4,7 +4,7 @@ import { readdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { Accounts, AuthError, INVITE_TOKEN_RE, MAX_GROUP_MEMBERS, MAX_PHOTO_BYTES, photoType, publicUser, reportPhoto } from "./accounts.ts";
 import type { Config } from "./config.ts";
-import { defaultGroup, deleteEmptyGroups, deleteLink, ensureDirectChatsFor, now, openDatabase, sharesGroupWithDirectPeer, type CommentRow, type GroupRow, type LinkRow, type UserRow } from "./db.ts";
+import { defaultGroup, deleteEmptyGroups, deleteLink, ensureDirectChatsFor, LEGACY, now, openDatabase, sharesGroupWithDirectPeer, type CommentRow, type GroupRow, type LinkRow, type UserRow } from "./db.ts";
 import { BadRequest, canonical, clipText, extractUrl } from "./links.ts";
 import { landingPage } from "./landing.ts";
 import { REPORT_REASONS } from "./moderation.ts";
@@ -1098,10 +1098,10 @@ export function createApp(config: Config, opts: AppOptions = {}) {
           const link = db.query("SELECT group_id FROM links WHERE id = ?").get(id) as { group_id: number };
           const candidates = db.query(`SELECT m.user_id, n.nudged_at FROM group_members m
             LEFT JOIN nudges n ON n.link_id = ?1 AND n.person = m.user_id
-            WHERE m.group_id = ?2 AND m.user_id != ?3
+            WHERE m.group_id = ?2 AND m.user_id != ?3 AND m.user_id NOT LIKE ?4
               AND NOT EXISTS (SELECT 1 FROM seen WHERE link_id = ?1 AND person = m.user_id)
               AND NOT EXISTS (SELECT 1 FROM blocks WHERE blocker = ?3 AND blocked = m.user_id)`)
-            .all(id, link.group_id, me) as { user_id: string; nudged_at: number | null }[];
+            .all(id, link.group_id, me, `${LEGACY}%`) as { user_id: string; nudged_at: number | null }[];
           const requested = candidates.filter((p) => !people?.length || people.includes(p.user_id));
           const at = now();
           const eligible = requested.filter((p) => p.nudged_at === null || p.nudged_at <= at - 86400);
