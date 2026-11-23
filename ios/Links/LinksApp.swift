@@ -51,6 +51,9 @@ struct RootView: View {
                         if let token = delegate.deviceToken { await model.registerDevice(token) }
                         await model.pollWhileActive()
                     }
+                    .onReceive(NotificationCenter.default.publisher(for: UIApplication.didBecomeActiveNotification)) { _ in
+                        model.showTourIfNeeded()
+                    }
                     .fullScreenCover(isPresented: $model.showTour, onDismiss: model.welcomeTourDismissed) {
                         TourView(start: model.tourStart)
                     }
