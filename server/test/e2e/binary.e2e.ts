@@ -358,6 +358,13 @@ describe("a day with Links", () => {
     expect((await call(path)).status).toBe(200);
   });
 
+  e2e("doesn't issue a history-granting invite for someone already in Links", async () => {
+    const existing = await cli(dataDir, "invite", " ALICE@example.com ", "--join-everyone");
+    expect(existing.code).toBe(1);
+    expect(existing.stdout).toBe("");
+    expect(existing.stderr).toContain("--join-everyone is only for accounts that haven't joined Links yet.");
+  });
+
   e2e("shares a link: unseen by the other person, then seen, reacted to and noted", async () => {
     const add = await call("/api/links", { token: alice.token, body: { text: `lol look ${origin}/video?utm_source=share&id=7 !!`, note: "  for you  " } });
     expect(add.status, add.text).toBe(201);

@@ -93,8 +93,11 @@ export class Accounts {
       bound = String(email).trim().toLowerCase();
       if (bound.length > 254 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(bound)) throw new BadRequest("That doesn't look like an email address.");
     }
-    if (userId === null && groupId !== null && !bound) {
-      throw new BadRequest("--join-everyone requires an email; it grants access to Everyone's history.");
+    if (userId === null && groupId !== null) {
+      if (!bound) throw new BadRequest("--join-everyone requires an email; it grants access to Everyone's history.");
+      if (this.db.query("SELECT 1 FROM users WHERE email = ? COLLATE NOCASE AND member = 1").get(bound)) {
+        throw new BadRequest("--join-everyone is only for accounts that haven't joined Links yet.");
+      }
     }
     const t = now();
     const pending = userId === null ? 0 : this.pendingInvites(userId).length;

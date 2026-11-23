@@ -420,7 +420,9 @@ first comment on someone else's unseen link leaves the author's Queue and lowers
 members' counts and badges don't change; the app tracks read threads locally.
 
 Admin: `links-server invite [email]` admits a new account without any chats. To explicitly grant a
-trusted user access to the legacy Everyone chat and its history, use `links-server invite <email> --join-everyone`.
+trusted new account access to the legacy Everyone chat and its history, use
+`links-server invite <email> --join-everyone`. The invite must be used on first admission, with the
+exact verified email.
 `links-server mint-session <email> [name]` is the trusted local development shortcut and puts newly
 minted accounts in Everyone. Other commands: `links-server delete-user <email>` (what the app's Delete Account does),
 `links-server claim [<email> <legacy name>]` (list legacy people, or let that account claim one),
