@@ -1,9 +1,12 @@
 import AuthenticationServices
 import LinksKit
+import OSLog
 import SwiftUI
 import TipKit
 import UserNotifications
 import WidgetKit
+
+private let tourLog = Logger(subsystem: "com.tpcomm.links", category: "onboarding")
 
 /// App state: the session, the inbox, and every action. Views stay thin.
 @MainActor @Observable
@@ -46,6 +49,7 @@ final class AppModel {
     private(set) var pendingFeatureTours: [FeatureTour] = []
     private var dismissingWelcomeTour = false
     private var requestingNotifications = false
+    private var finishedNotificationPermission = false
     /// Set by ProfileButton while the profile sheet is up.
     var isProfileOpen = false
     /// The page the tour opens on: the first, or the share-sheet page from "How to Share to Links".
@@ -483,30 +487,58 @@ final class AppModel {
         setInbox(state)
     }
 
-    /// Notifications for new links and reactions, and the To Watch count on the app icon. iOS only
-    /// asks once; later calls are no-ops (Settings changes it: the tour and the profile link there).
-    func requestNotificationPermission() {
-        // No system prompt in UI tests: while it's up the app is inactive and doesn't fetch, and a
-        // fresh CI Simulator shows it whenever it likes (ios/scripts/ui-tests.sh).
-        // Let the welcome tour's full-screen cover finish dismissing before asking.
-        guard !Self.isUITesting, tourCompleted, !showTour, !dismissingWelcomeTour,
-              !showFeatureTours, !requestingNotifications else { return }
-        requestingNotifications = true
-        Task {
-            _ = try? await UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .badge, .sound])
-            requestingNotifications = false
-            // The answer can arrive before the app is active again (the prompt still closing, or a
-            // fresh Simulator answering without a prompt mid-launch). Nothing else asks for the feature
-            // tours then, so wait instead of dropping them.
-            await Self.untilActive()
+    private func requestNotificationPermission() {
+        if finishedNotificationPermission {
             showFeatureToursIfNeeded()
+            return
+        }
+        if let reason = automaticFeatureTourBlocker {
+            tourLog.debug("Deferring notification permission check: \(reason, privacy: .public)")
+            return
+        }
+        requestingNotifications = true
+
+        // The system request isn't cancellable. Give SpringBoard time on cold boots, but don't
+        // leave onboarding stuck if it never answers. Presentation still waits for activation.
+        let timeout = Task {
+            try await Task.sleep(for: .seconds(75))
+            tourLog.notice("Notification authorization timed out; continuing onboarding when active")
+            finishNotificationPermission()
+        }
+        Task {
+            defer { timeout.cancel() }
+            let center = UNUserNotificationCenter.current()
+            let status = await center.notificationSettings().authorizationStatus
+            guard !finishedNotificationPermission else { return }
+            if status != .notDetermined {
+                tourLog.notice("Skipping notification request; authorization status is \(status.rawValue, privacy: .public)")
+                finishNotificationPermission()
+                return
+            }
+
+            // Foreground and sheet state can change while fetching settings.
+            requestingNotifications = false
+            if let reason = automaticFeatureTourBlocker {
+                tourLog.notice("Deferring notification request: \(reason, privacy: .public)")
+                return
+            }
+            requestingNotifications = true
+            tourLog.notice("Starting notification authorization request")
+            do {
+                let granted = try await center.requestAuthorization(options: [.alert, .badge, .sound])
+                tourLog.notice("Notification authorization returned; granted=\(granted, privacy: .public)")
+            } catch {
+                tourLog.error("Notification authorization returned an error: \(error, privacy: .public)")
+            }
+            finishNotificationPermission()
         }
     }
 
-    private static func untilActive() async {
-        let activations = NotificationCenter.default.notifications(named: UIApplication.didBecomeActiveNotification)
-        guard UIApplication.shared.applicationState != .active else { return }
-        for await _ in activations { return }
+    private func finishNotificationPermission() {
+        guard !finishedNotificationPermission else { return }
+        requestingNotifications = false
+        finishedNotificationPermission = true
+        showFeatureToursIfNeeded()
     }
 
     // MARK: Comments
@@ -580,12 +612,33 @@ final class AppModel {
         startTour()
     }
 
+    private var automaticFeatureTourBlocker: String? {
+        if Self.isUITesting { return "UI testing" }
+        if !isSignedIn { return "signed out" }
+        if UIApplication.shared.applicationState != .active { return "application inactive" }
+        if !tourCompleted { return "welcome tour incomplete" }
+        if showTour || dismissingWelcomeTour { return "welcome tour presenting or dismissing" }
+        if requestingNotifications { return "notification authorization pending" }
+        if showFeatureTours { return "feature tour already open" }
+        if showClaimSheet { return "claim sheet open" }
+        if showAddSheet { return "add sheet open" }
+        if isProfileOpen { return "profile open" }
+        if chatSheet != nil { return "chat sheet open" }
+        if swipeQueue != nil { return "Swipe Through open" }
+        return nil
+    }
+
     private func showFeatureToursIfNeeded() {
-        guard UIApplication.shared.applicationState == .active, isSignedIn, tourCompleted,
-              !showTour, !dismissingWelcomeTour, !requestingNotifications,
-              !showFeatureTours, !showClaimSheet, !showAddSheet, !isProfileOpen, chatSheet == nil,
-              swipeQueue == nil, !Self.isUITesting else { return }
-        startFeatureTours(FeatureTour.allCases.filter { !FeatureTours.shared.hasSeen($0.id) })
+        if let reason = automaticFeatureTourBlocker {
+            tourLog.notice("Deferring feature tour: \(reason, privacy: .public)")
+            return
+        }
+        let unseenTours = FeatureTour.allCases.filter { !FeatureTours.shared.hasSeen($0.id) }
+        guard !unseenTours.isEmpty else {
+            tourLog.notice("Skipping feature tour: all features seen")
+            return
+        }
+        startFeatureTours(unseenTours)
     }
 
     func startFeatureTours(_ tours: [FeatureTour] = FeatureTour.allCases) {
