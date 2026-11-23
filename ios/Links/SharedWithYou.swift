@@ -3,13 +3,12 @@ import SwiftUI
 
 @MainActor @Observable
 final class SharedHighlights: NSObject, SWHighlightCenterDelegate {
-    let center = SWHighlightCenter()
-    private(set) var revision = 0
-
-    override init() {
-        super.init()
+    @ObservationIgnored private(set) lazy var center: SWHighlightCenter = {
+        let center = SWHighlightCenter()
         center.delegate = self
-    }
+        return center
+    }()
+    private(set) var revision = 0
 
     nonisolated func highlightCenterHighlightsDidChange(_ highlightCenter: SWHighlightCenter) {
         Task { @MainActor in revision += 1 }
