@@ -488,8 +488,9 @@ final class AppModel {
     func requestNotificationPermission() {
         // No system prompt in UI tests: while it's up the app is inactive and doesn't fetch, and a
         // fresh CI Simulator shows it whenever it likes (ios/scripts/ui-tests.sh).
-        // Nor over the tour: its last page offers it, and finishTour asks if that wasn't used.
-        guard !Self.isUITesting, tourCompleted, !showTour, !showFeatureTours, !requestingNotifications else { return }
+        // Let the welcome tour's full-screen cover finish dismissing before asking.
+        guard !Self.isUITesting, tourCompleted, !showTour, !dismissingWelcomeTour,
+              !showFeatureTours, !requestingNotifications else { return }
         requestingNotifications = true
         Task {
             _ = try? await UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .badge, .sound])
@@ -559,18 +560,19 @@ final class AppModel {
     /// Gesture tips wait until nothing covers the inbox, so a popover never lands under a sheet.
     var canShowTips: Bool { tourCompleted && !showTour && !showFeatureTours && swipeQueue == nil && !dismissingWelcomeTour && !requestingNotifications && !showClaimSheet && !showAddSheet && !isProfileOpen }
 
-    /// Shows the tour once, after sign-in and after the claim sheet (if any) has closed.
+    /// Starts onboarding after sign-in and after the claim sheet (if any) has closed.
     func showTourIfNeeded() {
         if tourCompleted {
-            showFeatureToursIfNeeded()
+            requestNotificationPermission()
             return
         }
         guard isSignedIn, !showTour, !showFeatureTours, !showClaimSheet, !showAddSheet, !isProfileOpen, chatSheet == nil, !Self.isUITesting else { return }
         startTour()
     }
 
-    func showFeatureToursIfNeeded() {
-        guard isSignedIn, tourCompleted, !showTour, !dismissingWelcomeTour, !requestingNotifications,
+    private func showFeatureToursIfNeeded() {
+        guard UIApplication.shared.applicationState == .active, isSignedIn, tourCompleted,
+              !showTour, !dismissingWelcomeTour, !requestingNotifications,
               !showFeatureTours, !showClaimSheet, !showAddSheet, !isProfileOpen, chatSheet == nil,
               swipeQueue == nil, !Self.isUITesting else { return }
         startFeatureTours(FeatureTour.allCases.filter { !FeatureTours.shared.hasSeen($0.id) })
@@ -589,8 +591,11 @@ final class AppModel {
     }
 
     func welcomeTourDismissed() {
-        dismissingWelcomeTour = false
-        showFeatureToursIfNeeded()
+        // Don't start another presentation inside SwiftUI's dismissal transaction.
+        DispatchQueue.main.async {
+            self.dismissingWelcomeTour = false
+            self.requestNotificationPermission()
+        }
     }
 
     func startTour(at page: TourPage = .welcome) {
@@ -604,7 +609,6 @@ final class AppModel {
         tourCompleted = true
         dismissingWelcomeTour = true
         showTour = false
-        requestNotificationPermission()
     }
 
     // MARK: Actions

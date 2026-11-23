@@ -47,7 +47,6 @@ struct RootView: View {
                     .task(id: scenePhase) {
                         guard scenePhase == .active else { return }
                         model.showTourIfNeeded()
-                        model.requestNotificationPermission()
                         await model.loadAccount()
                         if let token = delegate.deviceToken { await model.registerDevice(token) }
                         await model.pollWhileActive()

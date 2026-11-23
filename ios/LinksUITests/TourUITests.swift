@@ -58,9 +58,8 @@ final class TourUITests: XCTestCase {
         XCTAssert(waitForPage("A Couple of Extras"))
         XCTAssertFalse(app.buttons["tour.skip"].exists, "Skip on the last page")
         app.buttons["tour.done"].tap()
-        allowNotificationsIfAsked()
         let featureSkip = app.buttons["featureTour.skip"]
-        XCTAssert(featureSkip.waitForExistence(timeout: 30), "no feature tours after the welcome tour")
+        XCTAssert(waitForFeatureTour(featureSkip), "no feature tours after the welcome tour")
         featureSkip.tap()
         XCTAssert(featureSkip.waitForNonExistence(timeout: 20))
 
@@ -77,6 +76,7 @@ final class TourUITests: XCTestCase {
         launch(firstRun: false)
         XCTAssert(app.tabBars.buttons["Queue"].waitForExistence(timeout: 20), "no inbox")
         XCTAssertFalse(app.staticTexts["Welcome to Links"].waitForExistence(timeout: 3), "the tour came back")
+        XCTAssertFalse(featureSkip.exists, "feature tours came back")
         XCTAssertFalse(app.staticTexts["React to a Link"].exists, "a tip came back")
 
         // ...until it's asked for.
@@ -89,7 +89,8 @@ final class TourUITests: XCTestCase {
         // Straight to the share-sheet step, which remembers it's done.
         app.buttons["account"].tap()
         scrolledTo(app.buttons["How to Share to Links"]).tap()
-        XCTAssert(waitForPage("Links Is in Your Share Sheet"), "How to Share to Links didn't")
+        XCTAssert(app.buttons["tour.tryAgain"].waitForExistence(timeout: 60), "How to Share to Links didn't")
+        XCTAssert(app.staticTexts["Links Is in Your Share Sheet"].exists)
         app.buttons["tour.skip"].tap()
         XCTAssert(app.staticTexts["Links Is in Your Share Sheet"].waitForNonExistence(timeout: 20))
     }
@@ -124,10 +125,15 @@ final class TourUITests: XCTestCase {
         return XCTWaiter.wait(for: [shown], timeout: timeout) == .completed
     }
 
-    /// The notification prompt comes when the tour ends, unless this Simulator has answered it before.
-    private func allowNotificationsIfAsked() {
+    /// The prompt can appear at any point before the feature tour, or not at all if already answered.
+    private func waitForFeatureTour(_ featureSkip: XCUIElement) -> Bool {
         let allow = XCUIApplication(bundleIdentifier: "com.apple.springboard").alerts.buttons["Allow"]
-        if allow.waitForExistence(timeout: 5) { allow.tap() }
+        let deadline = ContinuousClock.now + .seconds(60)
+        repeat {
+            if allow.exists { allow.tap() }
+            if featureSkip.waitForExistence(timeout: 1) { return true }
+        } while ContinuousClock.now < deadline
+        return false
     }
 
     /// A popover tip's close button.
