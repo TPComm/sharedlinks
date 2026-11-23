@@ -46,7 +46,9 @@ struct InboxView: View {
         .sheet(item: $model.chatSheet, onDismiss: { model.showTourIfNeeded() }) {
             ChatSheetView(sheet: $0)
         }
-        .fullScreenCover(item: $model.swipeQueue) { SwipeQueueView(queue: $0) }
+        .fullScreenCover(item: $model.swipeQueue, onDismiss: { model.showTourIfNeeded() }) {
+            SwipeQueueView(queue: $0)
+        }
         // The tour waits for the claim sheet to be gone, not just going.
         .sheet(isPresented: $model.showClaimSheet, onDismiss: { model.showTourIfNeeded() }) {
             ClaimSheet()
