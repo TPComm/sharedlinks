@@ -801,7 +801,7 @@ describe("links", () => {
   test("reactions accept one emoji and invalid input does not clear the current reaction", async () => {
     const path = "/api/links/1/react";
     for (const emoji of ["💩", "👍🏽", "👩🏽‍💻", "🏳️‍🌈", "🇳🇿", "1️⃣", "❤️"]) {
-      const r = await call(path, { token, body: { emoji } });
+      const r = await call(path, { method: emoji === "❤️" ? "POST" : "PUT", token, body: { emoji } });
       expect(r.status).toBe(200);
       expect(r.data.link.reactions[friendId]).toBe(emoji);
     }

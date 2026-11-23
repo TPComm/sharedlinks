@@ -190,7 +190,9 @@ public struct APIClient: Sendable {
 
     /// `nil` removes my reaction.
     public func react(_ linkID: Int, _ emoji: String?) async throws -> SharedLink {
-        let r: LinkEnvelope = try await send("POST", "api/links/\(linkID)/react",
+        // Older servers treat an unknown emoji in a POST as a request to remove the reaction.
+        let method = emoji.map { !reactionEmojis.contains($0) } == true ? "PUT" : "POST"
+        let r: LinkEnvelope = try await send(method, "api/links/\(linkID)/react",
                                              json: ["emoji": emoji ?? NSNull()])
         return r.link
     }
