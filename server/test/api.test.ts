@@ -623,7 +623,7 @@ describe("links", () => {
     const db = new Database(join(dataDir, "links.db"), { readonly: true });
     const { sql } = db.query("SELECT sql FROM sqlite_master WHERE name = 'links'").get() as { sql: string };
     expect(sql).toContain("AUTOINCREMENT");
-    expect((db.query("PRAGMA user_version").get() as any).user_version).toBe(19);
+    expect((db.query("PRAGMA user_version").get() as any).user_version).toBe(20);
     db.close();
     const { data } = await call("/api/state", { token });
     expect(data.links.map((l: any) => l.url)).toContain("https://de.wikipedia.org/wiki/M%C3%BCnchen");
@@ -1283,6 +1283,50 @@ describe("group chats", () => {
     expect(one.links.map((l: any) => l.id)).toEqual([sent.data.link.id]);
     expect((await call(`/api/state?group_id=${chat.id}`, { token: cy })).status).toBe(404);
     await idle();
+  });
+
+  test("favorites are private, idempotent, and removed on leaving or deleting the link", async () => {
+    const chat = (await call("/api/groups", { token: ann, body: { members: [boId] } })).data.group;
+    const link = (await call("/api/links", { token: ann, body: { url: `${origin}/plain?n=favorite`, group_id: chat.id } })).data.link;
+    const path = `/api/links/${link.id}/favorite`;
+    const favorite = (method: "PUT" | "DELETE", token: string) => call(path, { method, token });
+    const inState = async (token: string) => (await state(token, `?group_id=${chat.id}`)).links.find((l: any) => l.id === link.id);
+    expect((await call(path, { method: "PUT" })).status).toBe(401);
+    for (const method of ["PUT", "DELETE"] as const) expect((await favorite(method, cy)).status).toBe(404);
+
+    const first = await favorite("PUT", bo);
+    expect(first.status).toBe(200);
+    const at = first.data.link.favorited_at;
+    expect(at).toBeNumber();
+    expect(first.data.link.seen).toEqual({});
+    expect(first.data.link.reactions).toEqual({});
+    expect((await favorite("PUT", bo)).data.link.favorited_at).toBe(at);
+    expect((await inState(bo)).favorited_at).toBe(at);
+    expect(await inState(ann)).not.toHaveProperty("favorited_at");
+    expect((await call(`/api/links/${link.id}`, { method: "PATCH", token: ann, body: { note: "Updated" } })).data.link)
+      .not.toHaveProperty("favorited_at");
+
+    expect((await favorite("PUT", ann)).data.link.favorited_at).toBeNumber();
+    for (let i = 0; i < 2; i++) {
+      const removed = await favorite("DELETE", bo);
+      expect(removed.status).toBe(200);
+      expect(removed.data.link).not.toHaveProperty("favorited_at");
+    }
+    expect((await inState(ann)).favorited_at).toBeNumber();
+
+    expect((await favorite("PUT", bo)).status).toBe(200);
+    expect((await call(`/api/groups/${chat.id}`, { method: "DELETE", token: bo })).status).toBe(200);
+    expect((await favorite("PUT", bo)).status).toBe(404);
+    await call(`/api/groups/${chat.id}/members`, { token: ann, body: { members: [boId] } });
+    expect(await inState(bo)).not.toHaveProperty("favorited_at");
+    expect((await inState(ann)).favorited_at).toBeNumber();
+    await idle();
+    expect((await call(`/api/links/${link.id}`, { method: "DELETE", token: ann })).status).toBe(200);
+    expect((await favorite("DELETE", ann)).status).toBe(404);
+    const db = new Database(join(dataDir, "links.db"), { readonly: true });
+    try {
+      expect(db.query("SELECT * FROM favorites WHERE link_id = ?").all(link.id)).toEqual([]);
+    } finally { db.close(); }
   });
 
   test("nobody outside a chat can read, mark, react to, edit, refresh, report or delete its links", async () => {

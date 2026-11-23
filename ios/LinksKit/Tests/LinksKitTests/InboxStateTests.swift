@@ -110,9 +110,20 @@ struct InboxStateTests {
     }
 
     @Test func filterNames() {
-        #expect(InboxFilter.allCases == [.toWatch, .watched, .sent, .all])
-        #expect(InboxFilter.allCases.map(\.title) == ["Queue", "Seen", "Sent", "All Links"])
+        #expect(InboxFilter.allCases == [.toWatch, .watched, .sent, .all, .favorites])
+        #expect(InboxFilter.allCases.map(\.title) == ["Queue", "Seen", "Sent", "All Links", "Favorites"])
         #expect(InboxFilter.allCases.allSatisfy { $0.id == $0 })
+    }
+
+    @Test func favoritesAreSortedByStarDateAndSearchable() {
+        var inbox = state
+        inbox.links[1].favoritedAt = Date(timeIntervalSince1970: 100)
+        inbox.links[2].favoritedAt = Date(timeIntervalSince1970: 100)
+        inbox.links[4].favoritedAt = Date(timeIntervalSince1970: 200)
+        #expect(inbox.links(for: .favorites).map(\.id) == [1, 4, 3])
+        #expect(inbox.links(for: .favorites, matching: "sam").map(\.id) == [1])
+        #expect(inbox.links(for: .favorites, matching: "recipe").map(\.id) == [4])
+        #expect(inbox.links(for: .all).map(\.id) == [5, 4, 3, 2, 1])
     }
 
     @Test func roundTripsThroughJSON() throws {

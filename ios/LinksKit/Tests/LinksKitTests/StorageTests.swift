@@ -33,6 +33,18 @@ struct InboxSnapshotTests {
         }
     }
 
+    @Test func favoritesAreAvailableFromTheOfflineSnapshot() async {
+        await withTempCache { _ in
+            var inbox = household
+            let starredAt = Date(timeIntervalSince1970: 1_800_000_999)
+            inbox.links[1].favoritedAt = starredAt
+            InboxSnapshot.save(inbox)
+            let favorites = InboxSnapshot.load()?.links(for: .favorites)
+            #expect(favorites?.map(\.id) == [4])
+            #expect(favorites?.first?.favoritedAt == starredAt)
+        }
+    }
+
     @Test func aCachedRowTheAppNoLongerUnderstandsIsDropped() async throws {
         try await withTempCache { dir in
             let json = #"{"me": "u1", "users": [], "links": [\#(Fixture.link(id: 1)), {"id": 2}]}"#

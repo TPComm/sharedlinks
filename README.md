@@ -56,6 +56,9 @@ edit or delete your own comments, or report someone else's. Commenting marks the
 highlights new replies; read positions stay on this device, separate for each account. The
 sender's original note stays separate from the conversation.
 
+Star a link on its page or in its row's long-press menu. **Favorites** shows your starred links,
+newest stars first, and Search can narrow to them. Stars are private and never send notifications.
+
 New people get a short **welcome tour** after their first sign-in (Profile → Show Tour Again).
 It walks through putting Links at the front of the share sheet, with a practice share that ticks
 itself off, and TipKit tips then point out the gestures once each.
@@ -389,6 +392,7 @@ API endpoints except sign-in need `Authorization: Bearer <session token>`; pages
 | DELETE | `/api/groups/:id` | Leave the chat; the links I sent stay in it. The last one out deletes it and its links (never the default chat). Leave shared group chats before leaving the direct chat with a group mate |
 | POST | `/api/links/:id/seen` | `{seen: true/false}` |
 | POST | `/api/links/:id/nudge` | Sender only: `{people?: [userId, …]}`; omitted or empty means all eligible unwatched chat members. Excludes unclaimed legacy people and people the sender blocked. Records nudges at most once per person per link per 24 hours → `{nudged: [userId, …], link}`. A recipient's block of the sender or report of the link stops delivery without changing the response or cooldown; muted chats and missing devices also prevent delivery. 429 if only the cooldown prevents a nudge, otherwise 400 when nobody is eligible. Only the sender's link JSON includes `nudged: {personId: UnixSeconds, …}` (all recorded times) |
+| PUT / DELETE | `/api/links/:id/favorite` | Star / unstar a visible link, both idempotent → `{link}`. In link responses (including `/api/state`), `favorited_at` is present only for links the caller starred, in Unix seconds. |
 | POST | `/api/links/:id/react` | `{emoji}` (`null` removes) |
 | POST | `/api/links/:id/refresh` | `{}` → `{link}`; fetch the preview again immediately, unless already pending |
 | PATCH / DELETE | `/api/links/:id` | `{note}` (sender only) / –; 403 if the sender blocked you |

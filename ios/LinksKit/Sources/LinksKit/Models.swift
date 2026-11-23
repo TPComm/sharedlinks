@@ -250,6 +250,8 @@ public struct SharedLink: Codable, Sendable, Hashable, Identifiable {
     public var nudged: [String: Double]
     public var commentCount: Int
     public var lastComment: CommentActivity?
+    /// When the signed-in viewer starred this link; private to that account.
+    public var favoritedAt: Date?
     /// Its unguessable share token and public `https://HOST/l/<token>` page. Nil from servers
     /// (and cached inboxes) from before link pages.
     public var token: String?
@@ -267,6 +269,7 @@ public struct SharedLink: Codable, Sendable, Hashable, Identifiable {
         case groupID = "group_id"
         case commentCount = "comment_count"
         case lastComment = "last_comment"
+        case favoritedAt = "favorited_at"
     }
 
     public init(from decoder: Decoder) throws {
@@ -295,6 +298,7 @@ public struct SharedLink: Codable, Sendable, Hashable, Identifiable {
         nudged = try c.decodeIfPresent([String: Double].self, forKey: .nudged) ?? [:]
         commentCount = try c.decodeIfPresent(Int.self, forKey: .commentCount) ?? 0
         lastComment = try c.decodeIfPresent(CommentActivity.self, forKey: .lastComment)
+        favoritedAt = try c.decodeIfPresent(Date.self, forKey: .favoritedAt)
         token = try? c.decodeIfPresent(String.self, forKey: .token)
         shareURL = (try? c.decodeIfPresent(String.self, forKey: .shareURL))
             .flatMap(URL.webURL)
@@ -306,7 +310,7 @@ public struct SharedLink: Codable, Sendable, Hashable, Identifiable {
                 thumbWidth: Int? = nil, thumbHeight: Int? = nil, meta: String = "done", addedBy: String,
                 addedAt: Date = .now, seen: [String: Date] = [:], reactions: [String: String] = [:],
                 commentCount: Int = 0, lastComment: CommentActivity? = nil, token: String? = nil, shareURL: URL? = nil,
-                nudged: [String: Double] = [:]) {
+                nudged: [String: Double] = [:], favoritedAt: Date? = nil) {
         self.id = id
         self.groupID = groupID
         self.url = url
@@ -329,6 +333,7 @@ public struct SharedLink: Codable, Sendable, Hashable, Identifiable {
         self.lastComment = lastComment
         self.token = token
         self.shareURL = shareURL
+        self.favoritedAt = favoritedAt
     }
 
     /// What Share hands over: its Links page when the server has one, else the original link.
@@ -421,7 +426,7 @@ public struct InboxState: Codable, Sendable, Hashable {
 }
 
 public enum InboxFilter: String, CaseIterable, Sendable, Identifiable {
-    case toWatch, watched, sent, all
+    case toWatch, watched, sent, all, favorites
     public var id: Self { self }
 
     public var title: String {
@@ -430,6 +435,7 @@ public enum InboxFilter: String, CaseIterable, Sendable, Identifiable {
         case .watched: "Seen"
         case .sent: "Sent"
         case .all: "All Links"
+        case .favorites: "Favorites"
         }
     }
 }
@@ -609,12 +615,13 @@ public extension InboxState {
     /// One list's links, in one chat (`nil`: every chat), matching a search.
     func links(for filter: InboxFilter, in groupID: Int? = nil, matching query: String = "") -> [SharedLink] {
         let words = query.lowercased().split(whereSeparator: \.isWhitespace)
-        return links.filter { link in
+        let matchingLinks = links.filter { link in
             if let groupID, link.groupID != groupID { return false }
             switch filter {
             case .toWatch: guard isUnwatched(link) else { return false }
             case .watched: guard !isMine(link), isSeenByMe(link) else { return false }
             case .sent: guard isMine(link) else { return false }
+            case .favorites: guard link.favoritedAt != nil else { return false }
             case .all: break
             }
             guard !words.isEmpty else { return true }
@@ -622,6 +629,12 @@ public extension InboxState {
                             link.url.absoluteString, link.platform.label, group(link.groupID).map(title(of:))]
                 .compactMap { $0 }.joined(separator: " ").lowercased()
             return words.allSatisfy { haystack.contains($0) }
+        }
+        guard filter == .favorites else { return matchingLinks }
+        return matchingLinks.sorted {
+            let left = $0.favoritedAt ?? .distantPast
+            let right = $1.favoritedAt ?? .distantPast
+            return left == right ? $0.id > $1.id : left > right
         }
     }
 }

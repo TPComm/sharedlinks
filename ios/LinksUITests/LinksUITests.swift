@@ -254,6 +254,52 @@ final class LinksUITests: XCTestCase {
         XCTAssert(row(other, in: "all").waitForNonExistence(timeout: 5), "a link that doesn't match")
     }
 
+    func testFavoritesFromLinkPageAndRowCanBeSearchedAndRemoved() throws {
+        let word = "weekend"
+        let first = try seed(by: server.friend, note: "Pasta recipe for the weekend")
+        let second = try seed(by: server.friend, note: "A short weekend walk with a view")
+        let other = try seed(by: server.friend, note: "Weekend packing list")
+        launch()
+        waitForRow(second, in: "toWatch").tap()
+        XCTAssert(page(second).waitForExistence(timeout: 10))
+        let star = app.buttons["link.favorite"]
+        XCTAssertEqual(star.label, "Add to Favorites")
+        star.tap()
+        waitFor(star, labelContaining: "Remove from Favorites")
+        captureFavorites("Starred link page")
+        app.navigationBars.buttons.firstMatch.tap()
+
+        menu(on: waitForRow(first, in: "toWatch"), item: "Add to Favorites").tap()
+        app.tabBars.buttons["Favorites"].tap()
+        let latest = waitForRow(first, in: "favorites")
+        let earlier = waitForRow(second, in: "favorites")
+        XCTAssertLessThan(latest.frame.minY, earlier.frame.minY, "Newest star should be first")
+        captureFavorites("Favorites list")
+
+        app.tabBars.buttons["Search"].tap()
+        waitForRow(other, in: "all")
+        app.collectionViews["links.all"].swipeDown()
+        type(word, into: app.searchFields["Titles, people, notes"])
+        let scope = app.segmentedControls.buttons["Favorites"].firstMatch
+        XCTAssert(scope.waitForExistence(timeout: 10), "missing Favorites search scope")
+        scope.tap()
+        waitForRow(first, in: "favorites")
+        waitForRow(second, in: "favorites")
+        XCTAssertFalse(row(other, in: "favorites").exists)
+
+        menu(on: row(first, in: "favorites"), item: "Remove from Favorites").tap()
+        XCTAssert(row(first, in: "favorites").waitForNonExistence(timeout: 10))
+        XCTAssert(row(second, in: "favorites").exists)
+    }
+
+    private func captureFavorites(_ name: String) {
+        guard ProcessInfo.processInfo.environment["LINKS_CAPTURE_FAVORITES_SCREENSHOTS"] == "1" else { return }
+        let attachment = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
+        attachment.name = name
+        attachment.lifetime = .keepAlways
+        add(attachment)
+    }
+
     func testWidgetLinkOpensTheLinksPage() throws {
         let link = try seed(by: server.friend)
         launch()

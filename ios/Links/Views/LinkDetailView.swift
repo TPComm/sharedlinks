@@ -304,6 +304,10 @@ private struct LinkPage: View {
 
     @ToolbarContentBuilder private var toolbar: some ToolbarContent {
         ToolbarItem(placement: .topBarTrailing) {
+            FavoriteButton(link: link)
+                .tint(link.favoritedAt == nil ? nil : .orange)
+        }
+        ToolbarItem(placement: .topBarTrailing) {
             ShareLink(item: link.shareableURL, subject: Text(link.displayTitle), preview: link.sharePreview)
         }
         ToolbarItem(placement: .topBarTrailing) {

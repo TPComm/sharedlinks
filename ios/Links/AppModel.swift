@@ -25,6 +25,7 @@ final class AppModel {
     /// The latest save: each waits for the one before, so they reach the server in tap order.
     private var notificationSave: Task<MeResponse, Error>?
     private let chatMuteSaves = ChatMuteSaveQueue()
+    private(set) var favoriteSaves: Set<Int> = []
     private(set) var isOffline = false
     private(set) var isSigningIn = false
     private(set) var isDeletingAccount = false
@@ -200,6 +201,7 @@ final class AppModel {
         notifications = nil
         savedNotifications = nil
         notificationSave = nil
+        favoriteSaves = []
         invites = []
         paths = [:]
         chat = nil
@@ -789,6 +791,26 @@ final class AppModel {
             restored.seen[me] = link.seen[me]
             return restored
         }) { try await self.client.setSeen(link.id, seen) }
+    }
+
+    func toggleFavorite(_ id: Int) async {
+        guard let link = inbox.links.first(where: { $0.id == id }), favoriteSaves.insert(id).inserted else { return }
+        let session = sessionID
+        defer {
+            if session == sessionID { favoriteSaves.remove(id) }
+        }
+        do {
+            let saved = try await client.setFavorite(id, link.favoritedAt == nil)
+            guard session == sessionID, var current = inbox.links.first(where: { $0.id == id }) else { return }
+            current.favoritedAt = saved.favoritedAt
+            patch(current)
+        } catch APIError.signedOut {
+            if session == sessionID { endSession() }
+        } catch {
+            guard session == sessionID else { return }
+            errorMessage = error.localizedDescription
+            await refresh()
+        }
     }
 
     func react(_ link: SharedLink, _ emoji: String) async {
