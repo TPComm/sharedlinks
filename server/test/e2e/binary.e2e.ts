@@ -14,6 +14,7 @@ import { basename, join } from "node:path";
 import {
   killAll, locateBinary, pkce, request, runProcess, s256, startEgressTrap, startServer, until, withLogs, type Server,
 } from "./harness.ts";
+import { seedEveryoneMember } from "../unit/helpers.ts";
 
 const CLIENT_ID = "client_E2E";
 const PUBLIC_URL = "https://links.e2e.test";
@@ -315,6 +316,12 @@ describe("a day with Links", () => {
     const b = await signIn("bob");
     expect(b.user).toEqual({ id: "user_01BOB", name: "Bob Smith", avatar: null, email: "bob.smith@team.test" });
     Object.assign(bob, { token: b.token, id: b.user.id });
+    for (const person of [alice, bob]) {
+      expect((await call("/api/state", { token: person.token })).data).toMatchObject({ groups: [], links: [] });
+    }
+    const db = new Database(join(dataDir, "links.db"));
+    for (const person of [alice, bob]) seedEveryoneMember(db, person.id);
+    db.close();
   });
 
   e2e("turns away strangers, unverified emails and a wrong PKCE verifier", async () => {

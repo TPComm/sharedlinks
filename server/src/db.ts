@@ -73,7 +73,7 @@ export interface GroupRow {
   name: string;
   created_by: string | null;
   created_at: number;
-  /** 1 for the chat everyone was in before groups (see migrateToV8); new members join it. */
+  /** 1 for the legacy chat everyone was in before groups (see migrateToV8). */
   is_default: number;
   /** 1 for a private chat between two people, with no group invites or additional members. */
   is_direct: number;
@@ -599,7 +599,7 @@ function migrateToV15(db: Database) {
   })();
 }
 
-/** The chat everyone was in before groups; new members join it (see Accounts.admit). */
+/** The legacy chat everyone was in before groups. */
 export function defaultGroup(db: Database): number {
   return (db.query("SELECT id FROM groups WHERE is_default = 1").get() as { id: number }).id;
 }
