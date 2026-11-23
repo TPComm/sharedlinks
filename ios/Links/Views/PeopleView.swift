@@ -84,13 +84,9 @@ struct InviteSheet: View {
     @State private var failure: String?
 
     private var inviter: String { model.me?.name ?? "A friend" }
-    private var inviteGroup: LinkGroup? {
-        guard let group = model.inbox.group(model.chat), !group.isDirect else { return nil }
-        return group
-    }
     private var chat: LinkGroup? {
-        guard let inviteGroup, !inviteGroup.isDefault else { return nil }
-        return inviteGroup
+        guard let group = model.inbox.group(model.chat), !group.isDirect, !group.isDefault else { return nil }
+        return group
     }
     private var joining: String {
         if let chat { "They’ll join \(model.inbox.title(of: chat))." } else { "Starts a chat with just you two." }
@@ -160,7 +156,7 @@ struct InviteSheet: View {
         failure = nil
         defer { creating = false }
         do {
-            invite = try await model.createInvite(email: email, groupID: inviteGroup?.id)
+            invite = try await model.createInvite(email: email, groupID: chat?.id)
         } catch {
             failure = error.localizedDescription
         }
