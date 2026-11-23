@@ -1650,6 +1650,8 @@ describe("group chats", () => {
       expect((await call(path, { token: bo, method })).status).toBe(404);
       const home = (await state(ann)).groups.find((g: any) => g.default);
       expect((await call(`/api/groups/${home.id}/link`, { token: ann, method })).status).toBe(400);
+      const direct = (await state(ann)).groups.find((g: any) => g.direct);
+      expect((await call(`/api/groups/${direct.id}/link`, { token: ann, method })).status).toBe(400);
     }
     const made = await call(path, { token: ann, method: "POST" });
     expect(made.status).toBe(201);

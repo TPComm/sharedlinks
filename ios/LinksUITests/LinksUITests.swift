@@ -1055,6 +1055,17 @@ final class LinksUITests: XCTestCase {
         app.buttons["Chat Info"].tap()
         scrolledTo(app.buttons["chatLink.create"]).tap()
         XCTAssert(app.buttons["chatLink.share"].waitForExistence(timeout: 10))
+        scrolledTo(app.buttons["chatLink.share"]).tap()
+        let sheet = app.collectionViews["activityCollectionView"]
+        XCTAssert(sheet.waitForExistence(timeout: 30), "no chat invite share sheet")
+        let visible = XCTNSPredicateExpectation(predicate: NSPredicate(format: "isHittable == true"), object: sheet)
+        XCTAssertEqual(XCTWaiter.wait(for: [visible], timeout: 10), .completed)
+        let screenshot = XCTAttachment(screenshot: app.screenshot())
+        screenshot.name = "Chat invite share sheet"
+        screenshot.lifetime = .keepAlways
+        add(screenshot)
+        app.buttons["Close"].firstMatch.tap()
+        XCTAssert(sheet.waitForNonExistence(timeout: 10))
         scrolledTo(app.buttons["chatLink.reset"]).tap()
         app.buttons.matching(NSPredicate(format: "label == %@ AND identifier != %@", "Reset Link", "chatLink.reset")).firstMatch.tap()
         XCTAssert(app.buttons["chatLink.share"].waitForExistence(timeout: 10))

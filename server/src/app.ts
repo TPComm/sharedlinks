@@ -339,6 +339,7 @@ export function createApp(config: Config, opts: AppOptions = {}) {
     if ((db.query("SELECT is_default FROM groups WHERE id = ?").get(n) as { is_default: number }).is_default) {
       throw new BadRequest("The default chat can't have an invite link.");
     }
+    if (getGroup(n, me).direct) throw new BadRequest("Start a group chat to invite more people.");
     return n;
   }
 
