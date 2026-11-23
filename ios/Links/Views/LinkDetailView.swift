@@ -1,4 +1,5 @@
 import LinksKit
+import SharedWithYou
 import SwiftUI
 
 /// A link's own page, pushed when its row is tapped or its widget row opens the app: the preview,
@@ -28,6 +29,7 @@ private struct LinkPage: View {
     @Environment(\.scenePhase) private var scenePhase
     let link: SharedLink
     @State private var thread = LinkThread()
+    @State private var highlight: SWHighlight?
 
     @State private var editingNote = false
     @State private var noteDraft = ""
@@ -49,6 +51,7 @@ private struct LinkPage: View {
             VStack(alignment: .leading, spacing: 24) {
                 preview
                 about
+                if let highlight { SharedAttributionView(highlight: highlight) }
                 actions
                 reactions
                 receipts
@@ -66,6 +69,13 @@ private struct LinkPage: View {
         .safeAreaInset(edge: .bottom) { CommentComposer(thread: thread, linkID: link.id) }
         .scrollDismissesKeyboard(.interactively)
         .task { await thread.load(link.id, model: model) }
+        .task(id: HighlightLookup(url: link.shareURL, revision: model.sharedHighlights.revision)) {
+            highlight = nil
+            guard let url = link.shareURL else { return }
+            let found = try? await model.sharedHighlights.center.highlight(for: url)
+            guard !Task.isCancelled else { return }
+            highlight = found
+        }
         .onChange(of: model.inboxRefresh) { _, _ in
             Task { await thread.load(link.id, model: model) }
         }
@@ -93,6 +103,11 @@ private struct LinkPage: View {
     }
 
     // MARK: Sections
+
+    private struct HighlightLookup: Equatable {
+        let url: URL?
+        let revision: Int
+    }
 
     /// The rich preview card, which opens the link too, with a retry when the preview failed.
     private var preview: some View {
