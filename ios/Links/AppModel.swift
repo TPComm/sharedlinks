@@ -557,17 +557,17 @@ final class AppModel {
     /// Gesture tips wait until nothing covers the inbox, so a popover never lands under a sheet.
     var canShowTips: Bool { tourCompleted && !showTour && !showFeatureTours && !dismissingWelcomeTour && !requestingNotifications && !showClaimSheet && !showAddSheet && !isProfileOpen }
 
-    /// Shows the tour once, after sign-in and after the claim sheet (if any) has closed.
+    /// Starts onboarding after sign-in and after the claim sheet (if any) has closed.
     func showTourIfNeeded() {
         if tourCompleted {
-            showFeatureToursIfNeeded()
+            requestNotificationPermission()
             return
         }
         guard isSignedIn, !showTour, !showFeatureTours, !showClaimSheet, !showAddSheet, !isProfileOpen, chatSheet == nil, !Self.isUITesting else { return }
         startTour()
     }
 
-    func showFeatureToursIfNeeded() {
+    private func showFeatureToursIfNeeded() {
         guard UIApplication.shared.applicationState == .active, isSignedIn, tourCompleted,
               !showTour, !dismissingWelcomeTour, !requestingNotifications,
               !showFeatureTours, !showClaimSheet, !showAddSheet, !isProfileOpen, chatSheet == nil,

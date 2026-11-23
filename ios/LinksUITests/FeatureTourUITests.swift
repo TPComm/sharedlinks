@@ -12,16 +12,20 @@ final class FeatureTourUITests: XCTestCase {
 
     func testNewFeaturesShowOnceAndReplayFromTheProfile() {
         launch(reset: true)
+        waitForNotificationsBeforeFeatureTour(
+            requirePrompt: ProcessInfo.processInfo.environment["LINKS_EXPECT_NOTIFICATION_PROMPT"] == "1"
+        )
         XCTAssert(waitForTitle("Make Links Yours"))
         XCTAssert(app.buttons["featureTour.action.profilePhoto"].exists)
         let progress = app.descendants(matching: .any)["featureTour.progress"]
         XCTAssertEqual(progress.label, "Page 1 of 2")
+        capture("Profile photo action")
         app.buttons["featureTour.continue"].tap()
         XCTAssert(waitForTitle("Send Today's Links Together"))
         XCTAssert(app.buttons["featureTour.action.rollup"].exists)
         XCTAssertEqual(progress.label, "Page 2 of 2")
+        capture("Roll-up action")
         app.buttons["featureTour.done"].tap()
-        allowNotificationsIfAsked()
         XCTAssert(app.tabBars.buttons["Queue"].waitForExistence(timeout: 20))
 
         app.terminate()
@@ -40,9 +44,9 @@ final class FeatureTourUITests: XCTestCase {
 
     func testSkippingMarksAllFeaturesSeen() {
         launch(reset: true)
+        waitForNotificationsBeforeFeatureTour()
         XCTAssert(waitForTitle("Make Links Yours"))
         app.buttons["featureTour.skip"].tap()
-        allowNotificationsIfAsked()
         XCTAssert(app.staticTexts["Make Links Yours"].waitForNonExistence(timeout: 20))
         app.terminate()
         launch(reset: false)
@@ -67,8 +71,30 @@ final class FeatureTourUITests: XCTestCase {
         return XCTWaiter.wait(for: [shown], timeout: 30) == .completed
     }
 
-    private func allowNotificationsIfAsked() {
+    private func waitForNotificationsBeforeFeatureTour(requirePrompt: Bool = false) {
         let allow = XCUIApplication(bundleIdentifier: "com.apple.springboard").alerts.buttons["Allow"]
-        if allow.waitForExistence(timeout: 5) { allow.tap() }
+        let featureTour = app.buttons["featureTour.skip"]
+        let deadline = ContinuousClock.now + .seconds(60)
+        repeat {
+            if allow.exists {
+                XCTAssertFalse(featureTour.exists, "feature tour opened behind the notification prompt")
+                capture("Notification prompt before feature tour")
+                allow.tap()
+                return
+            }
+            if featureTour.waitForExistence(timeout: 1) {
+                XCTAssertFalse(requirePrompt, "feature tour opened before the notification prompt")
+                return
+            }
+        } while ContinuousClock.now < deadline
+        XCTFail("neither the notification prompt nor the feature tour appeared")
+    }
+
+    private func capture(_ name: String) {
+        guard ProcessInfo.processInfo.environment["LINKS_CAPTURE_FEATURE_TOUR_SCREENSHOTS"] == "1" else { return }
+        let attachment = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
+        attachment.name = name
+        attachment.lifetime = .keepAlways
+        add(attachment)
     }
 }

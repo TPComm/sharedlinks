@@ -133,6 +133,7 @@ struct FeatureTourView: View {
             }
         }
         .buttonStyle(.bordered)
+        .foregroundStyle(.primary)
         .disabled(savingPhoto)
         .accessibilityIdentifier("featureTour.action.\(tour.id)")
     }
