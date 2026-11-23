@@ -73,6 +73,7 @@ test.each([false, true])("thrown preview fetches wait for backoff before retryin
   const stub = stubServer({
     "/preview": () => {
       calls++;
+      if (refresh) app.db.run("UPDATE links SET preview_v = 0 WHERE url = ?", [stub.origin + "/preview"]);
       return new Response(`<meta property="og:image" content="${stub.origin}/image">`);
     },
     "/image": () => new Response(PNG, { headers: { "Content-Type": "image/png" } }),
@@ -81,8 +82,8 @@ test.each([false, true])("thrown preview fetches wait for backoff before retryin
     allowPrivateNetwork: true, previewBackfillMs: 5 }, { previewNow: () => now });
   const tick = async () => { await Bun.sleep(25); await app.idle(); };
   try {
-    const id = Number(app.db.run("INSERT INTO links (group_id, url, platform, meta, preview_v, added_by, added_at) VALUES (1, ?, 'web', 'failed', ?, 'u', 1)",
-      [stub.origin + "/preview", refresh ? 0 : PREVIEW_VERSION]).lastInsertRowid);
+    const id = Number(app.db.run("INSERT INTO links (group_id, url, platform, meta, preview_v, added_by, added_at) VALUES (1, ?, 'web', ?, ?, 'u', 1)",
+      [stub.origin + "/preview", refresh ? "done" : "failed", PREVIEW_VERSION]).lastInsertRowid);
     const thumbPath = join(tmp.dir, "thumbs", String(id));
     mkdirSync(thumbPath);
     writeFileSync(join(thumbPath, "blocker"), "");
