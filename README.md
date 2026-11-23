@@ -367,7 +367,7 @@ API endpoints except sign-in need `Authorization: Bearer <session token>`; pages
 
 | Method | Path | Body / notes |
 | --- | --- | --- |
-| GET | `/api/wrapped` | `?start=<unix seconds>&end=<unix seconds>[&group_id=<id>]` → `{start, end, received, sent, watched, top_sender, top_platform, most_reacted}`; integer half-open range up to 366 days, current visible chats only; top fields null without qualifying shares, `most_reacted` contains link fields with `sender_name` and a numeric `reactions` count; 400 for invalid dates, 404 for a chat you aren't in |
+| GET | `/api/wrapped` | `?start=<unix seconds>&end=<unix seconds>[&group_id=<id>]` → `{start, end, received, sent, watched, top_sender, top_platform, most_reacted}`; integer half-open range shorter than 367 days to allow local leap years with offset changes, current visible chats only; top fields null without qualifying shares, `most_reacted` contains link fields with `sender_name` and a numeric `reactions` count; 400 for invalid dates, 404 for a chat you aren't in |
 | GET | `/` | public browser landing page; opens the iPhone app, explains invites, and links to support and privacy; `APP_STORE_ID` adds an App Store link and Smart App Banner |
 | GET | `/app-preview.png` | public iPhone app screenshot with fictional sample data, embedded in the server binary for the landing page |
 | GET | `/auth/authorize` | `?code_challenge=&state=[&screen_hint=sign-up]` → redirects to AuthKit |

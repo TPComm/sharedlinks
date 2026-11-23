@@ -781,7 +781,7 @@ export function createApp(config: Config, opts: AppOptions = {}) {
           return Number(value);
         };
         const start = parse("start"), end = parse("end");
-        if (start >= end || end - start > 366 * 86400) throw new BadRequest("Choose a range of up to 366 days.");
+        if (start >= end || end - start >= 367 * 86400) throw new BadRequest("Choose a range shorter than 367 days.");
         const group = params.get("group_id");
         const groupId = group === null ? null : groupOf(group, me);
         const scope = `${VISIBLE} AND added_at >= ?2 AND added_at < ?3 AND (?4 IS NULL OR group_id = ?4)`;

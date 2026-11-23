@@ -970,6 +970,15 @@ describe("wrapped", () => {
     }
   });
 
+  test("accepts a local leap year that gained an hour in Almaty", async () => {
+    const token = mint("wrapped-leap-year@test.com", "Viewer");
+    const start = Date.parse("2024-01-01T00:00:00+06:00") / 1000;
+    const end = Date.parse("2025-01-01T00:00:00+05:00") / 1000;
+    const wrapped = await call(`/api/wrapped?start=${start}&end=${end}`, { token });
+    expect(wrapped.status).toBe(200);
+    expect(wrapped.data).toMatchObject({ start, end });
+  });
+
   test("breaks tied sender counts in JavaScript display-name order", async () => {
     const viewer = mint("wrapped-tie-viewer@test.com", "Viewer");
     const emoji = mint("wrapped-tie-emoji@test.com", "😀 Amy");
