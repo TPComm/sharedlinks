@@ -3,19 +3,21 @@ import SwiftUI
 
 struct ActivityScreen: View {
     @Environment(AppModel.self) private var model
+    @Environment(\.dismiss) private var dismiss
+    @State private var path: [Int] = []
     @State private var feed = ActivityFeed()
     @State private var loading = false
     @State private var error: String?
     @State private var commentLinkID: Int?
 
     var body: some View {
-        NavigationStack(path: Binding(get: { model.paths[.activity] ?? [] }, set: { model.paths[.activity] = $0 })) {
+        NavigationStack(path: $path) {
             List {
                 ForEach(feed.items) { item in
                     if let link = model.inbox.links.first(where: { $0.id == item.linkID }) {
                         Button {
                             commentLinkID = item.kind == .comment ? link.id : nil
-                            model.showPage(link, on: .activity)
+                            path.append(link.id)
                         } label: {
                             HStack(spacing: 12) {
                                 AvatarView(user: model.inbox.user(item.person), size: 36)
@@ -51,7 +53,11 @@ struct ActivityScreen: View {
             }
             .listStyle(.plain)
             .navigationTitle("Activity")
-            .toolbar { ToolbarItem(placement: .topBarLeading) { ProfileButton() } }
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Done") { dismiss() }
+                }
+            }
             .navigationDestination(for: Int.self) { LinkDetailView(linkID: $0, showComments: commentLinkID == $0) }
             .overlay {
                 if !loading && error == nil && !feed.items.contains(where: { item in model.inbox.links.contains { $0.id == item.linkID } }) {
@@ -63,14 +69,9 @@ struct ActivityScreen: View {
                 await model.refresh()
                 await load(.reset)
             }
-            .task {
-                if model.tab == .activity { await load(.reset) }
-            }
-            .onChange(of: model.tab) { _, tab in
-                if tab == .activity { Task { await load(.reset) } }
-            }
+            .task { await load(.reset) }
             .onChange(of: model.inboxRefresh) { _, _ in
-                if model.tab == .activity { Task { await load(.newest) } }
+                Task { await load(.newest) }
             }
         }
     }

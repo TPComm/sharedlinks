@@ -70,7 +70,7 @@ final class FeatureTourUITests: XCTestCase {
         app.buttons["featureTour.continue"].tap()
         XCTAssert(waitForTitle("Catch Up in Activity"))
         XCTAssertEqual(progress.label, "Page 11 of 11")
-        XCTAssert(app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH %@", "The Activity tab brings comments, reactions and seen marks")).firstMatch.exists)
+        XCTAssert(app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH %@", "Tap the bell to see comments, reactions and seen marks")).firstMatch.exists)
         let screenshot = XCTAttachment(screenshot: app.screenshot())
         screenshot.name = "Activity tour"
         screenshot.lifetime = .keepAlways
@@ -95,6 +95,16 @@ final class FeatureTourUITests: XCTestCase {
         app.buttons["featureTour.action.favorites"].tap()
         XCTAssert(app.navigationBars["Favorites"].waitForExistence(timeout: 20))
         XCTAssert(app.staticTexts["Make Links Yours"].waitForNonExistence(timeout: 20))
+    }
+
+    func testFavoritesTourActionOpensFavorites() {
+        launch(reset: true)
+        waitForNotificationsBeforeFeatureTour(in: app)
+        XCTAssert(waitForTitle("Make Links Yours"))
+        for _ in 0..<6 { app.buttons["featureTour.continue"].tap() }
+        XCTAssert(waitForTitle("Save Your Favorites"))
+        app.buttons["featureTour.action.favorites"].tap()
+        XCTAssert(app.navigationBars["Favorites"].waitForExistence(timeout: 20))
     }
 
     func testSkippingMarksAllFeaturesSeen() {

@@ -2,7 +2,7 @@ import LinksKit
 import SwiftUI
 
 enum InboxTab: String, Hashable, Codable {
-    case toWatch, watched, sent, activity, favorites, search
+    case toWatch, watched, sent, favorites, search
 
     /// The tab that shows a filter's list.
     init(_ filter: InboxFilter) {
@@ -36,11 +36,6 @@ struct InboxView: View {
             Tab("Sent", systemImage: "paperplane", value: .sent) {
                 LinkListScreen(filter: .sent)
             }
-
-            Tab("Activity", systemImage: "bell", value: .activity) {
-                ActivityScreen()
-            }
-            .badge(model.unreadCommentLinkCount)
 
             Tab("Favorites", systemImage: "star", value: .favorites) {
                 LinkListScreen(filter: .favorites)
@@ -79,6 +74,7 @@ struct InboxView: View {
 
 struct LinkListScreen: View {
     @Environment(AppModel.self) private var model
+    @State private var showActivity = false
     let filter: InboxFilter
     var query: String = ""
     var search = false
@@ -91,6 +87,20 @@ struct LinkListScreen: View {
                 .navigationDestination(for: Int.self) { LinkDetailView(linkID: $0) }
                 .toolbar {
                     ToolbarItem(placement: .topBarLeading) { ProfileButton() }
+                    ToolbarItem(placement: .topBarTrailing) {
+                        Button { showActivity = true } label: {
+                            Image(systemName: "bell")
+                                .overlay(alignment: .topTrailing) {
+                                    if model.unreadCommentLinkCount > 0 {
+                                        Circle().fill(.red).frame(width: 7, height: 7)
+                                            .offset(x: 3, y: -3)
+                                    }
+                                }
+                        }
+                        .accessibilityLabel("Activity")
+                        .accessibilityValue("\(model.unreadCommentLinkCount) unread")
+                        .accessibilityIdentifier("activity.open")
+                    }
                     if filter == .toWatch, !model.inbox.links(for: .toWatch, in: model.chat).isEmpty {
                         ToolbarItem(placement: .topBarTrailing) {
                             Button {
@@ -118,6 +128,7 @@ struct LinkListScreen: View {
                     }
                 }
         }
+        .sheet(isPresented: $showActivity) { ActivityScreen() }
     }
 }
 

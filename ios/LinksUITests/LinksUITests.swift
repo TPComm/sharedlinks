@@ -117,7 +117,7 @@ final class LinksUITests: XCTestCase {
     func testSignedInLaunchShowsTheInbox() throws {
         launch()
         XCTAssert(app.navigationBars["Queue"].exists)
-        for tab in ["Queue", "Seen", "Sent", "Activity", "Search"] {
+        for tab in ["Queue", "Seen", "Sent", "Favorites", "Search"] {
             XCTAssert(app.tabBars.buttons[tab].exists, "no \(tab) tab")
         }
         XCTAssert(app.buttons["newLink"].exists)
@@ -497,7 +497,11 @@ final class LinksUITests: XCTestCase {
         let comment = try server.addComment(link.id, body: "Activity reply", as: server.friend)
         try server.react(link.id, emoji: "😂", as: server.friend)
         launch()
-        app.tabBars.buttons["Activity"].tap()
+        let activity = app.buttons["activity.open"]
+        XCTAssert(activity.waitForExistence(timeout: 10))
+        XCTAssertEqual(activity.label, "Activity")
+        XCTAssertEqual(activity.value as? String, "1 unread")
+        activity.tap()
         let reaction = scrolledTo(app.buttons["activity.reaction.\(link.id)"])
         XCTAssert(reaction.waitForExistence(timeout: 10))
         XCTAssert(reaction.label.contains("reacted 😂"))
