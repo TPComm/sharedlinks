@@ -816,7 +816,7 @@ export function createApp(config: Config, opts: AppOptions = {}) {
           watched: received.filter(r => r.watched).length,
           top_sender: topSender ?? null,
           top_platform: platform ? { platform: platform[0], count: platform[1] } : null,
-          most_reacted: best && best.count > 0 ? { ...toLink(best.row), sender_name: bestSender?.name ?? "Deleted user", reactions: best.count } : null });
+          most_reacted: best && best.count > 0 ? { ...toLink(best.row, me), sender_name: bestSender?.name ?? "Deleted user", reactions: best.count } : null });
       }),
     },
     "/api/state": {
