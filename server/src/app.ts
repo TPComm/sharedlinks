@@ -240,7 +240,10 @@ export function createApp(config: Config, opts: AppOptions = {}) {
   }
   function queueFetch(id: number, url: string, platform: string): Promise<void> {
     const run = (latest.get(id) ?? Promise.resolve()).then(async () => {
-      const result = await fetchMetadata(db, config.dataDir, id, url, platform, fetchOpts);
+      const result = await fetchMetadata(db, config.dataDir, id, url, platform, fetchOpts).catch((e) => {
+        failedAttempt(id);
+        throw e;
+      });
       const row = db.query("SELECT meta FROM links WHERE id = ?").get(id) as { meta: string } | null;
       if (row?.meta === "failed" || result?.retryThumbnail) failedAttempt(id);
       else retries.delete(id);
