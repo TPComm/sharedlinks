@@ -4,7 +4,7 @@ import SwiftUI
 
 /// Add a stable case in display order, its page content below, and a UI test assertion.
 enum FeatureTour: String, CaseIterable, Identifiable {
-    case profilePhoto, rollup, wrapped, sharedWithYou, nudge, swipeQueue
+    case profilePhoto, rollup, wrapped, sharedWithYou, nudge, swipeQueue, favorites
 
     var id: String { rawValue }
 
@@ -16,7 +16,7 @@ enum FeatureTour: String, CaseIterable, Identifiable {
     }
 
     enum Action {
-        case profilePhoto, openURL(String, String)
+        case profilePhoto, openURL(String, String), favorites
     }
 
     var page: Page {
@@ -45,6 +45,10 @@ enum FeatureTour: String, CaseIterable, Identifiable {
             Page(symbol: "rectangle.stack", title: "Swipe Through Your Queue",
                  body: "Tap the stack button at the top of your Queue to go through your links one at a time. Swipe up for the next one, and each link you swipe past moves to Seen.",
                  action: nil)
+        case .favorites:
+            Page(symbol: "star.fill", title: "Save Your Favorites",
+                 body: "Tap the star on any link to save it for later. Find your starred links in Favorites. Only you can see what you save.",
+                 action: .favorites)
         }
     }
 }
@@ -144,6 +148,12 @@ struct FeatureTourView: View {
                 }
             case .openURL(let title, let address)?:
                 if let url = URL(string: address) { Button(title) { openURL(url) } }
+            case .favorites?:
+                Button("Open Favorites") {
+                    model.paths[.favorites] = []
+                    model.tab = .favorites
+                    model.showFeatureTours = false
+                }
             case nil:
                 EmptyView()
             }

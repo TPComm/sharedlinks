@@ -160,13 +160,13 @@ function privacyPage(email: string, sessionDays: number): string {
   return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Links Privacy Policy</title><style>body{font:17px/1.5 -apple-system,system-ui,sans-serif;max-width:36em;margin:3em auto;padding:0 1em}h2{font-size:1.1em;margin-top:1.6em}</style></head>
 <body><h1>Links Privacy Policy</h1>
-<p>Last updated 17 November 2026.</p>
+<p>Last updated 23 November 2026.</p>
 <p>Links is a private inbox for the links a few friends send each other. This policy covers the Links app and this server, which keeps what the app shows. Questions or requests: ${contact}.</p>
 
 <h2>What Links keeps, and why</h2>
 <ul>
 <li><b>Your account:</b> your email address, display name and profile photo. They come from WorkOS, our sign-in provider, when you first sign in, and you can change your name and photo in the app; a photo you choose is stored on our server. They sign you in, match invites sent to you, and show your friends who sent what.</li>
-<li><b>What you do in Links:</b> the links you send and their notes, your comments, which links you've seen, your reactions, the reports you make and the people you block. For each link the server also fetches its title, author and thumbnail from the link's page.</li>
+<li><b>What you do in Links:</b> the links you send and their notes, your comments, which links you've seen, your reactions, your private favorites, the reports you make and the people you block. For each link the server also fetches its title, author and thumbnail from the link's page.</li>
 <li><b>Invites you send:</b> the email address you invite, if you type one, when the invite expires, and who used it. They let your friend in; cancelling an invite deletes it.</li>
 <li><b>Signed-in devices:</b> a scrambled (hashed) copy of each device's sign-in token, with when it was created and last used, and the push notification token Apple gives the app on that device, which the server uses to send it notifications.</li>
 <li><b>Server logs:</b> one line per request, with what was asked for (for example, "mark link 12 seen") and whether it worked, plus messages about errors and events, which can include a link's address or an account's ID. They're used to fix problems.</li>
@@ -177,7 +177,7 @@ function privacyPage(email: string, sessionDays: number): string {
 
 <h2>Who else sees it</h2>
 <ul>
-<li><b>The people in your chats</b> see your name and photo. People only lists people you share a chat with. Anyone with a link's share URL can see its title, thumbnail and original URL. Notes, who sent it, comments, reactions and activity stay private to the chat. Your name and photo can still appear on links in a chat you've left, or under Blocked People for someone who blocked you. Reports and blocks are private: only the person who runs the server reads reports.</li>
+<li><b>The people in your chats</b> see your name and photo. People only lists people you share a chat with. Anyone with a link's share URL can see its title, thumbnail and original URL. Notes, who sent it, comments, reactions and activity stay private to the chat. Favorites are visible only in your account and don't send notifications. Your name and photo can still appear on links in a chat you've left, or under Blocked People for someone who blocked you. Reports and blocks are private: only the person who runs the server reads reports.</li>
 <li><b>WorkOS</b> runs sign-in. It keeps your email, your sign-in details and the sign-ins you make, and gets the app's name and version and your iOS version when you sign in, plus, like any website, your IP address and browser details while you sign in. See the <a href="https://workos.com/legal/privacy">WorkOS privacy policy</a>.</li>
 <li><b>Apple</b> delivers push notifications. For each one, the server sends Apple your device's push token and what the notification shows: who sent a link, nudged you, reacted or commented, the chat's name, the link's title and note (shortened if long), the reaction or shortened comment text, and how many links are in your Queue tab, along with a link to the sender's profile photo for a new link (anyone holding that link can open the photo), and Links' own numbers for the link, its sender, its chat and the comment. See the <a href="https://www.apple.com/legal/privacy/">Apple privacy policy</a>.</li>
 <li><b>Grafana Cloud</b> (Grafana Labs) keeps a copy of the server logs, the web server's and the daily backup's own messages, and the server health figures, so problems can be spotted and fixed. See the <a href="https://grafana.com/legal/privacy-policy/">Grafana Labs privacy policy</a>.</li>
@@ -197,7 +197,7 @@ function privacyPage(email: string, sessionDays: number): string {
 <h2>Your choices</h2>
 <ul>
 <li>Change your display name in the app's account menu. Delete a link you sent, or change its note, from the link's long-press menu.</li>
-<li>To delete your account, open the account menu in the app and choose <b>Delete Account</b>. That deletes your account, your sign-ins on every device, the links you sent with their notes and thumbnails (for your friends too), your comments, seen marks and reactions, and your WorkOS account.</li>
+<li>To delete your account, open the account menu in the app and choose <b>Delete Account</b>. That deletes your account, your sign-ins on every device, the links you sent with their notes and thumbnails (for your friends too), your comments, seen marks, reactions and private favorites, and your WorkOS account.</li>
 <li>You can also email ${contact} to ask what Links keeps about you, to correct it, or to delete it.</li>
 </ul>
 
@@ -372,12 +372,15 @@ export function createApp(config: Config, opts: AppOptions = {}) {
   const sees = (me: string, id: string) =>
     !!db.query(`SELECT 1 WHERE ?2 IN (${PEOPLE})`).get(me, id);
 
+  const MY_FAVORITE = "(SELECT created_at FROM favorites WHERE person = ?1 AND link_id = links.id) AS favorited_at";
+  type LinkWithFavorite = LinkRow & { favorited_at?: number | null };
+
   function getState(me: string, groupId?: number) {
     const blocked = blockedBy(me);
     const links = new Map<number, ReturnType<typeof toLink>>();
     const only = groupId === undefined ? "" : " AND group_id = ?2";
-    const rows = db.query(`SELECT * FROM links WHERE ${VISIBLE}${only} ORDER BY added_at DESC`)
-      .all(...(groupId === undefined ? [me] : [me, groupId])) as LinkRow[];
+    const rows = db.query(`SELECT links.*, ${MY_FAVORITE} FROM links WHERE ${VISIBLE}${only} ORDER BY added_at DESC`)
+      .all(...(groupId === undefined ? [me] : [me, groupId])) as LinkWithFavorite[];
     for (const r of rows) {
       links.set(r.id, toLink(r, me));
     }
@@ -397,7 +400,7 @@ export function createApp(config: Config, opts: AppOptions = {}) {
     return { me, users, groups: groupsOf(me), links: [...links.values()], blocked: [...blocked] };
   }
 
-  function toLink(r: LinkRow, me: string) {
+  function toLink(r: LinkWithFavorite, me: string) {
     return {
       token: r.share_token, share_url: `${config.publicUrl}/l/${r.share_token}`,
       id: r.id, group_id: r.group_id, url: r.url, platform: r.platform, title: r.title, author: r.author, note: r.note,
@@ -405,6 +408,7 @@ export function createApp(config: Config, opts: AppOptions = {}) {
       thumb: r.thumb_type ? `/thumbs/${r.id}${r.thumb_v ? `/${r.thumb_v}` : ""}` : null, thumb_w: r.thumb_w, thumb_h: r.thumb_h, meta: r.meta, added_by: r.added_by, added_at: r.added_at,
       seen: {} as Record<string, number>, reactions: {} as Record<string, string>,
       ...(r.added_by === me ? { nudged: Object.fromEntries((db.query("SELECT person, nudged_at FROM nudges WHERE link_id = ?").all(r.id) as { person: string; nudged_at: number }[]).map((n) => [n.person, n.nudged_at])) } : {}),
+      favorited_at: r.favorited_at ?? undefined,
       comment_count: 0, last_comment: null as { person: string; snippet: string; at: number } | null,
     };
   }
@@ -455,7 +459,7 @@ export function createApp(config: Config, opts: AppOptions = {}) {
 
   /** One link as `me` sees it (see getState). Callers check it's visible to them first. */
   function getLink(id: number, me: string) {
-    const row = db.query("SELECT * FROM links WHERE id = ?").get(id) as LinkRow | null;
+    const row = db.query(`SELECT links.*, ${MY_FAVORITE} FROM links WHERE id = ?2`).get(me, id) as LinkWithFavorite | null;
     if (!row) return null;
     const blocked = blockedBy(me);
     const link = toLink(row, me);
@@ -468,6 +472,18 @@ export function createApp(config: Config, opts: AppOptions = {}) {
     const [summary] = commentSummaries(me, "id", id);
     if (summary) applyCommentSummary(link, summary);
     return link;
+  }
+
+  function setFavorite(req: WithId, me: string, starred: boolean) {
+    return asUser(me, () => {
+      const id = linkId(req, me);
+      if (starred) {
+        db.run("INSERT OR IGNORE INTO favorites (person, link_id, created_at) VALUES (?, ?, ?)", [me, id, now()]);
+      } else {
+        db.run("DELETE FROM favorites WHERE person = ? AND link_id = ?", [me, id]);
+      }
+      return json({ link: getLink(id, me) });
+    });
   }
 
   /**
@@ -882,6 +898,7 @@ export function createApp(config: Config, opts: AppOptions = {}) {
             throw new BadRequest("Leave your shared group chats before leaving this direct chat.");
           }
           db.run("DELETE FROM group_members WHERE group_id = ? AND user_id = ?", [id, me]);
+          db.run("DELETE FROM favorites WHERE person = ? AND link_id IN (SELECT id FROM links WHERE group_id = ?)", [me, id]);
           return deleteEmptyGroups(db);
         });
         for (const link of orphaned) rmSync(join(config.dataDir, "thumbs", String(link)), { force: true });
@@ -1073,6 +1090,10 @@ export function createApp(config: Config, opts: AppOptions = {}) {
         db.run("DELETE FROM comments WHERE id = ?", [row.id]);
         return json({ ok: true });
       }),
+    },
+    "/api/links/:id/favorite": {
+      PUT: route<WithId>((req, me) => setFavorite(req, me, true)),
+      DELETE: route<WithId>((req, me) => setFavorite(req, me, false)),
     },
     "/api/links/:id/refresh": {
       POST: route<WithId>((req, me) => {
