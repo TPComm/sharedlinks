@@ -55,7 +55,7 @@ describe("openDatabase", () => {
     const token = "a".repeat(32);
     db.run("UPDATE links SET share_token = ? WHERE id = ?", [token, existing]);
     const missing = addLink(db, "https://example.com/rollback");
-    expect(pragma(db, "user_version")).toBe(21);
+    expect(pragma(db, "user_version")).toBe(22);
     expect(db.query("SELECT share_token FROM links WHERE id = ?").get(missing)).toEqual({ share_token: null });
     db.close();
     const reopened = openDatabase(tmp.dir);
@@ -87,7 +87,7 @@ describe("openDatabase", () => {
     const db = openDatabase(dir);
     expect(existsSync(join(dir, "thumbs"))).toBe(true);
     expect(existsSync(join(dir, "links.db"))).toBe(true);
-    expect(pragma(db, "user_version")).toBe(21);
+    expect(pragma(db, "user_version")).toBe(22);
     expect(pragma(db, "foreign_keys")).toBe(1);
     expect(pragma(db, "journal_mode")).toBe("wal");
     expect(db.query("SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name").all().map((r: any) => r.name))
@@ -103,7 +103,7 @@ describe("openDatabase", () => {
     db.run("INSERT INTO users (id, name, created_at) VALUES ('u', 'U', 1), ('friend', 'Friend', 1)");
     db.close();
     const upgraded = openDatabase(tmp.dir);
-    expect(pragma(upgraded, "user_version")).toBe(21);
+    expect(pragma(upgraded, "user_version")).toBe(22);
     upgraded.run("INSERT INTO favorites VALUES ('u', ?, 1), ('friend', ?, 2)", [id, id]);
     upgraded.run("DELETE FROM users WHERE id = 'friend'");
     expect(upgraded.query("SELECT person FROM favorites").all()).toEqual([{ person: "u" }]);
@@ -141,7 +141,7 @@ describe("openDatabase", () => {
     db.close();
     db = openDatabase(tmp.dir);
     expect(urls(db)).toEqual([[1, "https://youtube.com/watch?v=1&si=x"]]);
-    expect(pragma(db, "user_version")).toBe(21);
+    expect(pragma(db, "user_version")).toBe(22);
     db.close();
   });
 });
@@ -180,7 +180,7 @@ describe("migrations", () => {
       [2, "https://de.wikipedia.org/wiki/M%C3%BCnchen"],
       [3, POST],
     ]);
-    expect(pragma(db, "user_version")).toBe(21);
+    expect(pragma(db, "user_version")).toBe(22);
     db.close();
   });
 
@@ -211,7 +211,7 @@ describe("migrations", () => {
     expect(db.query("SELECT user_id FROM sessions").all()).toEqual([{ user_id: "user_A" }]);
     expect(pragma(db, "foreign_keys")).toBe(1);
     expect(db.query("PRAGMA foreign_key_check").all()).toEqual([]);
-    expect(pragma(db, "user_version")).toBe(21);
+    expect(pragma(db, "user_version")).toBe(22);
 
     // The rebuilt table is still the one seen/reactions cascade from.
     db.run("DELETE FROM links WHERE id = 5");
@@ -262,7 +262,7 @@ describe("migrations", () => {
       [6, "ftp://example.com/x"],
       [7, "https://www.youtube.com/watch?v=1"],
     ]);
-    expect(pragma(db, "user_version")).toBe(21);
+    expect(pragma(db, "user_version")).toBe(22);
     expect(addLink(db, "https://example.com/new")).toBe(21); // sqlite_sequence kept: no rebuild
     db.close();
   });
@@ -284,7 +284,7 @@ describe("migrations", () => {
       [3, "https://youtu.be/abc?t=10"],
       [4, "https://blog.example.com/?s=pasta"],
     ]);
-    expect(pragma(db, "user_version")).toBe(21);
+    expect(pragma(db, "user_version")).toBe(22);
     db.close();
   });
 
@@ -302,7 +302,7 @@ describe("migrations", () => {
         { id: 1, title: "A", meta: "done", description: null, site_name: null, thumb_w: null, thumb_h: null, preview_v: 0, thumb_v: 0 },
         { id: 2, title: null, meta: "failed", description: null, site_name: null, thumb_w: null, thumb_h: null, preview_v: 0, thumb_v: 0 },
       ]);
-    expect(pragma(db, "user_version")).toBe(21);
+    expect(pragma(db, "user_version")).toBe(22);
     db.close();
     // Reopening runs nothing again.
     openDatabase(tmp.dir).close();
@@ -329,7 +329,7 @@ describe("migrations", () => {
         { id: 3, title: "About Instagram", author: "Instagram", thumb_type: "image/png", thumb_w: 10, thumb_h: 10, thumb_v: 1, preview_v: 1 },
       ]);
     expect([1, 2, 3].map((id) => existsSync(join(tmp.dir, "thumbs", String(id))))).toEqual([false, true, true]);
-    expect(pragma(db, "user_version")).toBe(21);
+    expect(pragma(db, "user_version")).toBe(22);
     db.close();
   });
 
@@ -356,7 +356,7 @@ describe("migrations", () => {
       v6();
       const db = openDatabase(tmp.dir);
       expect(members(db)).toEqual(["local_e", "user_a", "user_b", "user_c", "user_d"]);
-      expect(pragma(db, "user_version")).toBe(21);
+    expect(pragma(db, "user_version")).toBe(22);
       db.close();
     });
 
@@ -400,7 +400,7 @@ describe("v9: people who came in on a friend's invite move to a chat with that f
     `);
     db.close();
     const after = openDatabase(tmp.dir);
-    expect(pragma(after, "user_version")).toBe(21);
+    expect(pragma(after, "user_version")).toBe(22);
     const membersOf = (id: number) => (after.query("SELECT user_id FROM group_members WHERE group_id = ? ORDER BY user_id")
       .all(id) as { user_id: string }[]).map((m) => m.user_id);
     expect(membersOf(1)).toEqual(["admin_in", "alice", "old"]);
@@ -421,29 +421,47 @@ describe("v9: people who came in on a friend's invite move to a chat with that f
   });
 });
 
-describe("v20: daily catch-up", () => {
-  for (const partial of [false, true]) {
-    test(`upgrades v19 with ${partial ? "an existing catch-up column" : "no catch-up columns"} and preserves direct chats`, () => {
-      const db = openDatabase(tmp.dir);
-      db.exec(`ALTER TABLE users DROP COLUMN catchup_sent_on;
-        ALTER TABLE users DROP COLUMN catchup_tz;
-        ${partial ? "" : "ALTER TABLE users DROP COLUMN catchup_minute;"}
-        PRAGMA user_version = 19;
-        INSERT INTO users (id, name, created_at, member) VALUES ('a', 'A', 1, 1), ('b', 'B', 1, 1);
-        INSERT INTO groups (id, name, created_by, created_at, is_direct) VALUES (2, '', 'a', 1, 1);`);
-      db.close();
-      const upgraded = openDatabase(tmp.dir);
-      expect(pragma(upgraded, "user_version")).toBe(20);
-      expect(upgraded.query("SELECT catchup_minute, catchup_tz, catchup_sent_on FROM users WHERE id = 'a'").get())
-        .toEqual({ catchup_minute: null, catchup_tz: null, catchup_sent_on: null });
-      expect(upgraded.query("SELECT is_direct FROM groups WHERE id = 2").get()).toEqual({ is_direct: 1 });
-      upgraded.run("UPDATE users SET catchup_minute = 480, catchup_tz = 'UTC', catchup_sent_on = '2026-03-08' WHERE id = 'a'");
-      upgraded.close();
-      const reopened = openDatabase(tmp.dir);
-      expect(reopened.query("SELECT catchup_minute, catchup_tz, catchup_sent_on FROM users WHERE id = 'a'").get())
-        .toEqual({ catchup_minute: 480, catchup_tz: "UTC", catchup_sent_on: "2026-03-08" });
-      reopened.close();
-    });
+describe("v22: daily catch-up", () => {
+  for (const version of [20, 21]) {
+    for (const partial of [false, true]) {
+      test(`upgrades v${version} with ${partial ? "an existing catch-up column" : "no catch-up columns"} and preserves direct chats and favorites`, () => {
+        const db = openDatabase(tmp.dir);
+        db.exec(`ALTER TABLE users DROP COLUMN catchup_sent_on;
+          ALTER TABLE users DROP COLUMN catchup_tz;
+          ${partial ? "" : "ALTER TABLE users DROP COLUMN catchup_minute;"}
+          PRAGMA user_version = ${version};
+          INSERT INTO users (id, name, created_at, member) VALUES ('a', 'A', 1, 1), ('b', 'B', 1, 1);
+          INSERT INTO groups (id, name, created_by, created_at, is_direct) VALUES (2, '', 'a', 1, 1);`);
+        const link = addLink(db, "https://example.com/favorite");
+        db.run("INSERT INTO favorites VALUES ('a', ?, 1)", [link]);
+        if (version === 21) {
+          db.exec(`CREATE TABLE IF NOT EXISTS chat_invite_links (
+            group_id INTEGER PRIMARY KEY REFERENCES groups(id) ON DELETE CASCADE,
+            token TEXT NOT NULL UNIQUE,
+            created_by TEXT REFERENCES users(id) ON DELETE SET NULL,
+            created_at REAL NOT NULL
+          ); INSERT INTO chat_invite_links VALUES (2, 'invite', 'a', 1);`);
+        } else {
+          expect(db.query("SELECT name FROM sqlite_master WHERE name = 'chat_invite_links'").get()).toBeNull();
+        }
+        db.close();
+        const upgraded = openDatabase(tmp.dir);
+        expect(pragma(upgraded, "user_version")).toBe(22);
+        expect(upgraded.query("SELECT catchup_minute, catchup_tz, catchup_sent_on FROM users WHERE id = 'a'").get())
+          .toEqual({ catchup_minute: null, catchup_tz: null, catchup_sent_on: null });
+        expect(upgraded.query("SELECT is_direct FROM groups WHERE id = 2").get()).toEqual({ is_direct: 1 });
+        expect(upgraded.query("SELECT person, link_id FROM favorites").all()).toEqual([{ person: "a", link_id: link }]);
+        if (version === 21) {
+          expect(upgraded.query("SELECT token FROM chat_invite_links WHERE group_id = 2").get()).toEqual({ token: "invite" });
+        }
+        upgraded.run("UPDATE users SET catchup_minute = 480, catchup_tz = 'UTC', catchup_sent_on = '2026-03-08' WHERE id = 'a'");
+        upgraded.close();
+        const reopened = openDatabase(tmp.dir);
+        expect(reopened.query("SELECT catchup_minute, catchup_tz, catchup_sent_on FROM users WHERE id = 'a'").get())
+          .toEqual({ catchup_minute: 480, catchup_tz: "UTC", catchup_sent_on: "2026-03-08" });
+        reopened.close();
+      });
+    }
   }
 });
 
@@ -503,7 +521,7 @@ describe("v10: a legacy person names the account an admin let claim them", () =>
     `);
     db.close();
     const after = openDatabase(tmp.dir);
-    expect(pragma(after, "user_version")).toBe(21);
+    expect(pragma(after, "user_version")).toBe(22);
     expect(after.query("SELECT id, claimable_by FROM users ORDER BY id").all())
       .toEqual([{ id: "legacy:Sam", claimable_by: null }, { id: "u", claimable_by: null }]);
     after.run("UPDATE users SET claimable_by = 'u' WHERE id = 'legacy:Sam'");
@@ -525,7 +543,7 @@ describe("v11: notification settings for activity on the links you sent", () => 
     `);
     db.close();
     const after = openDatabase(tmp.dir);
-    expect(pragma(after, "user_version")).toBe(21);
+    expect(pragma(after, "user_version")).toBe(22);
     expect(after.query("SELECT push_watched, push_reactions FROM users").all()).toEqual([{ push_watched: 1, push_reactions: 1 }]);
   });
 });
@@ -538,7 +556,7 @@ describe("v14: comment threads", () => {
     const link = addLink(db, "https://a.com/commented");
     db.close();
     const after = openDatabase(tmp.dir);
-    expect(pragma(after, "user_version")).toBe(21);
+    expect(pragma(after, "user_version")).toBe(22);
     expect(after.query("SELECT id FROM links").all()).toEqual([{ id: link }]);
     const insert = () => after.run("INSERT INTO comments (link_id, person, body, created_at) VALUES (?, 'u', 'Hi', 1)", [link]);
     expect(() => after.run("INSERT INTO comments (link_id, person, body, created_at) VALUES (999, 'u', 'Hi', 1)")).toThrow();
@@ -569,7 +587,7 @@ describe("v13: whether each person's email is verified", () => {
     `);
     db.close();
     const after = openDatabase(tmp.dir);
-    expect(pragma(after, "user_version")).toBe(21);
+    expect(pragma(after, "user_version")).toBe(22);
     expect(after.query("SELECT id, email_verified FROM users ORDER BY id").all())
       .toEqual([{ id: "a", email_verified: 0 }, { id: "b", email_verified: 1 }, { id: "c", email_verified: 0 }]);
   });
