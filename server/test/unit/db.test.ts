@@ -48,20 +48,20 @@ const addLink = (db: Database, url: string) =>
   Number(db.run("INSERT INTO links (group_id, url, platform, added_by, added_at) VALUES (1, ?, 'web', 'u', 1)", [url]).lastInsertRowid);
 
 describe("openDatabase", () => {
-  test("v19 leaves legacy reaction timestamps null and tolerates an existing column", () => {
+  test("v20 leaves legacy reaction timestamps null and tolerates an existing column", () => {
     const db = openDatabase(tmp.dir);
     db.run("INSERT INTO users (id, name, created_at) VALUES ('u', 'U', 1)");
     const id = addLink(db, "https://example.com/reaction");
     db.run("INSERT INTO reactions (link_id, person, emoji) VALUES (?, 'u', '😂')", [id]);
-    db.exec("ALTER TABLE reactions DROP COLUMN reacted_at; PRAGMA user_version = 18");
+    db.exec("ALTER TABLE reactions DROP COLUMN reacted_at; PRAGMA user_version = 19");
     db.close();
     const migrated = openDatabase(tmp.dir);
     expect(migrated.query("SELECT reacted_at FROM reactions").all()).toEqual([{ reacted_at: null }]);
-    expect(pragma(migrated, "user_version")).toBe(19);
-    migrated.exec("PRAGMA user_version = 18");
+    expect(pragma(migrated, "user_version")).toBe(20);
+    migrated.exec("PRAGMA user_version = 19");
     migrated.close();
     const reopened = openDatabase(tmp.dir);
-    expect(pragma(reopened, "user_version")).toBe(19);
+    expect(pragma(reopened, "user_version")).toBe(20);
     expect(reopened.query("SELECT reacted_at FROM reactions").all()).toEqual([{ reacted_at: null }]);
     reopened.close();
   });
