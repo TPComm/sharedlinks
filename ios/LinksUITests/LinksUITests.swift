@@ -1042,11 +1042,11 @@ final class LinksUITests: XCTestCase {
         XCTAssert(row(everyone, in: "toWatch").waitForNonExistence(timeout: 5), "a link from another chat still shows")
         XCTAssert(row(inChat, in: "toWatch").exists)
 
-        // An invite from here is into this chat.
+        // Even with a group selected, an invite starts a one-to-one chat.
         app.buttons["account"].tap()
         app.buttons["People"].tap()
         app.buttons["inviteFriend"].tap()
-        XCTAssert(app.staticTexts["They’ll join \(name)."].waitForExistence(timeout: 5), "the invite isn't into the picked chat")
+        XCTAssert(app.staticTexts["Starts a chat with just you two."].waitForExistence(timeout: 5), "the invite should be for a one-to-one chat")
         app.buttons["Cancel"].tap()
         app.buttons["Done"].tap()
 
