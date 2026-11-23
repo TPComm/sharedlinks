@@ -881,7 +881,7 @@ export function createApp(config: Config, opts: AppOptions = {}) {
           try {
             const value = JSON.parse(Buffer.from(cursor, "base64url").toString());
             if (!Array.isArray(value) || value.length !== 4 || !Number.isFinite(value[0])
-                || !["comment", "reaction", "watched"].includes(value[1])
+                || !["comment", "reaction", "seen"].includes(value[1])
                 || !Number.isSafeInteger(value[2]) || value[2] < 1 || typeof value[3] !== "string") throw new Error();
             after = value as [number, string, number, string];
           } catch {
@@ -906,7 +906,7 @@ export function createApp(config: Config, opts: AppOptions = {}) {
           WHERE ${VISIBLE} AND links.added_by = ?1 AND r.person != ?1 AND r.reacted_at IS NOT NULL
             AND NOT EXISTS (SELECT 1 FROM blocks WHERE blocker = ?1 AND blocked = r.person)
           UNION ALL
-          SELECT 'watched', s.link_id, s.person, s.seen_at, NULL, NULL, NULL, s.link_id
+          SELECT 'seen', s.link_id, s.person, s.seen_at, NULL, NULL, NULL, s.link_id
           FROM seen s JOIN links ON links.id = s.link_id
           WHERE ${VISIBLE} AND links.added_by = ?1 AND s.person != ?1
             AND NOT EXISTS (SELECT 1 FROM blocks WHERE blocker = ?1 AND blocked = s.person)
@@ -917,7 +917,7 @@ export function createApp(config: Config, opts: AppOptions = {}) {
             OR (at = ?3 AND kind = ?4 AND sort_id = ?5 AND person > ?6))
         ORDER BY at DESC, kind, sort_id DESC, person LIMIT ?7`).all(me, before === null ? null : Number(before),
           ...(after ?? [null, null, null, null]), limit + 1) as {
-          kind: "comment" | "reaction" | "watched"; link_id: number; person: string; at: number;
+          kind: "comment" | "reaction" | "seen"; link_id: number; person: string; at: number;
           comment_id: number | null; snippet: string | null; emoji: string | null; sort_id: number;
         }[];
         const last = rows[Math.min(limit, rows.length) - 1];

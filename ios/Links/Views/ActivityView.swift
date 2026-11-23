@@ -56,7 +56,7 @@ struct ActivityScreen: View {
             .overlay {
                 if !loading && error == nil && !feed.items.contains(where: { item in model.inbox.links.contains { $0.id == item.linkID } }) {
                     ContentUnavailableView("No activity yet", systemImage: "bell",
-                                           description: Text("Comments, reactions and watched links from your chats show up here."))
+                                           description: Text("Comments, reactions and seen marks from your chats show up here."))
                 }
             }
             .refreshable {
@@ -79,7 +79,7 @@ struct ActivityScreen: View {
         switch item.kind {
         case .comment: "commented: \(item.snippet ?? "")"
         case .reaction: "reacted \(item.emoji ?? "")"
-        case .watched: "watched"
+        case .seen: "saw your link"
         }
     }
 

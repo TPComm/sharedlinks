@@ -64,7 +64,7 @@ enum FeatureTour: String, CaseIterable, Identifiable {
                  action: nil)
         case .activity:
             Page(symbol: "bell", title: "Catch Up in Activity",
-                 body: "The Activity tab brings comments, reactions and watches across your links together. Go through what's new and tap a comment to jump into the conversation.",
+                 body: "The Activity tab brings comments, reactions and seen marks across your links together. Go through what's new and tap a comment to jump into the conversation.",
                  action: nil)
         }
     }

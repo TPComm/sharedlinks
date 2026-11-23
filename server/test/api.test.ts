@@ -2258,7 +2258,7 @@ describe("activity feed", () => {
       const items = [
         { kind: "comment", link_id: link.id, person, at: 30, comment_id: comment.id, snippet: "x".repeat(120) },
         { kind: "reaction", link_id: link.id, person, at: 20, emoji: "😂" },
-        { kind: "watched", link_id: link.id, person, at: 10 },
+        { kind: "seen", link_id: link.id, person, at: 10 },
       ];
       expect(await feed()).toEqual({ items, has_more: false, next: null });
       const firstPage = await feed("?limit=2");
@@ -2269,12 +2269,12 @@ describe("activity feed", () => {
       await call(`/api/links/${link.id}/react`, { token: bo, body: { emoji: "❤️" } });
       expect((await feed()).items[0]).toMatchObject({ kind: "reaction", emoji: "❤️" });
       db.run("UPDATE reactions SET reacted_at = NULL WHERE link_id = ?", [link.id]);
-      expect((await feed()).items.map((i: any) => i.kind)).toEqual(["comment", "watched"]);
+      expect((await feed()).items.map((i: any) => i.kind)).toEqual(["comment", "seen"]);
       await call("/api/blocks", { token: ann, body: { user_id: person } });
       expect(await feed()).toEqual({ items: [], has_more: false, next: null });
       await call(`/api/blocks/${person}`, { token: ann, method: "DELETE" });
       await call("/api/reports", { token: ann, body: { comment_id: comment.id, reason: "spam" } });
-      expect((await feed()).items.map((i: any) => i.kind)).toEqual(["watched"]);
+      expect((await feed()).items.map((i: any) => i.kind)).toEqual(["seen"]);
       const incoming = (await call("/api/links", { token: bo, body: { url: `${origin}/plain?activity=2`, group_id: group.id } })).data.link;
       const reply = (await call(`/api/links/${incoming.id}/comments`, { token: bo, body: { body: "Incoming" } })).data.comment;
       await call(`/api/links/${incoming.id}/react`, { token: bo, body: { emoji: "😂" } });

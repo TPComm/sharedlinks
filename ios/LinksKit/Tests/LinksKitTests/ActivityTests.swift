@@ -3,13 +3,13 @@ import Testing
 @testable import LinksKit
 
 struct ActivityTests {
-    private static let page = #"{"items":[{"kind":"comment","link_id":7,"person":"friend","at":30,"comment_id":42,"snippet":"Hello"},{"kind":"reaction","link_id":7,"person":"friend","at":20,"emoji":"😂"},{"kind":"watched","link_id":7,"person":"friend","at":10}],"has_more":true,"next":"opaque-cursor"}"#
+    private static let page = #"{"items":[{"kind":"comment","link_id":7,"person":"friend","at":30,"comment_id":42,"snippet":"Hello"},{"kind":"reaction","link_id":7,"person":"friend","at":20,"emoji":"😂"},{"kind":"seen","link_id":7,"person":"friend","at":10}],"has_more":true,"next":"opaque-cursor"}"#
 
     @Test func decodesKindsAndReadPositions() throws {
         let page = try APIClient.decoder.decode(ActivityPage.self, from: Data(Self.page.utf8))
         #expect(page.hasMore)
         #expect(page.next == "opaque-cursor")
-        #expect(page.items.map(\.kind) == [.comment, .reaction, .watched])
+        #expect(page.items.map(\.kind) == [.comment, .reaction, .seen])
         #expect(Set(page.items.map(\.id)).count == 3)
         let comment = page.items[0]
         #expect(comment.linkID == 7 && comment.commentID == 42 && comment.snippet == "Hello")
@@ -68,7 +68,7 @@ struct ActivityTests {
     }
 
     @Test func backgroundRefreshRemovesMissingItemsOnlyWithinItsOrderedRange() throws {
-        let json = #"{"items":[{"kind":"comment","link_id":7,"person":"friend","at":30,"comment_id":43},{"kind":"comment","link_id":7,"person":"friend","at":30,"comment_id":42},{"kind":"reaction","link_id":7,"person":"a","at":30,"emoji":"😂"},{"kind":"reaction","link_id":7,"person":"b","at":30,"emoji":"😂"},{"kind":"watched","link_id":7,"person":"friend","at":20}],"has_more":true,"next":"tail"}"#
+        let json = #"{"items":[{"kind":"comment","link_id":7,"person":"friend","at":30,"comment_id":43},{"kind":"comment","link_id":7,"person":"friend","at":30,"comment_id":42},{"kind":"reaction","link_id":7,"person":"a","at":30,"emoji":"😂"},{"kind":"reaction","link_id":7,"person":"b","at":30,"emoji":"😂"},{"kind":"seen","link_id":7,"person":"friend","at":20}],"has_more":true,"next":"tail"}"#
         let page = try APIClient.decoder.decode(ActivityPage.self, from: Data(json.utf8))
         var feed = ActivityFeed()
         feed.apply(page, update: .reset)

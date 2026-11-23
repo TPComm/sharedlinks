@@ -70,7 +70,7 @@ final class FeatureTourUITests: XCTestCase {
         app.buttons["featureTour.continue"].tap()
         XCTAssert(waitForTitle("Catch Up in Activity"))
         XCTAssertEqual(progress.label, "Page 11 of 11")
-        XCTAssert(app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH %@", "The Activity tab brings comments, reactions and watches")).firstMatch.exists)
+        XCTAssert(app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH %@", "The Activity tab brings comments, reactions and seen marks")).firstMatch.exists)
         let screenshot = XCTAttachment(screenshot: app.screenshot())
         screenshot.name = "Activity tour"
         screenshot.lifetime = .keepAlways

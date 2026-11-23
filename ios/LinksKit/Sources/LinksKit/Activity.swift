@@ -1,7 +1,7 @@
 import Foundation
 
 public struct ActivityItem: Codable, Sendable, Hashable, Identifiable {
-    public enum Kind: String, Codable, Sendable { case comment, reaction, watched }
+    public enum Kind: String, Codable, Sendable { case comment, reaction, seen }
 
     public let kind: Kind
     public let linkID: Int
