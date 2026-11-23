@@ -82,7 +82,7 @@ test.each([false, true])("thrown preview fetches wait for backoff before retryin
   const tick = async () => { await Bun.sleep(25); await app.idle(); };
   try {
     const id = Number(app.db.run("INSERT INTO links (group_id, url, platform, meta, preview_v, added_by, added_at) VALUES (1, ?, 'web', 'failed', ?, 'u', 1)",
-      [stub.origin + "/preview", PREVIEW_VERSION]).lastInsertRowid);
+      [stub.origin + "/preview", refresh ? 0 : PREVIEW_VERSION]).lastInsertRowid);
     const thumbPath = join(tmp.dir, "thumbs", String(id));
     mkdirSync(thumbPath);
     writeFileSync(join(thumbPath, "blocker"), "");

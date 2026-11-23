@@ -243,7 +243,7 @@ export function createApp(config: Config, opts: AppOptions = {}) {
       const result = await fetchMetadata(db, config.dataDir, id, url, platform, fetchOpts).catch((e) => {
         failedAttempt(id);
         try {
-          db.run("UPDATE links SET meta = 'failed' WHERE id = ? AND meta = 'pending'", [id]);
+          db.run("UPDATE links SET meta = 'failed', preview_v = ? WHERE id = ? AND meta = 'pending'", [PREVIEW_VERSION, id]);
         } catch {}
         throw e;
       });
