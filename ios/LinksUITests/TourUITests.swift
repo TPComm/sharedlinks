@@ -59,7 +59,7 @@ final class TourUITests: XCTestCase {
         XCTAssertFalse(app.buttons["tour.skip"].exists, "Skip on the last page")
         app.buttons["tour.done"].tap()
         let featureSkip = app.buttons["featureTour.skip"]
-        XCTAssert(waitForFeatureTour(featureSkip), "no feature tours after the welcome tour")
+        waitForNotificationsBeforeFeatureTour(in: app)
         featureSkip.tap()
         XCTAssert(featureSkip.waitForNonExistence(timeout: 20))
 
@@ -123,17 +123,6 @@ final class TourUITests: XCTestCase {
         let shown = XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == true AND isHittable == true"),
                                               object: app.staticTexts[title])
         return XCTWaiter.wait(for: [shown], timeout: timeout) == .completed
-    }
-
-    /// The prompt can appear at any point before the feature tour, or not at all if already answered.
-    private func waitForFeatureTour(_ featureSkip: XCUIElement) -> Bool {
-        let allow = XCUIApplication(bundleIdentifier: "com.apple.springboard").alerts.buttons["Allow"]
-        let deadline = ContinuousClock.now + .seconds(60)
-        repeat {
-            if allow.exists { allow.tap() }
-            if featureSkip.waitForExistence(timeout: 1) { return true }
-        } while ContinuousClock.now < deadline
-        return false
     }
 
     /// A popover tip's close button.

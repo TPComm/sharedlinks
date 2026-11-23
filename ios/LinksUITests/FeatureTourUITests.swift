@@ -13,18 +13,23 @@ final class FeatureTourUITests: XCTestCase {
     func testNewFeaturesShowOnceAndReplayFromTheProfile() {
         launch(reset: true)
         waitForNotificationsBeforeFeatureTour(
+            in: app,
             requirePrompt: ProcessInfo.processInfo.environment["LINKS_EXPECT_NOTIFICATION_PROMPT"] == "1"
-        )
+        ) { capture("Notification prompt before feature tour") }
         XCTAssert(waitForTitle("Make Links Yours"))
         XCTAssert(app.buttons["featureTour.action.profilePhoto"].exists)
         let progress = app.descendants(matching: .any)["featureTour.progress"]
-        XCTAssertEqual(progress.label, "Page 1 of 2")
+        XCTAssertEqual(progress.label, "Page 1 of 3")
         capture("Profile photo action")
         app.buttons["featureTour.continue"].tap()
         XCTAssert(waitForTitle("Send Today's Links Together"))
         XCTAssert(app.buttons["featureTour.action.rollup"].exists)
-        XCTAssertEqual(progress.label, "Page 2 of 2")
+        XCTAssertEqual(progress.label, "Page 2 of 3")
         capture("Roll-up action")
+        app.buttons["featureTour.continue"].tap()
+        XCTAssert(waitForTitle("Links Wrapped"))
+        XCTAssertEqual(progress.label, "Page 3 of 3")
+        capture("Wrapped page")
         app.buttons["featureTour.done"].tap()
         XCTAssert(app.tabBars.buttons["Queue"].waitForExistence(timeout: 20))
 
@@ -44,7 +49,7 @@ final class FeatureTourUITests: XCTestCase {
 
     func testSkippingMarksAllFeaturesSeen() {
         launch(reset: true)
-        waitForNotificationsBeforeFeatureTour()
+        waitForNotificationsBeforeFeatureTour(in: app) { capture("Notification prompt before feature tour") }
         XCTAssert(waitForTitle("Make Links Yours"))
         app.buttons["featureTour.skip"].tap()
         XCTAssert(app.staticTexts["Make Links Yours"].waitForNonExistence(timeout: 20))
@@ -71,31 +76,53 @@ final class FeatureTourUITests: XCTestCase {
         return XCTWaiter.wait(for: [shown], timeout: 30) == .completed
     }
 
-    private func waitForNotificationsBeforeFeatureTour(requirePrompt: Bool = false) {
-        let allow = XCUIApplication(bundleIdentifier: "com.apple.springboard").alerts.buttons["Allow"]
-        let featureTour = app.buttons["featureTour.skip"]
-        // On a cold CI simulator SpringBoard can take over a minute to show the first prompt.
-        let deadline = ContinuousClock.now + .seconds(90)
-        repeat {
-            if allow.exists {
-                XCTAssertFalse(featureTour.exists, "feature tour opened behind the notification prompt")
-                capture("Notification prompt before feature tour")
-                allow.tap()
-                return
-            }
-            if featureTour.waitForExistence(timeout: 1) {
-                XCTAssertFalse(requirePrompt, "feature tour opened before the notification prompt")
-                return
-            }
-        } while ContinuousClock.now < deadline
-        XCTFail("neither the notification prompt nor the feature tour appeared")
-    }
-
     private func capture(_ name: String) {
         guard ProcessInfo.processInfo.environment["LINKS_CAPTURE_FEATURE_TOUR_SCREENSHOTS"] == "1" else { return }
         let attachment = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
         attachment.name = name
         attachment.lifetime = .keepAlways
         add(attachment)
+    }
+}
+
+extension XCTestCase {
+    @MainActor
+    func waitForNotificationsBeforeFeatureTour(in app: XCUIApplication, requirePrompt: Bool = false,
+                                              onPrompt: () -> Void = {}) {
+        let springBoard = XCUIApplication(bundleIdentifier: "com.apple.springboard")
+        let allow = springBoard.alerts.buttons["Allow"]
+        let featureTour = app.buttons["featureTour.skip"]
+        let deadline = ContinuousClock.now + .seconds(90)
+        var answeredPrompt = false
+        var failure = "neither the notification prompt nor the feature tour appeared"
+        repeat {
+            if allow.exists, !answeredPrompt {
+                if featureTour.exists {
+                    failure = "feature tour opened behind the notification prompt"
+                    break
+                }
+                onPrompt()
+                allow.tap()
+                answeredPrompt = true
+                failure = "feature tour did not appear after answering the notification prompt"
+            } else if featureTour.exists, featureTour.isHittable, !allow.exists {
+                if !requirePrompt || answeredPrompt { return }
+                failure = "feature tour opened before the notification prompt"
+                break
+            }
+            RunLoop.current.run(until: Date(timeIntervalSinceNow: 0.25))
+        } while ContinuousClock.now < deadline
+
+        let screen = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
+        screen.name = failure
+        screen.lifetime = .keepAlways
+        add(screen)
+        for (name, target) in [("App", app), ("SpringBoard", springBoard)] {
+            let tree = XCTAttachment(string: target.debugDescription)
+            tree.name = "\(name) accessibility hierarchy"
+            tree.lifetime = .keepAlways
+            add(tree)
+        }
+        XCTFail(failure)
     }
 }
