@@ -16,7 +16,7 @@ export interface Preview {
 }
 
 /** Bump to have the server re-fetch every link's preview (rate-limited) on its next start. */
-export const PREVIEW_VERSION = 1;
+export const PREVIEW_VERSION = 2;
 
 const SITE_NAMES: Record<string, string> = {
   instagram: "Instagram", tiktok: "TikTok", youtube: "YouTube", facebook: "Facebook", reddit: "Reddit", x: "X",
@@ -92,7 +92,25 @@ const OEMBED: Record<string, string> = {
 /** Sites that only show Open Graph tags to link-preview bots. */
 const BOT_ONLY = new Set(["instagram", "facebook", "tiktok"]);
 
+function redditTitle(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const shell = /^(?:reddit(?:\s*[-–—:|]\s*the heart of the internet)?|welcome to reddit|(?:log\s*in|sign\s*in|sign\s*up)(?:\s*\/\s*sign\s*up)?(?:\s+(?:to|for)\s+reddit)?|reddit\s*[-–—:|]\s*(?:log\s*in|sign\s*in|sign\s*up))\s*[.!]?$/i;
+  return shell.test(value.trim()) ? null : value;
+}
+
 export async function fetchPreview(url: string, platform: string, opts: FetchOptions = {}): Promise<Preview> {
+  if (platform === "reddit") {
+    let page: Preview = {};
+    let embed: Preview = {};
+    try {
+      page = previewFromTags(platform, ogTags(await getText(url, { ...opts, userAgent: BOT_UA })));
+    } catch {}
+    try {
+      const d = JSON.parse(await getText("https://www.reddit.com/oembed?url=" + encodeURIComponent(url), opts));
+      embed = { title: d.title, author: d.author_name, image: d.thumbnail_url };
+    } catch {}
+    return { ...page, ...stripEmpty(embed), title: redditTitle(embed.title) || redditTitle(page.title) };
+  }
   const endpoint = OEMBED[platform];
   if (endpoint) {
     try {
@@ -314,7 +332,7 @@ export async function fetchMetadata(db: Database, dataDir: string, linkId: numbe
     return;
   }
   if (thumb) renameSync(`${thumbPath}.part`, thumbPath);
-  const title = clip(meta.title, 300) || old.title || null;
+  const title = clip(meta.title, 300) || (platform === "reddit" ? redditTitle(old.title) : old.title) || null;
   const author = clip(meta.author, 80) || old.author || null;
   const description = clip(meta.description, 1000) || old.description || null;
   const siteName = clip(meta.siteName, 80) || old.site_name || null;
@@ -326,4 +344,5 @@ export async function fetchMetadata(db: Database, dataDir: string, linkId: numbe
     [title, author, description, siteName, thumbType, w, h, title || thumbType ? "done" : "failed", PREVIEW_VERSION, thumb ? 1 : 0, linkId]);
   // Deleted while we were fetching: don't leave its thumbnail behind.
   if (!changes && thumb) rmSync(thumbPath, { force: true });
+  return { retryThumbnail: !!changes && !thumbType && (!!meta.image || platform === "reddit") };
 }

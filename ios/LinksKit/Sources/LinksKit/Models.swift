@@ -139,6 +139,7 @@ public struct LinkGroup: Codable, Sendable, Hashable, Identifiable {
     public var createdAt: Date
     /// The chat everyone was in before chats, which new members join.
     public var isDefault: Bool
+    public var isDirect: Bool
     /// User ids, oldest member first.
     public var members: [String]
     /// Nil on servers and cached inboxes from before per-chat mute.
@@ -150,6 +151,7 @@ public struct LinkGroup: Codable, Sendable, Hashable, Identifiable {
         case createdBy = "created_by"
         case createdAt = "created_at"
         case isDefault = "default"
+        case isDirect = "direct"
         case muted
         case mutedUntil = "muted_until"
     }
@@ -159,12 +161,14 @@ public struct LinkGroup: Codable, Sendable, Hashable, Identifiable {
     public static let defaultConversationID = "links-inbox"
 
     public init(id: Int, name: String = "", createdBy: String? = nil, createdAt: Date = .now,
-                isDefault: Bool = false, members: [String] = [], muted: Bool? = nil, mutedUntil: Date? = nil) {
+                isDefault: Bool = false, isDirect: Bool = false, members: [String] = [],
+                muted: Bool? = nil, mutedUntil: Date? = nil) {
         self.id = id
         self.name = name
         self.createdBy = createdBy
         self.createdAt = createdAt
         self.isDefault = isDefault
+        self.isDirect = isDirect
         self.members = members
         self.muted = muted
         self.mutedUntil = mutedUntil
@@ -177,6 +181,7 @@ public struct LinkGroup: Codable, Sendable, Hashable, Identifiable {
         createdBy = try c.decodeIfPresent(String.self, forKey: .createdBy)
         createdAt = try c.decodeIfPresent(Date.self, forKey: .createdAt) ?? .distantPast
         isDefault = try c.decodeIfPresent(Bool.self, forKey: .isDefault) ?? false
+        isDirect = try c.decodeIfPresent(Bool.self, forKey: .isDirect) ?? false
         members = try c.decodeIfPresent([String].self, forKey: .members) ?? []
         muted = try c.decodeIfPresent(Bool.self, forKey: .muted)
         mutedUntil = try c.decodeIfPresent(Date.self, forKey: .mutedUntil)
@@ -429,7 +434,9 @@ public extension InboxState {
     /// aren't people I share a chat with. Servers from before chats have no chats to go by.
     var otherPeople: [LinkUser] {
         let members = Set(groups.flatMap(\.members))
-        return users.filter { $0.id != me && !$0.isLegacy && (groups.isEmpty || members.contains($0.id)) }
+        return users.filter {
+            $0.id != me && !$0.isLegacy && (members.contains($0.id) || (groups.isEmpty && !isBlocked($0.id)))
+        }
     }
 
     // MARK: Chats
@@ -473,6 +480,15 @@ public extension InboxState {
         return others.isEmpty ? "Just You" : LinkFormat.names(others)
     }
 
+    /// Distinguish an existing group from a direct chat with the same name.
+    func destinationTitle(of group: LinkGroup) -> String {
+        let title = title(of: group)
+        if !group.isDirect && groups.contains(where: { $0.isDirect && self.title(of: $0) == title }) {
+            return "\(title) (Group)"
+        }
+        return title
+    }
+
     /// The chat a new link goes to unless I pick another: the default one, else my first.
     var preferredGroup: LinkGroup? { defaultGroup ?? groups.first }
 
@@ -487,6 +503,11 @@ public extension InboxState {
     /// People I know who aren't in this chat yet and whom I haven't blocked, to add.
     func addable(to group: LinkGroup) -> [LinkUser] {
         otherPeople.filter { !group.members.contains($0.id) && !isBlocked($0.id) }
+    }
+
+    func canLeave(_ group: LinkGroup) -> Bool {
+        guard group.isDirect, let peer = group.members.first(where: { $0 != me }) else { return true }
+        return !groups.contains { !$0.isDirect && $0.members.contains(peer) }
     }
 
     /// Links in one chat; `nil` is all of them.

@@ -39,20 +39,24 @@ struct ChatPicker: View {
             Picker("Chat", selection: $model.chat) {
                 Label("All Chats", systemImage: "tray.full").tag(Int?.none)
                 ForEach(inbox.groups) { group in
-                    Label(inbox.title(of: group), systemImage: group.isMuted(at: now) ? "bell.slash" : "bubble.left.and.bubble.right")
+                    Label(inbox.destinationTitle(of: group), systemImage: group.isMuted(at: now) ? "bell.slash" : "bubble.left.and.bubble.right")
                         .tag(Int?.some(group.id))
                 }
             }
             .pickerStyle(.inline)
             if let group = selected {
-                Section(inbox.title(of: group)) {
+                Section(inbox.destinationTitle(of: group)) {
                     Button("Chat Info", systemImage: "info.circle") { infoGroup = group }
-                    Button("Rename…", systemImage: "pencil") { model.chatSheet = .rename(group) }
-                    if !inbox.addable(to: group).isEmpty {
-                        Button("Add People…", systemImage: "person.badge.plus") { model.chatSheet = .addPeople(group) }
+                    if !group.isDirect {
+                        Button("Rename…", systemImage: "pencil") { model.chatSheet = .rename(group) }
+                        if !inbox.addable(to: group).isEmpty {
+                            Button("Add People…", systemImage: "person.badge.plus") { model.chatSheet = .addPeople(group) }
+                        }
                     }
-                    Button("Leave Chat", systemImage: "rectangle.portrait.and.arrow.right", role: .destructive) {
-                        leaving = group
+                    if inbox.canLeave(group) {
+                        Button("Leave Chat", systemImage: "rectangle.portrait.and.arrow.right", role: .destructive) {
+                            leaving = group
+                        }
                     }
                 }
             }
@@ -62,7 +66,7 @@ struct ChatPicker: View {
                     .disabled(inbox.otherPeople.isEmpty)
             }
         } label: {
-            Label(selected.map(inbox.title(of:)) ?? "All Chats",
+            Label(selected.map(inbox.destinationTitle(of:)) ?? "All Chats",
                   systemImage: selected?.isMuted(at: now) == true ? "bell.slash" : "bubble.left.and.bubble.right")
                 .labelStyle(.titleAndIcon)
                 .lineLimit(1)
@@ -78,7 +82,7 @@ struct ChatPicker: View {
                     .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { infoGroup = nil } } }
             }
         }
-        .confirmationDialog(leaving.map { "Leave \(inbox.title(of: $0))?" } ?? "", isPresented: Binding(
+        .confirmationDialog(leaving.map { "Leave \(inbox.destinationTitle(of: $0))?" } ?? "", isPresented: Binding(
             get: { leaving != nil }, set: { if !$0 { leaving = nil } }), titleVisibility: .visible, presenting: leaving
         ) { group in
             Button("Leave Chat", role: .destructive) { Task { await model.leaveChat(group) } }
@@ -109,7 +113,7 @@ struct ChatListView: View {
                 List(model.inbox.groups) { group in
                     NavigationLink(value: group.id) {
                         HStack {
-                            Text(model.inbox.title(of: group))
+                            Text(model.inbox.destinationTitle(of: group))
                             Spacer()
                             if group.isMuted(at: context.date) {
                                 Image(systemName: "bell.slash")
@@ -175,7 +179,7 @@ struct ChatInfoView: View {
             Form {
                 if let group = model.inbox.group(groupID) {
                     Section {
-                        Text(model.inbox.title(of: group)).font(.headline)
+                        Text(model.inbox.destinationTitle(of: group)).font(.headline)
                     }
                     TasteMatchSection(group: group, openLink: openLink)
                     if group.muted != nil {

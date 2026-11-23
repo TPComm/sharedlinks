@@ -399,7 +399,6 @@ describe("fetchPreview (fake fetch)", () => {
     ["facebook", "https://www.facebook.com/watch?v=1", BOT_UA],
     ["web", "https://example.com/a", BROWSER_UA],
     ["x", "https://x.com/a/status/1", BROWSER_UA],
-    ["reddit", "https://www.reddit.com/r/a", BROWSER_UA],
   ])("%s: no oEmbed, page fetched once with the right User-Agent", async (platform, url, ua) => {
     fake = fakeFetch(() => page(`<meta property="og:title" content="Hi">`));
     expect((await fetchPreview(url, platform, local)).title).toBe("Hi");
@@ -410,6 +409,40 @@ describe("fetchPreview (fake fetch)", () => {
   test("a page that isn't 2xx fails", async () => {
     fake = fakeFetch(() => page("<title>Not found</title>", 404));
     await expect(fetchPreview("https://example.com/gone", "web", local)).rejects.toThrow("HTTP 404");
+  });
+
+  const REDDIT = "https://www.reddit.com/r/AskReddit/comments/abc/question/";
+  test("Reddit merges bot HTML images with oEmbed title and author", async () => {
+    fake = fakeFetch((url) => url.includes("/oembed?")
+      ? Response.json({ title: "The question", author_name: "someone" })
+      : page('<title>HTML title</title><meta property="og:image" content="https://cdn/image.jpg">'));
+    expect(await fetchPreview(REDDIT, "reddit", local)).toMatchObject({
+      title: "The question", author: "someone", image: "https://cdn/image.jpg", siteName: "Reddit",
+    });
+    expect(fake.calls.map((c) => c.url)).toEqual([REDDIT, `https://www.reddit.com/oembed?url=${encodeURIComponent(REDDIT)}`]);
+    expect(fake.calls[0]!.headers.get("user-agent")).toBe(BOT_UA);
+  });
+
+  test.each(["Reddit", "Reddit - The heart of the internet", "Welcome to Reddit", "Log in", "Log in to Reddit", "Reddit - Sign up"])("Reddit rejects shell title %s", async (title) => {
+    fake = fakeFetch((url) => url.includes("/oembed?") ? Response.json({ title }) : page(`<title>${title}</title>`));
+    expect(await fetchPreview(REDDIT, "reddit", local)).toMatchObject({ title: null, image: null });
+  });
+
+  test("Reddit uses oEmbed when HTML fails", async () => {
+    fake = fakeFetch((url) => url.includes("/oembed?")
+      ? Response.json({ title: "Question", author_name: "sam" }) : new Response("blocked", { status: 403 }));
+    expect(await fetchPreview(REDDIT, "reddit", local)).toMatchObject({ title: "Question", author: "sam" });
+  });
+
+  test.each(["invalid", "empty", "error"])("Reddit keeps HTML when oEmbed is %s", async (kind) => {
+    fake = fakeFetch((url) => !url.includes("/oembed?") ? page("<title>Question</title>")
+      : kind === "empty" ? Response.json({}) : new Response("bad", { status: kind === "error" ? 503 : 200 }));
+    expect(await fetchPreview(REDDIT, "reddit", local)).toMatchObject({ title: "Question" });
+  });
+
+  test("Reddit fails empty when both requests fail", async () => {
+    fake = fakeFetch(() => new Response("blocked", { status: 403 }));
+    expect((await fetchPreview(REDDIT, "reddit", local)).title).toBeNull();
   });
 });
 
@@ -501,6 +534,18 @@ describe("fetchMetadata (local stub)", () => {
   test.each([["/empty"], ["/error"]])("%p: nothing found is 'failed'", async (path) => {
     const { row } = await run(path);
     expect(row).toEqual({ title: null, author: null, thumb_type: null, meta: "failed" });
+  });
+
+  test.each([null, "Reddit", "Welcome to Reddit"])("a Reddit shell fails even with previous title %s", async (title) => {
+    const { id } = await run("/empty");
+    db.run("UPDATE links SET title = ?, platform = 'reddit' WHERE id = ?", [title, id]);
+    const fake = fakeFetch(() => page("<title>Reddit</title>"));
+    try {
+      await fetchMetadata(db, tmp.dir, id, "https://www.reddit.com/r/a/comments/abc/", "reddit", local);
+      expect(db.query("SELECT title, meta FROM links WHERE id = ?").get(id)).toEqual({ title: null, meta: "failed" });
+    } finally {
+      fake.restore();
+    }
   });
 
   const rich = (id: number) =>

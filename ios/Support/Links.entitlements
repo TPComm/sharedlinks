@@ -12,11 +12,12 @@
 		<string>group.$(LINKS_BUNDLE_ID)</string>
 	</array>
 	<!-- App only, not the extensions: https://HOST/l/, /invite/ and /g/ open Links (universal links),
-	     and the server's sign-in can use its passwords. -->
+	     and passwords saved on the server's and AuthKit's sign-in pages belong to Links. -->
 	<key>com.apple.developer.associated-domains</key>
 	<array>
 		<string>applinks:$(LINKS_ASSOCIATED_DOMAIN)$(LINKS_ASSOCIATED_DOMAIN_MODE)</string>
 		<string>webcredentials:$(LINKS_ASSOCIATED_DOMAIN)$(LINKS_ASSOCIATED_DOMAIN_MODE)</string>
+		<string>webcredentials:$(LINKS_AUTH_DOMAIN)$(LINKS_ASSOCIATED_DOMAIN_MODE)</string>
 	</array>
 	<!-- New-link pushes show the sender's photo, as messages do (LinksNotifications). -->
 	<key>com.apple.developer.usernotifications.communication</key>

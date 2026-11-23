@@ -484,7 +484,7 @@ describe("links", () => {
     const db = new Database(join(dataDir, "links.db"), { readonly: true });
     const { sql } = db.query("SELECT sql FROM sqlite_master WHERE name = 'links'").get() as { sql: string };
     expect(sql).toContain("AUTOINCREMENT");
-    expect((db.query("PRAGMA user_version").get() as any).user_version).toBe(17);
+    expect((db.query("PRAGMA user_version").get() as any).user_version).toBe(18);
     db.close();
     const { data } = await call("/api/state", { token });
     expect(data.links.map((l: any) => l.url)).toContain("https://de.wikipedia.org/wiki/M%C3%BCnchen");
@@ -959,10 +959,12 @@ describe("group chats", () => {
 
   test("everyone, and every link from before groups, is in the default chat", async () => {
     const data = await state(cy);
-    expect(data.groups).toHaveLength(1);
     const [everyone] = data.groups;
-    expect(everyone).toMatchObject({ default: true, name: "", created_by: null });
+    expect(everyone).toMatchObject({ default: true, direct: false, name: "", created_by: null });
     expect(everyone.members).toEqual(expect.arrayContaining([annId, boId, cyId, "user_01FRIEND"]));
+    const peerChats = data.groups.filter((g: any) => g.direct);
+    expect(peerChats).toHaveLength(everyone.members.filter((id: string) => id !== cyId && !id.startsWith("legacy:")).length);
+    expect(peerChats.map((g: any) => g.members.find((id: string) => id !== cyId))).toContain("user_01FRIEND");
     expect(data.links.length).toBeGreaterThan(0);
     expect(data.links.every((l: any) => l.group_id === everyone.id)).toBe(true);
   });
@@ -1127,10 +1129,14 @@ describe("group chats", () => {
     const lee = await signIn("lee", VERIFIER, made.data.invite.url.split("/invite/")[1]);
     expect(lee.status).toBe(200);
 
-    // Lee is only in Ann's chat, not the default one, and sees only its people.
+    // Lee joins the named chat, gets a direct chat with each member, and still sees no one else.
     const view = await state(lee.data.token);
-    expect(view.groups.map((g: any) => g.id)).toEqual([chat.id]);
-    expect(view.users.map((u: any) => u.id).sort()).toEqual([annId, boId, "user_01LEE"].sort());
+    const leeId = "user_01LEE";
+    expect(view.groups.filter((g: any) => !g.direct).map((g: any) => g.id)).toEqual([chat.id]);
+    const peerChats = view.groups.filter((g: any) => g.direct);
+    expect(peerChats.map((g: any) => g.members.find((id: string) => id !== leeId)).sort()).toEqual([annId, boId].sort());
+    expect(peerChats.every((g: any) => g.members.length === 2 && g.members.includes(leeId))).toBe(true);
+    expect(view.users.map((u: any) => u.id).sort()).toEqual([annId, boId, leeId].sort());
     expect(view.links.map((l: any) => l.id)).toEqual([sent.data.link.id]);
     const cyView = await state(cy);
     expect(cyView.users.map((u: any) => u.id)).not.toContain("user_01LEE");
@@ -1146,9 +1152,29 @@ describe("group chats", () => {
     expect((await call("/api/me", { token: lee.data.token })).data.claimable).toEqual([]);
     expect((await call("/api/me/claim", { token: lee.data.token, body: { id: "legacy:Sam" } })).status).toBe(400);
 
-    // Someone who left is still named on what they sent there.
+    // A third member of the named group can't see a direct link or join the direct chat.
+    const boDirect = peerChats.find((g: any) => g.members.includes(boId));
+    const privateLink = await call("/api/links", { token: lee.data.token, body: { url: `${origin}/plain?n=private-to-bo`, group_id: boDirect.id } });
+    expect(privateLink.status).toBe(201);
+    expect((await state(bo)).links.map((l: any) => l.id)).toContain(privateLink.data.link.id);
+    expect((await state(ann)).links.map((l: any) => l.id)).not.toContain(privateLink.data.link.id);
+    expect((await call(`/api/groups/${boDirect.id}/members`, { token: bo, body: { members: [annId] } })).status).toBe(400);
+    expect((await call(`/api/groups/${boDirect.id}`, { token: bo, method: "PATCH", body: { name: "Group" } })).status).toBe(400);
+    expect((await call("/api/invites", { token: bo, body: { group_id: boDirect.id } })).status).toBe(400);
+    expect((await call(`/api/groups/${boDirect.id}`, { token: bo, method: "DELETE" })).status).toBe(400);
+
+    // Leaving the group doesn't break the direct chat, but it can now be left independently.
     expect((await call(`/api/groups/${chat.id}`, { method: "DELETE", token: bo })).status).toBe(200);
+    expect((await state(lee.data.token)).groups.find((g: any) => g.id === boDirect.id).members).toContain(boId);
+    expect((await call(`/api/groups/${boDirect.id}`, { token: bo, method: "DELETE" })).status).toBe(200);
     expect((await state(lee.data.token)).users.map((u: any) => u.id)).toContain(boId);
+
+    // Adding a person to a group creates a direct chat only for the newly connected pair.
+    const bridge = (await call("/api/groups", { token: ann, body: { name: "Bridge", members: [leeId] } })).data.group;
+    expect((await call(`/api/groups/${bridge.id}/members`, { token: ann, body: { members: [cyId] } })).status).toBe(200);
+    const cyDirect = (await state(cy)).groups.filter((g: any) => g.direct && g.members.includes(leeId));
+    expect(cyDirect).toHaveLength(1);
+    expect((await state(lee.data.token)).groups.filter((g: any) => g.direct && g.members.includes(annId))).toHaveLength(1);
   });
 
   test("an invite that names no chat starts one with just the inviter", async () => {
@@ -1338,6 +1364,9 @@ describe("group chats", () => {
     const chat = (await call("/api/groups", { token: dee, body: { name: "Just me" } })).data.group;
     expect(chat.members).toEqual([(await state(dee)).me]);
     await call(`/api/groups/${everyone.id}`, { method: "DELETE", token: dee });
+    for (const direct of (await state(dee)).groups.filter((g: any) => g.direct)) {
+      await call(`/api/groups/${direct.id}`, { method: "DELETE", token: dee });
+    }
     const only = await call("/api/links", { token: dee, body: { url: `${origin}/plain?n=only` } });
     expect(only.data.link.group_id).toBe(chat.id);
     await call("/api/groups", { token: dee, body: { name: "Second" } });

@@ -84,10 +84,10 @@ struct ShareComposeView: View {
                 // The practice send goes nowhere, so it has no chat to pick.
                 if !isPractice, let snapshot = model.snapshot, !snapshot.groups.isEmpty {
                     Section {
-                        Picker("To", selection: $model.groupID) {
+                        Picker("Chat", selection: $model.groupID) {
                             if model.groupID == nil { Text("Choose a Chat").tag(Int?.none) }
                             ForEach(snapshot.groups) { group in
-                                Text(snapshot.title(of: group)).tag(Int?.some(group.id))
+                                Text(snapshot.destinationTitle(of: group)).tag(Int?.some(group.id))
                             }
                         }
                         .accessibilityIdentifier("share.chat")
