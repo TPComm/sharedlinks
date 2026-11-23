@@ -74,7 +74,8 @@ final class FeatureTourUITests: XCTestCase {
     private func waitForNotificationsBeforeFeatureTour(requirePrompt: Bool = false) {
         let allow = XCUIApplication(bundleIdentifier: "com.apple.springboard").alerts.buttons["Allow"]
         let featureTour = app.buttons["featureTour.skip"]
-        let deadline = ContinuousClock.now + .seconds(60)
+        // On a cold CI simulator SpringBoard can take over a minute to show the first prompt.
+        let deadline = ContinuousClock.now + .seconds(90)
         repeat {
             if allow.exists {
                 XCTAssertFalse(featureTour.exists, "feature tour opened behind the notification prompt")
