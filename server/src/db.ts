@@ -208,6 +208,7 @@ export function openDatabase(dataDir: string, legacyAllowedEmails: string[] = []
   migrateToV16(db);
   migrateToV17(db);
   migrateToV18(db);
+  migrateToV19(db);
   db.transaction(() => {
     const update = db.query("UPDATE links SET share_token = ? WHERE id = ? AND share_token IS NULL");
     for (const row of db.query("SELECT id FROM links WHERE share_token IS NULL").all() as { id: number }[]) {
@@ -217,9 +218,9 @@ export function openDatabase(dataDir: string, legacyAllowedEmails: string[] = []
   return db;
 }
 
-function migrateToV18(db: Database) {
+function migrateToV19(db: Database) {
   const { user_version } = db.query("PRAGMA user_version").get() as { user_version: number };
-  if (user_version >= 18) return;
+  if (user_version >= 19) return;
   db.transaction(() => {
     db.run(`CREATE TABLE IF NOT EXISTS nudges (
       link_id INTEGER NOT NULL REFERENCES links(id) ON DELETE CASCADE,
@@ -227,7 +228,7 @@ function migrateToV18(db: Database) {
       nudged_at REAL NOT NULL,
       PRIMARY KEY (link_id, person)
     )`);
-    db.run("PRAGMA user_version = 18");
+    db.run("PRAGMA user_version = 19");
   })();
 }
 

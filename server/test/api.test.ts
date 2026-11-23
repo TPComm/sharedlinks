@@ -214,6 +214,13 @@ test("nudges are sender-only, private, limited per person and skip ineligible me
   const who = async (token: string) => (await request("/api/state", token)).data.me as string;
   const [s, r, w] = await Promise.all([sender, recipient, watcher].map(who)) as [string, string, string];
   const group = (await request("/api/groups", sender, { name: "Nudges", members: [r, w] })).data.group.id;
+  const direct = (await request("/api/state", sender)).data.groups.find((g: any) => g.direct && g.members.includes(r));
+  const directLink = (await request("/api/links", sender, { url: `${origin}/plain?direct-nudge`, group_id: direct.id })).data.link;
+  const directNudge = await request(`/api/links/${directLink.id}/nudge`, sender, {});
+  expect(directNudge.status).toBe(200);
+  expect(directNudge.data.nudged).toEqual([r]);
+  expect(directNudge.data.link.nudged[r]).toBeNumber();
+  expect((await request(`/api/links/${directLink.id}/nudge`, sender, {})).status).toBe(429);
   const added = await request("/api/links", sender, { url: `${origin}/plain?nudge`, group_id: group });
   const id = added.data.link.id;
   await app.idle();
@@ -571,7 +578,7 @@ describe("links", () => {
     const db = new Database(join(dataDir, "links.db"), { readonly: true });
     const { sql } = db.query("SELECT sql FROM sqlite_master WHERE name = 'links'").get() as { sql: string };
     expect(sql).toContain("AUTOINCREMENT");
-    expect((db.query("PRAGMA user_version").get() as any).user_version).toBe(18);
+    expect((db.query("PRAGMA user_version").get() as any).user_version).toBe(19);
     db.close();
     const { data } = await call("/api/state", { token });
     expect(data.links.map((l: any) => l.url)).toContain("https://de.wikipedia.org/wiki/M%C3%BCnchen");
