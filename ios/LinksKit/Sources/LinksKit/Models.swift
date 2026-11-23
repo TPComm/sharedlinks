@@ -532,9 +532,10 @@ public extension InboxState {
         return group(conversationID: conversationID) ?? (groups.count == 1 ? groups[0] : nil)
     }
 
-    /// People I know who aren't in this chat yet and whom I haven't blocked, to add.
+    /// People I can add to this chat. The legacy Everyone chat doesn't accept new members.
     func addable(to group: LinkGroup) -> [LinkUser] {
-        otherPeople.filter { !group.members.contains($0.id) && !isBlocked($0.id) }
+        guard !group.isDefault else { return [] }
+        return otherPeople.filter { !group.members.contains($0.id) && !isBlocked($0.id) }
     }
 
     func canLeave(_ group: LinkGroup) -> Bool {
