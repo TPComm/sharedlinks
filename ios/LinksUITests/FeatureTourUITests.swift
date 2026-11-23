@@ -36,7 +36,7 @@ final class FeatureTourUITests: XCTestCase {
         XCTAssertEqual(progress.label, "Page 4 of 6")
         capture("Shared with You")
         app.buttons["featureTour.continue"].tap()
-        XCTAssert(waitForTitle("Nudge Friends Who Haven't Watched"))
+        XCTAssert(waitForTitle("Nudge Friends About Links They Haven't Seen"))
         XCTAssertEqual(progress.label, "Page 5 of 6")
         app.buttons["featureTour.continue"].tap()
         XCTAssert(waitForTitle("Swipe Through Your Queue"))
@@ -71,7 +71,7 @@ final class FeatureTourUITests: XCTestCase {
         XCTAssertFalse(app.staticTexts["Make Links Yours"].waitForExistence(timeout: 3))
         XCTAssertFalse(app.staticTexts["Send Today's Links Together"].exists)
         XCTAssertFalse(app.staticTexts["See Who Shared It"].exists)
-        XCTAssertFalse(app.staticTexts["Nudge Friends Who Haven't Watched"].exists)
+        XCTAssertFalse(app.staticTexts["Nudge Friends About Links They Haven't Seen"].exists)
         XCTAssertFalse(app.staticTexts["Swipe Through Your Queue"].exists)
     }
 
