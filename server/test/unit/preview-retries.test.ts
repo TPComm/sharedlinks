@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { readFileSync } from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { startServer } from "../../src/app.ts";
 import { configFromEnv } from "../../src/config.ts";
@@ -56,6 +56,54 @@ test("failed previews wait for increasing backoff, then recover without restarti
     await app.idle();
     expect(calls).toBe(4);
     expect(app.db.query("SELECT meta FROM links WHERE id = ?").get(id)).toEqual({ meta: "done" });
+  } finally {
+    server.stop(true);
+    app.push.close();
+    await app.idle();
+    app.db.close();
+    stub.stop();
+    tmp.cleanup();
+  }
+});
+
+test.each([false, true])("thrown preview fetches wait for backoff before retrying (refresh: %s)", async (refresh) => {
+  const tmp = tempDir();
+  let calls = 0;
+  let now = 0;
+  const stub = stubServer({
+    "/preview": () => {
+      calls++;
+      if (refresh) app.db.run("UPDATE links SET preview_v = 0 WHERE url = ?", [stub.origin + "/preview"]);
+      return new Response(`<meta property="og:image" content="${stub.origin}/image">`);
+    },
+    "/image": () => new Response(PNG, { headers: { "Content-Type": "image/png" } }),
+  });
+  const { app, server } = startServer({ ...configFromEnv({}), hostname: "127.0.0.1", port: 0, dataDir: tmp.dir,
+    allowPrivateNetwork: true, previewBackfillMs: 5 }, { previewNow: () => now });
+  const tick = async () => { await Bun.sleep(25); await app.idle(); };
+  try {
+    const id = Number(app.db.run("INSERT INTO links (group_id, url, platform, meta, preview_v, added_by, added_at) VALUES (1, ?, 'web', ?, ?, 'u', 1)",
+      [stub.origin + "/preview", refresh ? "done" : "failed", PREVIEW_VERSION]).lastInsertRowid);
+    const thumbPath = join(tmp.dir, "thumbs", String(id));
+    mkdirSync(thumbPath);
+    writeFileSync(join(thumbPath, "blocker"), "");
+    if (refresh) {
+      const token = app.accounts.mintSession("retry@example.com", "Retry");
+      const response = await fetch(`http://127.0.0.1:${server.port}/api/links/${id}/refresh`, {
+        method: "POST", headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" }, body: "{}",
+      });
+      expect(response.status).toBe(200);
+      await app.idle();
+      expect(calls).toBe(1);
+      expect(app.db.query("SELECT meta FROM links WHERE id = ?").get(id)).toEqual({ meta: "failed" });
+    }
+    await tick();
+    expect(calls).toBe(refresh ? 1 : 0);
+    now = 60_000;
+    await tick();
+    expect(calls).toBe(refresh ? 2 : 1);
+    for (let i = 0; i < 3; i++) await tick();
+    expect(calls).toBe(refresh ? 2 : 1);
   } finally {
     server.stop(true);
     app.push.close();

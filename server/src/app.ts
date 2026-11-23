@@ -240,7 +240,13 @@ export function createApp(config: Config, opts: AppOptions = {}) {
   }
   function queueFetch(id: number, url: string, platform: string): Promise<void> {
     const run = (latest.get(id) ?? Promise.resolve()).then(async () => {
-      const result = await fetchMetadata(db, config.dataDir, id, url, platform, fetchOpts);
+      const result = await fetchMetadata(db, config.dataDir, id, url, platform, fetchOpts).catch((e) => {
+        failedAttempt(id);
+        try {
+          db.run("UPDATE links SET meta = 'failed', preview_v = ? WHERE id = ? AND meta = 'pending'", [PREVIEW_VERSION, id]);
+        } catch {}
+        throw e;
+      });
       const row = db.query("SELECT meta FROM links WHERE id = ?").get(id) as { meta: string } | null;
       if (row?.meta === "failed" || result?.retryThumbnail) failedAttempt(id);
       else retries.delete(id);
