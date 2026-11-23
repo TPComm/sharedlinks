@@ -66,7 +66,7 @@ test("failed previews wait for increasing backoff, then recover without restarti
   }
 });
 
-test("thrown preview fetches wait for backoff before retrying", async () => {
+test.each([false, true])("thrown preview fetches wait for backoff before retrying (refresh: %s)", async (refresh) => {
   const tmp = tempDir();
   let calls = 0;
   let now = 0;
@@ -86,13 +86,23 @@ test("thrown preview fetches wait for backoff before retrying", async () => {
     const thumbPath = join(tmp.dir, "thumbs", String(id));
     mkdirSync(thumbPath);
     writeFileSync(join(thumbPath, "blocker"), "");
+    if (refresh) {
+      const token = app.accounts.mintSession("retry@example.com", "Retry");
+      const response = await fetch(`http://127.0.0.1:${server.port}/api/links/${id}/refresh`, {
+        method: "POST", headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" }, body: "{}",
+      });
+      expect(response.status).toBe(200);
+      await app.idle();
+      expect(calls).toBe(1);
+      expect(app.db.query("SELECT meta FROM links WHERE id = ?").get(id)).toEqual({ meta: "failed" });
+    }
     await tick();
-    expect(calls).toBe(0);
+    expect(calls).toBe(refresh ? 1 : 0);
     now = 60_000;
     await tick();
-    expect(calls).toBe(1);
+    expect(calls).toBe(refresh ? 2 : 1);
     for (let i = 0; i < 3; i++) await tick();
-    expect(calls).toBe(1);
+    expect(calls).toBe(refresh ? 2 : 1);
   } finally {
     server.stop(true);
     app.push.close();

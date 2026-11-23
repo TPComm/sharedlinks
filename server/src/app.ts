@@ -242,6 +242,9 @@ export function createApp(config: Config, opts: AppOptions = {}) {
     const run = (latest.get(id) ?? Promise.resolve()).then(async () => {
       const result = await fetchMetadata(db, config.dataDir, id, url, platform, fetchOpts).catch((e) => {
         failedAttempt(id);
+        try {
+          db.run("UPDATE links SET meta = 'failed' WHERE id = ? AND meta = 'pending'", [id]);
+        } catch {}
         throw e;
       });
       const row = db.query("SELECT meta FROM links WHERE id = ?").get(id) as { meta: string } | null;
