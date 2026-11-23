@@ -934,7 +934,9 @@ final class AppModel {
                     if inbox.group(id) != nil { showChat(id) }
                 }
             }
-        case .inbox, nil:
+        case .inbox:
+            swipeQueue = nil
+        case nil:
             break
         }
     }
