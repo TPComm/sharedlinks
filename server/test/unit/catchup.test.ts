@@ -15,7 +15,7 @@ beforeEach(() => {
   tmp = tempDir();
   db = openDatabase(tmp.dir);
   const config = configFromEnv({ APNS_TEAM_ID: "team", APNS_TOPIC: "topic", APNS_KEY_ID: "key",
-    APNS_KEY_FILE: "/unused", CATCHUP_INTERVAL_MS: "0" });
+    APNS_KEY_FILE: "/unused", CATCHUP_INTERVAL_MS: "60000" });
   accounts = new Accounts(db, config);
   push = new Pusher(db, config, accounts, () => {});
   bodies = [];
@@ -46,6 +46,20 @@ test("new links keep badges but suppress alerts for catch-up recipients", async 
   expect(badge).toHaveBeenCalledWith(["Reader"]);
   expect(push.send).not.toHaveBeenCalledWith(expect.objectContaining({ user_id: "Reader" }), "alert", expect.any(String));
   expect(bodies.filter((b) => b.link_id && b.aps.alert).length).toBeGreaterThan(0);
+});
+
+test("new links alert catch-up recipients when scheduling is disabled", async () => {
+  push.close();
+  const config = configFromEnv({ APNS_TEAM_ID: "team", APNS_TOPIC: "topic", APNS_KEY_ID: "key",
+    APNS_KEY_FILE: "/unused", CATCHUP_INTERVAL_MS: "0" });
+  push = new Pusher(db, config, accounts, () => {});
+  spyOn(push, "devices").mockImplementation((user_id) => [{ token: user_id, user_id, env: "production", updated_at: 1 }]);
+  spyOn(push, "send").mockImplementation(async (_device, _type, body) => { bodies.push(JSON.parse(body)); });
+  enable();
+  const id = add("Maya");
+  await push.newLink(id);
+  expect(push.send).toHaveBeenCalledWith(expect.objectContaining({ user_id: "Reader" }), "alert", expect.any(String));
+  expect(bodies.find((b) => b.link_id === id)?.aps.badge).toBe(1);
 });
 
 test("summaries count links and list distinct senders newest first, only once per local day", async () => {

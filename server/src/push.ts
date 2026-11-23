@@ -134,7 +134,8 @@ export class Pusher {
       ...(link.thumb_type ? { thumb: `/thumbs/${linkId}${link.thumb_v ? `/${link.thumb_v}` : ""}` } : {}),
     };
     const quiet = (user: string) => this.isMuted(link.group_id, user) ||
-      (this.db.query("SELECT catchup_minute FROM users WHERE id = ?").get(user) as UserRow).catchup_minute !== null;
+      (this.config.catchupIntervalMs > 0 &&
+        (this.db.query("SELECT catchup_minute FROM users WHERE id = ?").get(user) as UserRow).catchup_minute !== null);
     const muted = recipients.filter(({ user_id }) => quiet(user_id));
     this.badges(muted.map(({ user_id }) => user_id));
     await Promise.all(recipients.filter(({ user_id }) => !quiet(user_id)).map(({ user_id }) => this.toPerson(user_id, "alert", (badge) => this.fit({
