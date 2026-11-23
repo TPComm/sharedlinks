@@ -559,8 +559,20 @@ final class LinksUITests: XCTestCase {
         XCTAssert(invite.waitForExistence(timeout: 5), "no Invite a Friend")
         invite.tap()
         XCTAssert(app.staticTexts["Starts a chat with just you two."].waitForExistence(timeout: 5), "All Chats invites someone into a chat with just me")
+        app.buttons["Cancel"].tap()
+        app.buttons["Done"].tap()
+
+        pickChat("Everyone")
+        app.buttons["account"].tap()
+        app.buttons["People"].tap()
+        app.buttons["inviteFriend"].tap()
+        XCTAssert(app.staticTexts["Starts a chat with just you two."].waitForExistence(timeout: 5), "Everyone invites someone into a chat with just me")
+        let destination = app.descendants(matching: .any)["invite.chat"].firstMatch
+        XCTAssert(app.staticTexts["Just You Two"].exists || (destination.exists &&
+            (destination.label.contains("Just You Two") || destination.value as? String == "Just You Two")))
         app.buttons["createInvite"].tap()
         XCTAssert(app.buttons["sendInvite"].waitForExistence(timeout: 10), "no invite link to send")
+        XCTAssert(app.staticTexts["Starts a chat with just you two. The link works once, for a week."].waitForExistence(timeout: 5))
         app.buttons["Done"].firstMatch.tap()
         let pending = app.staticTexts["Invite link"]
         XCTAssert(pending.waitForExistence(timeout: 5), "not under Invited")

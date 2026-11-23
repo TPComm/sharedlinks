@@ -162,14 +162,14 @@ public struct LinkUser: Codable, Sendable, Hashable, Identifiable {
     }
 }
 
-/// A group chat (#12): its links are only for its members. Everyone starts in the default one.
+/// A group chat (#12): its links are only for its members.
 public struct LinkGroup: Codable, Sendable, Hashable, Identifiable {
     public let id: Int
     /// Empty: the app names it after its members.
     public var name: String
     public var createdBy: String?
     public var createdAt: Date
-    /// The chat everyone was in before chats, which new members join.
+    /// The legacy Everyone chat, which friend invites don't grant access to.
     public var isDefault: Bool
     public var isDirect: Bool
     /// User ids, oldest member first.
@@ -481,7 +481,7 @@ public extension InboxState {
         return groups.first { $0.conversationID == conversationID }
     }
 
-    /// The chat everyone starts in, if I'm still in it.
+    /// The legacy Everyone chat, if I'm in it.
     var defaultGroup: LinkGroup? { groups.first(where: \.isDefault) }
 
     /// More than one chat: only then do the lists, sheets and widgets say which chat a link is in.
