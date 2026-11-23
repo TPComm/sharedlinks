@@ -4,7 +4,7 @@
  *
  *   links-server                                    start the server (http://localhost:8000)
  *   links-server mint-session you@example.com [Name]   print a session token (admin / Simulator)
- *   links-server invite [friend@example.com]         print an invite link (the first one on a new server)
+ *   links-server invite [email]    print an invite link without chat access
  *   links-server delete-user you@example.com         delete an account and the links it sent
  *   links-server claim [you@example.com Name]        list legacy people, or let that account claim one
  *   links-server backup [dir]                        snapshot the database (keeps the newest 14 nightly)
@@ -46,7 +46,7 @@ if (command === "mint-session") {
 } else if (command === "invite") {
   // Invites are the only way in, so this is how the first person (and anyone else, by email) gets one.
   const [email, ...extra] = rest;
-  if (extra.length) {
+  if (extra.length || email?.startsWith("--")) {
     console.error("usage: links-server invite [email]");
     process.exit(1);
   }

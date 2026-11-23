@@ -11,6 +11,7 @@ private let tourLog = Logger(subsystem: "com.tpcomm.links", category: "onboardin
 /// App state: the session, the inbox, and every action. Views stay thin.
 @MainActor @Observable
 final class AppModel {
+    let sharedHighlights = SharedHighlights()
     private(set) var token: String? = SessionStore.token
     private(set) var inbox: InboxState = InboxSnapshot.load() ?? .empty
     /// A successful poll can carry comment edits without changing the inbox's activity summary.

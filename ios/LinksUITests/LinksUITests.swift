@@ -1082,19 +1082,20 @@ final class LinksUITests: XCTestCase {
     }
 
     func testInviteLinkWhileSignedInOpensItsChat() throws {
-        let name = "Invited \(shortID())"
-        let chat = try server.startChat(name: name, as: server.friend)
+        let me = try server.state(as: server.me).me
+        let friend = try server.state(as: server.friend)
+        let direct = try XCTUnwrap(friend.groups.first { $0.isDirect == true && $0.members.contains(me) })
+        let chat = try server.startChat(name: "Private \(shortID())", as: server.friend)
         leaveAfterwards(chat.id)
-        let inChat = try server.add(uniqueURL(), to: chat.id, as: server.friend)
-        deleteAfterwards(inChat.id)
+        let inDirect = try server.add(uniqueURL(), to: direct.id, as: server.friend)
+        deleteAfterwards(inDirect.id)
         let invite = try server.invite(to: chat.id, as: server.friend)
 
         launch()
         app.open(URL(string: "sharedlinks://invite/\(invite)")!)
-        XCTAssert(row(inChat, in: "toWatch").waitForExistence(timeout: 15), "the chat's link isn't in To Watch")
-        XCTAssert(app.buttons["chatPicker"].label.contains(name), app.buttons["chatPicker"].label)
-        let me = try server.state(as: server.me).me
-        XCTAssert(try server.state(as: server.friend).group(chat.id)?.members.contains(me) == true, "not in the chat")
+        waitFor(app.buttons["chatPicker"], labelContaining: "Friend")
+        XCTAssert(row(inDirect, in: "toWatch").waitForExistence(timeout: 5))
+        XCTAssertNil(try server.state(as: server.me).group(chat.id), "the invite granted access to the group")
     }
 
     func testRenamingAddingPeopleToAndLeavingAChat() throws {
