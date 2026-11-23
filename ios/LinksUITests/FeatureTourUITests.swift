@@ -70,13 +70,34 @@ final class FeatureTourUITests: XCTestCase {
         XCTAssertFalse(app.staticTexts["Nudge Friends Who Haven't Watched"].exists)
     }
 
-    private func launch(reset: Bool) {
+    func testRecoversAutomaticallyWhenPresentationDoesNotAppear() {
+        launch(reset: true, dropPresentation: "once")
+        waitForNotificationsBeforeFeatureTour(in: app)
+        XCTAssert(waitForTitle("Make Links Yours"))
+    }
+
+    func testWhatsNewRecoversAfterDroppedAutomaticPresentation() {
+        launch(reset: true, dropPresentation: "until-replay")
+        XCTAssert(app.buttons["account"].waitForExistence(timeout: 20))
+        XCTAssertFalse(app.buttons["featureTour.skip"].exists)
+        app.buttons["account"].tap()
+        let replay = app.buttons["profile.whatsNew"]
+        for _ in 0..<6 where !(replay.exists && replay.isHittable) { app.swipeUp() }
+        XCTAssert(replay.isHittable)
+        replay.tap()
+        XCTAssert(waitForTitle("Make Links Yours"), "What's New did not recover the dropped sheet")
+        XCTAssertFalse(app.navigationBars["Profile"].exists)
+        capture("What's New recovered the dropped sheet")
+    }
+
+    private func launch(reset: Bool, dropPresentation: String? = nil) {
         app.launchEnvironment = [
             "LINKS_SERVER_URL": server.url.absoluteString,
             "LINKS_DEV_TOKEN": server.me,
             "LINKS_COMPLETE_ONBOARDING": "1",
         ]
         if reset { app.launchEnvironment["LINKS_RESET_FEATURE_TOURS"] = "1" }
+        app.launchEnvironment["LINKS_TEST_DROP_FEATURE_TOUR_PRESENTATION"] = dropPresentation
         app.launch()
     }
 

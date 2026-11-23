@@ -12,6 +12,7 @@ struct ProfileButton: View {
 
     var body: some View {
         Button {
+            model.isProfileOpen = true
             showing = true
         } label: {
             if model.isDeletingAccount {
@@ -24,10 +25,11 @@ struct ProfileButton: View {
         }
         .disabled(model.isDeletingAccount)
         .accessibilityIdentifier("account")
-        .onChange(of: showing) { _, open in model.isProfileOpen = open }
         .sheet(isPresented: $showing, onDismiss: {
+            model.isProfileOpen = false
             afterClose?()
             afterClose = nil
+            model.showTourIfNeeded()
         }) {
             ProfileSheet(afterClose: $afterClose).environment(model)
         }
@@ -140,7 +142,7 @@ struct ProfileSheet: View {
                         close { model.startTour() }
                     }
                     row("What's New", systemImage: "gift") {
-                        close { model.startFeatureTours() }
+                        close { model.replayFeatureTours() }
                     }
                     .accessibilityIdentifier("profile.whatsNew")
                     NavigationLink { WrappedView() } label: {

@@ -44,8 +44,26 @@ final class AppModel {
     var addPrefill = ""
     var showClaimSheet = false
     var showTour = false
+    struct FeatureTourRequest {
+        let id = UUID()
+        let tours: [FeatureTour]
+    }
+    private(set) var featureTourRequest: FeatureTourRequest?
+    private var featureTourAppeared = false
     var showFeatureTours = false
-    private(set) var pendingFeatureTours: [FeatureTour] = []
+    var shouldPresentFeatureTours: Bool {
+        #if DEBUG
+        if droppingFeatureTourPresentation { return false }
+        #endif
+        return showFeatureTours
+    }
+    #if DEBUG
+    private let holdDroppedFeatureTourForReplay =
+        ProcessInfo.processInfo.environment["LINKS_TEST_DROP_FEATURE_TOUR_PRESENTATION"] == "until-replay"
+    private var dropNextFeatureTourPresentation =
+        ProcessInfo.processInfo.environment["LINKS_TEST_DROP_FEATURE_TOUR_PRESENTATION"] != nil
+    private var droppingFeatureTourPresentation = false
+    #endif
     private var dismissingWelcomeTour = false
     private var requestingNotifications = false
     private var finishedNotificationPermission = false
@@ -179,7 +197,10 @@ final class AppModel {
     private func endSession() {
         sessionID = UUID()
         showTour = false
-        showFeatureTours = false
+        clearFeatureTourPresentation()
+        featureTourAppeared = false
+        featureTourRequest = nil
+        isProfileOpen = false
         pushRegistered = false
         registeredToken = nil
         SessionStore.clear()
@@ -598,7 +619,7 @@ final class AppModel {
     // MARK: Tour
 
     /// Gesture tips wait until nothing covers the inbox, so a popover never lands under a sheet.
-    var canShowTips: Bool { tourCompleted && !showTour && !showFeatureTours && !dismissingWelcomeTour && !requestingNotifications && !showClaimSheet && !showAddSheet && !isProfileOpen }
+    var canShowTips: Bool { tourCompleted && !showTour && featureTourRequest == nil && !dismissingWelcomeTour && !requestingNotifications && !showClaimSheet && !showAddSheet && !isProfileOpen }
 
     /// Starts onboarding after sign-in and after the claim sheet (if any) has closed.
     func showTourIfNeeded() {
@@ -606,18 +627,22 @@ final class AppModel {
             requestNotificationPermission()
             return
         }
-        guard isSignedIn, !showTour, !showFeatureTours, !showClaimSheet, !showAddSheet, !isProfileOpen, chatSheet == nil, !Self.isUITesting else { return }
+        guard isSignedIn, !showTour, featureTourRequest == nil, !showClaimSheet, !showAddSheet, !isProfileOpen, chatSheet == nil, !Self.isUITesting else { return }
         startTour()
     }
 
     private var automaticFeatureTourBlocker: String? {
         if Self.isUITesting { return "UI testing" }
+        if !tourCompleted { return "welcome tour incomplete" }
+        if featureTourRequest != nil { return "feature tour requested" }
+        return featureTourPresentationBlocker
+    }
+
+    private var featureTourPresentationBlocker: String? {
         if !isSignedIn { return "signed out" }
         if UIApplication.shared.applicationState != .active { return "application inactive" }
-        if !tourCompleted { return "welcome tour incomplete" }
         if showTour || dismissingWelcomeTour { return "welcome tour presenting or dismissing" }
         if requestingNotifications { return "notification authorization pending" }
-        if showFeatureTours { return "feature tour already open" }
         if showClaimSheet { return "claim sheet open" }
         if showAddSheet { return "add sheet open" }
         if isProfileOpen { return "profile open" }
@@ -638,15 +663,69 @@ final class AppModel {
         startFeatureTours(unseenTours)
     }
 
-    func startFeatureTours(_ tours: [FeatureTour] = FeatureTour.allCases) {
-        guard !tours.isEmpty else { return }
-        pendingFeatureTours = tours
-        showFeatureTours = true
+    func replayFeatureTours() {
+        startFeatureTours(FeatureTour.allCases)
+    }
+
+    private func startFeatureTours(_ tours: [FeatureTour]) {
+        guard !featureTourAppeared else { return }
+        tourLog.notice("Requesting feature tour; showFeatureTours=\(self.showFeatureTours)")
+        featureTourRequest = FeatureTourRequest(tours: tours)
+    }
+
+    func presentFeatureTours(_ requestID: UUID) async {
+        do {
+            while !Task.isCancelled, featureTourRequest?.id == requestID, !featureTourAppeared {
+                if featureTourPresentationBlocker != nil {
+                    try await Task.sleep(for: .milliseconds(250))
+                    continue
+                }
+                if showFeatureTours {
+                    tourLog.notice("Retrying feature tour: requested sheet did not appear")
+                    clearFeatureTourPresentation()
+                    // SwiftUI must see the binding off before another attempt.
+                    try await Task.sleep(for: .milliseconds(100))
+                    continue
+                }
+                #if DEBUG
+                if dropNextFeatureTourPresentation {
+                    dropNextFeatureTourPresentation = false
+                    droppingFeatureTourPresentation = true
+                    tourLog.notice("Simulating a dropped feature tour presentation")
+                }
+                #endif
+                showFeatureTours = true
+                try await Task.sleep(for: featureTourAppearanceTimeout)
+            }
+        } catch {
+            // The scene became inactive or a newer request replaced this one.
+        }
+    }
+
+    private var featureTourAppearanceTimeout: Duration {
+        #if DEBUG
+        if droppingFeatureTourPresentation && holdDroppedFeatureTourForReplay { return .seconds(120) }
+        #endif
+        return .seconds(2)
+    }
+
+    private func clearFeatureTourPresentation() {
+        showFeatureTours = false
+        #if DEBUG
+        droppingFeatureTourPresentation = false
+        #endif
+    }
+
+    func featureToursDidAppear() {
+        featureTourAppeared = true
+        tourLog.notice("Feature tour sheet appeared")
     }
 
     func finishFeatureTours() {
-        for tour in pendingFeatureTours { FeatureTours.shared.markSeen(tour.id) }
-        pendingFeatureTours = []
+        guard featureTourAppeared, let request = featureTourRequest else { return }
+        for tour in request.tours { FeatureTours.shared.markSeen(tour.id) }
+        featureTourAppeared = false
+        featureTourRequest = nil
         requestNotificationPermission()
     }
 
