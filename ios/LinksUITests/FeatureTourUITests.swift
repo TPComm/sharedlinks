@@ -114,7 +114,25 @@ final class FeatureTourUITests: XCTestCase {
         XCTAssert(app.buttons["featureTour.skip"].waitForNonExistence(timeout: 20))
     }
 
-    private func launch(reset: Bool, dropPresentation: String? = nil, openNewLink: Bool = false) {
+    func testFeatureTourResumesAfterDismissingSwipeThrough() throws {
+        let link = try server.add("https://links-e2e.invalid/\(UUID().uuidString.lowercased())", as: server.friend)
+        defer { try? server.delete(link.id, as: server.friend) }
+        launch(reset: true, swipeQueueLinkID: link.id)
+        let close = app.buttons["swipeQueue.close"]
+        XCTAssert(close.waitForExistence(timeout: 20), "Swipe Through did not open on launch")
+        XCTAssert(app.descendants(matching: .any)["swipeQueue.card.\(link.id)"].waitForExistence(timeout: 20))
+        XCTAssertFalse(app.buttons["featureTour.skip"].exists, "feature tour opened over Swipe Through")
+        close.tap()
+        XCTAssert(close.waitForNonExistence(timeout: 20), "Swipe Through did not dismiss")
+
+        waitForNotificationsBeforeFeatureTour(in: app)
+        XCTAssert(waitForTitle("Make Links Yours"))
+        app.buttons["featureTour.skip"].tap()
+        XCTAssert(app.buttons["featureTour.skip"].waitForNonExistence(timeout: 20))
+    }
+
+    private func launch(reset: Bool, dropPresentation: String? = nil, openNewLink: Bool = false,
+                        swipeQueueLinkID: Int? = nil) {
         app.launchEnvironment = [
             "LINKS_SERVER_URL": server.url.absoluteString,
             "LINKS_DEV_TOKEN": server.me,
@@ -123,6 +141,7 @@ final class FeatureTourUITests: XCTestCase {
         if reset { app.launchEnvironment["LINKS_RESET_FEATURE_TOURS"] = "1" }
         app.launchEnvironment["LINKS_TEST_DROP_FEATURE_TOUR_PRESENTATION"] = dropPresentation
         if openNewLink { app.launchEnvironment["LINKS_TEST_OPEN_NEW_LINK_ON_LAUNCH"] = "1" }
+        if let swipeQueueLinkID { app.launchEnvironment["LINKS_TEST_OPEN_SWIPE_QUEUE_ON_LAUNCH"] = String(swipeQueueLinkID) }
         app.launch()
     }
 

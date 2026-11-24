@@ -225,6 +225,28 @@ final class LinksUITests: XCTestCase {
         XCTAssertFalse(app.scrollViews["swipeQueue"].exists)
     }
 
+    func testInboxDeepLinkClosesSwipeThrough() throws {
+        let meID = try server.state(as: server.me).me
+        let name = "Swipe Through \(shortID())"
+        let chat = try server.startChat(name: name, members: [meID], as: server.friend)
+        leaveAfterwards(chat.id)
+        let link = try server.add(uniqueURL(), to: chat.id, as: server.friend)
+        launch()
+        waitForRow(link, in: "toWatch")
+        pickChat(name)
+        app.buttons["swipeQueue.open"].tap()
+        let swipeQueue = app.scrollViews["swipeQueue"]
+        XCTAssert(swipeQueue.waitForExistence(timeout: 10))
+
+        XCUIDevice.shared.system.open(URL(string: "sharedlinks://inbox")!)
+        let springBoard = XCUIApplication(bundleIdentifier: "com.apple.springboard")
+        let open = springBoard.alerts.buttons["Open"].firstMatch
+        if open.waitForExistence(timeout: 5) { open.tap() }
+        XCTAssert(app.wait(for: .runningForeground, timeout: 20), "Links did not open")
+        XCTAssert(swipeQueue.waitForNonExistence(timeout: 10), "Swipe Through stayed open after the inbox deep link")
+        XCTAssertTrue(app.buttons["chatPicker"].label.contains(name), "Links lost its in-memory chat selection")
+    }
+
     func testSentShowsWhenTheFriendHasWatchedIt() throws {
         let link = try seed(by: server.me, note: "Sent \(shortID())")
         launch()

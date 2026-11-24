@@ -136,6 +136,9 @@ final class AppModel {
         if ProcessInfo.processInfo.environment["LINKS_TEST_OPEN_NEW_LINK_ON_LAUNCH"] == "1" {
             showAddSheet = true
         }
+        if let linkID = ProcessInfo.processInfo.environment["LINKS_TEST_OPEN_SWIPE_QUEUE_ON_LAUNCH"].flatMap({ Int($0) }) {
+            swipeQueue = SwipeQueue(linkIDs: [linkID])
+        }
         // Extensions don't inherit the UI test runner's environment.
         LinksConfig.sharedDefaults.set(
             ProcessInfo.processInfo.environment["LINKS_DEV_TOKEN"] != nil
@@ -1032,7 +1035,9 @@ final class AppModel {
                     if inbox.group(id) != nil { showChat(id) }
                 }
             }
-        case .inbox, nil:
+        case .inbox:
+            swipeQueue = nil
+        case nil:
             break
         }
     }
