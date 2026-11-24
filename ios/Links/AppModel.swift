@@ -625,7 +625,7 @@ final class AppModel {
     }
 
     func hasUnreadComment(_ item: ActivityItem) -> Bool {
-        activityReads.hasUnread(item, person: inbox.me, server: client.baseURL)
+        activityReads.hasUnread(item, threadReads: commentReads, person: inbox.me, server: client.baseURL)
     }
 
     func markActivityRead(_ item: ActivityItem) {

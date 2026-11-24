@@ -524,6 +524,10 @@ final class LinksUITests: XCTestCase {
         let seen = scrolledTo(app.buttons["activity.seen.\(link.id)"])
         XCTAssert(seen.waitForExistence(timeout: 10))
         XCTAssert(seen.label.contains("saw your link"))
+        let screenshot = XCTAttachment(screenshot: app.screenshot())
+        screenshot.name = "Activity tab"
+        screenshot.lifetime = .keepAlways
+        add(screenshot)
         seen.tap()
         let seenHeading = app.staticTexts["Seen By"]
         XCTAssert(seenHeading.waitForExistence(timeout: 10))
@@ -533,11 +537,7 @@ final class LinksUITests: XCTestCase {
         let row = scrolledTo(unreadRow)
         XCTAssert(row.waitForExistence(timeout: 10))
         XCTAssert(row.label.contains("commented: Activity reply"))
-        XCTAssert(row.label.contains("Unread comment"))
-        let screenshot = XCTAttachment(screenshot: app.screenshot())
-        screenshot.name = "Activity tab"
-        screenshot.lifetime = .keepAlways
-        add(screenshot)
+        XCTAssertFalse(row.label.contains("Unread comment"), "Reading the thread from a Seen row should clear its comment dots")
         row.tap()
         XCTAssert(page(link).waitForExistence(timeout: 5))
         XCTAssert(app.staticTexts["Activity reply"].waitForExistence(timeout: 10))

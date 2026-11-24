@@ -3,6 +3,22 @@ import Testing
 @testable import LinksKit
 
 struct ActivityTests {
+    @Test func readingAThreadAnywhereClearsActivityRowsButNotNewerComments() throws {
+        let server = URL(string: "https://links.test")!
+        let comment = try APIClient.decoder.decode(ActivityPage.self, from: Data(Self.page.utf8)).items[0]
+        let activity = ActivityReadState()
+        var thread = CommentReadState()
+        #expect(activity.hasUnread(comment, threadReads: thread, person: "me", server: server))
+        thread.markRead(comment.linkID, through: comment.at, person: "me", server: server)
+        #expect(!thread.hasUnread(comment, person: "me", server: server))
+        #expect(activity.hasUnread(comment, person: "me", server: server))
+        #expect(!activity.hasUnread(comment, threadReads: thread, person: "me", server: server))
+        #expect(activity.isNew(comment.at, person: "me", server: server))
+        let newer = try APIClient.decoder.decode(ActivityPage.self, from: Data(Self.page.replacingOccurrences(of: "\"at\":30", with: "\"at\":31").utf8)).items[0]
+        #expect(activity.hasUnread(newer, threadReads: thread, person: "me", server: server))
+        #expect(activity.hasUnread(comment, threadReads: thread, person: "other", server: server))
+    }
+
     @Test func feedViewingIsIndependentOfRowReadingAndPersists() throws {
         let suite = "activity-\(UUID())"
         let defaults = try #require(UserDefaults(suiteName: suite))

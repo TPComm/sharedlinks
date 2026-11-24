@@ -13,8 +13,9 @@ public struct ActivityReadState: Codable, Sendable {
         date > (viewed[scope(person, server)] ?? .distantPast)
     }
 
-    public func hasUnread(_ item: ActivityItem, person: String, server: URL) -> Bool {
-        item.kind == .comment && item.person != person && !(read[scope(person, server)]?.contains(item.id) ?? false)
+    public func hasUnread(_ item: ActivityItem, threadReads: CommentReadState = CommentReadState(), person: String, server: URL) -> Bool {
+        threadReads.hasUnread(item, person: person, server: server)
+            && !(read[scope(person, server)]?.contains(item.id) ?? false)
     }
 
     public mutating func markRead(_ item: ActivityItem, person: String, server: URL) {
