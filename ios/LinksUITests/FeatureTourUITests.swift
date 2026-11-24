@@ -180,7 +180,17 @@ final class FeatureTourUITests: XCTestCase {
 
     private func scrollToWhatsNew() -> XCUIElement {
         let replay = app.buttons["profile.whatsNew"]
-        let shown = NSPredicate(format: "exists == true AND isHittable == true")
+        let shown = NSPredicate { _, _ in
+            guard replay.exists else { return false }
+            let frame = replay.frame
+            let window = self.app.windows.firstMatch.frame
+            let list = self.app.collectionViews.containing(.button, identifier: "profile.whatsNew").firstMatch
+            guard list.exists else { return false }
+            let viewport = list.frame.intersection(window).insetBy(dx: 1, dy: 1)
+            guard !frame.isEmpty, !frame.isNull, !frame.isInfinite,
+                  viewport.contains(frame) else { return false }
+            return replay.isHittable
+        }
         XCTAssert(app.navigationBars["Profile"].waitForExistence(timeout: 20))
         for _ in 0..<12 {
             let ready = XCTNSPredicateExpectation(predicate: shown, object: replay)
