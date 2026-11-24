@@ -74,7 +74,6 @@ struct InboxView: View {
 
 struct LinkListScreen: View {
     @Environment(AppModel.self) private var model
-    @State private var showActivity = false
     let filter: InboxFilter
     var query: String = ""
     var search = false
@@ -88,18 +87,7 @@ struct LinkListScreen: View {
                 .toolbar {
                     ToolbarItem(placement: .topBarLeading) { ProfileButton() }
                     ToolbarItem(placement: .topBarTrailing) {
-                        Button { showActivity = true } label: {
-                            Image(systemName: "bell")
-                                .overlay(alignment: .topTrailing) {
-                                    if model.unreadCommentLinkCount > 0 {
-                                        Circle().fill(.red).frame(width: 7, height: 7)
-                                            .offset(x: 3, y: -3)
-                                    }
-                                }
-                        }
-                        .accessibilityLabel("Activity")
-                        .accessibilityValue("\(model.unreadCommentLinkCount) unread")
-                        .accessibilityIdentifier("activity.open")
+                        ActivityButton()
                     }
                     if filter == .toWatch, !model.inbox.links(for: .toWatch, in: model.chat).isEmpty {
                         ToolbarItem(placement: .topBarTrailing) {
@@ -128,6 +116,26 @@ struct LinkListScreen: View {
                     }
                 }
         }
+    }
+}
+
+private struct ActivityButton: View {
+    @Environment(AppModel.self) private var model
+    @State private var showActivity = false
+
+    var body: some View {
+        Button { showActivity = true } label: {
+            Image(systemName: "bell")
+                .overlay(alignment: .topTrailing) {
+                    if model.unreadCommentLinkCount > 0 {
+                        Circle().fill(.red).frame(width: 7, height: 7)
+                            .offset(x: 3, y: -3)
+                    }
+                }
+        }
+        .accessibilityLabel("Activity")
+        .accessibilityValue("\(model.unreadCommentLinkCount) unread")
+        .accessibilityIdentifier("activity.open")
         .sheet(isPresented: $showActivity) { ActivityScreen() }
     }
 }
