@@ -435,13 +435,9 @@ describe("v22: daily catch-up", () => {
         const link = addLink(db, "https://example.com/favorite");
         db.run("INSERT INTO favorites VALUES ('a', ?, 1)", [link]);
         if (version === 21) {
-          db.exec(`CREATE TABLE IF NOT EXISTS chat_invite_links (
-            group_id INTEGER PRIMARY KEY REFERENCES groups(id) ON DELETE CASCADE,
-            token TEXT NOT NULL UNIQUE,
-            created_by TEXT REFERENCES users(id) ON DELETE SET NULL,
-            created_at REAL NOT NULL
-          ); INSERT INTO chat_invite_links VALUES (2, 'invite', 'a', 1);`);
+          db.run("INSERT INTO chat_invite_links VALUES (2, 'invite', 'a', 1)");
         } else {
+          db.run("DROP TABLE chat_invite_links");
           expect(db.query("SELECT name FROM sqlite_master WHERE name = 'chat_invite_links'").get()).toBeNull();
         }
         db.close();
@@ -453,6 +449,8 @@ describe("v22: daily catch-up", () => {
         expect(upgraded.query("SELECT person, link_id FROM favorites").all()).toEqual([{ person: "a", link_id: link }]);
         if (version === 21) {
           expect(upgraded.query("SELECT token FROM chat_invite_links WHERE group_id = 2").get()).toEqual({ token: "invite" });
+        } else {
+          expect(upgraded.query("SELECT * FROM chat_invite_links").all()).toEqual([]);
         }
         upgraded.run("UPDATE users SET catchup_minute = 480, catchup_tz = 'UTC', catchup_sent_on = '2026-03-08' WHERE id = 'a'");
         upgraded.close();
