@@ -1214,9 +1214,20 @@ final class LinksUITests: XCTestCase {
         launch()
         pickChat(name)
         openChatPicker()
-        let info = app.buttons["Chat Info"]
-        for _ in 0..<5 where !info.isHittable { app.swipeUp() }
-        info.tap()
+        var infoReady = false
+        for attempt in 0...5 {
+            let ready = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+                let info = self.app.buttons["Chat Info"]
+                return info.exists && info.isHittable
+            }, object: nil)
+            if XCTWaiter.wait(for: [ready], timeout: 5) == .completed {
+                infoReady = true
+                break
+            }
+            if attempt < 5 { app.swipeUp() }
+        }
+        XCTAssertTrue(infoReady, "Chat Info did not become hittable after scrolling the picker")
+        app.buttons["Chat Info"].tap()
         let summary = app.staticTexts["tasteMatch.summary"]
         XCTAssert(summary.waitForExistence(timeout: 5))
         XCTAssertGreaterThan(summary.frame.width, 0)
