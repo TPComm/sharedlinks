@@ -1728,6 +1728,32 @@ describe("group chats", () => {
     expect((await accept(signed.data.token)).status).toBe(400);
   });
 
+  test("request logs don't include reusable chat invite tokens", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "links-invite-logs-"));
+    const log = spyOn(console, "log").mockImplementation(() => {});
+    const { app, server } = startServer({ ...baseConfig, dataDir: dir, logRequests: true });
+    try {
+      const endpoint = server.url.origin;
+      const member = app.accounts.mintSession("invite-logs@example.test", "Member");
+      const chat = (await call("/api/groups", { token: member, body: {} }, endpoint)).data.group;
+      const made = await call(`/api/groups/${chat.id}/link`, { token: member, method: "POST" }, endpoint);
+      expect(made.status).toBe(201);
+      const token = made.data.link.url.split("/invite/")[1];
+      expect(token.length).toBe(43);
+      log.mockClear();
+      expect(await call(`/api/invites/kind/${token}`, {}, endpoint)).toMatchObject({ status: 200, data: { open: true } });
+      expect(log.mock.calls.some(([message]) => message.startsWith("GET /api/invites/kind/"))).toBe(true);
+      expect(log.mock.calls.some((args) => args.join(" ").includes(token))).toBe(false);
+    } finally {
+      log.mockRestore();
+      app.push.close();
+      server.stop(true);
+      await app.idle();
+      app.db.close();
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   test("signing in with an invite takes first-time and returning users only to the inviter's direct chat", async () => {
     const tokenOf = (made: any) => made.data.invite.url.split("/invite/")[1];
     expect((await signIn("good")).data.group_id).toBeNull();
