@@ -632,8 +632,9 @@ export function createApp(config: Config, opts: AppOptions = {}) {
   type Handler<R extends Request> = (req: R, me: string) => Response | Promise<Response>;
 
   /** Wrap a route: map errors to JSON, log, and (unless public) require a session. */
-  function route<R extends Request>(handler: Handler<R>, opts: { public?: boolean } = {}) {
+  function route<R extends Request>(handler: Handler<R>, opts: { public?: boolean; logPath?: string } = {}) {
     return async (req: R): Promise<Response> => {
+      const path = opts.logPath ?? new URL(req.url).pathname;
       let res: Response;
       try {
         const me = accounts.sessionUser(bearer(req));
@@ -648,11 +649,10 @@ export function createApp(config: Config, opts: AppOptions = {}) {
         else if (e instanceof NotFound) res = json({ error: e.message }, 404);
         else if (e instanceof TooLarge) res = json({ error: e.message }, 413);
         else {
-          console.error(`error handling ${req.method} ${new URL(req.url).pathname}:`, e);
+          console.error(`error handling ${req.method} ${path}:`, e);
           res = json({ error: "Something went wrong." }, 500);
         }
       }
-      const path = new URL(req.url).pathname;
       if (config.logRequests && (path !== "/api/state" || res.status >= 500)) console.log(`${req.method} ${path} ${res.status}`);
       return res;
     };
@@ -972,7 +972,8 @@ export function createApp(config: Config, opts: AppOptions = {}) {
       }),
     },
     "/api/invites/kind/:token": {
-      GET: route<Request & { params: { token: string } }>((req) => json({ open: !!accounts.openInvite(req.params.token) }), pub),
+      GET: route<Request & { params: { token: string } }>((req) => json({ open: !!accounts.openInvite(req.params.token) }),
+        { ...pub, logPath: "/api/invites/kind/:token" }),
     },
     "/api/invites/:id": {
       DELETE: route<WithId>((req, me) => {
