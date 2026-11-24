@@ -25,6 +25,9 @@ struct ProfileButton: View {
         }
         .disabled(model.isDeletingAccount)
         .accessibilityIdentifier("account")
+        #if DEBUG
+        .accessibilityValue(model.hasDroppedFeatureTourForReplay ? "Feature tour presentation dropped" : "")
+        #endif
         .sheet(isPresented: $showing, onDismiss: {
             model.isProfileOpen = false
             afterClose?()

@@ -151,6 +151,10 @@ struct LinksServer: Sendable {
         _ = try send("POST", "api/links/\(id)/seen", json: ["seen": seen], as: token)
     }
 
+    func setFavorite(_ id: Int, as token: String) throws {
+        _ = try send("PUT", "api/links/\(id)/favorite", as: token)
+    }
+
     func react(_ id: Int, emoji: String, as token: String) throws {
         _ = try send("POST", "api/links/\(id)/react", json: ["emoji": emoji], as: token)
     }

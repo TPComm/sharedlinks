@@ -66,6 +66,9 @@ final class AppModel {
     private var dropNextFeatureTourPresentation =
         ProcessInfo.processInfo.environment["LINKS_TEST_DROP_FEATURE_TOUR_PRESENTATION"] != nil
     private var droppingFeatureTourPresentation = false
+    var hasDroppedFeatureTourForReplay: Bool {
+        holdDroppedFeatureTourForReplay && droppingFeatureTourPresentation && showFeatureTours
+    }
     #endif
     private var dismissingWelcomeTour = false
     private var requestingNotifications = false
