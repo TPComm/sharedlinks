@@ -87,6 +87,7 @@ const fakeWorkOS = Bun.serve({
           good: { id: "user_01FRIEND", email: "friend@example.com", email_verified: true, first_name: "Riley", profile_picture_url: "https://example.com/r.png" },
           domain: { id: "user_01TEAM", email: "jane.doe@team.test", email_verified: true, first_name: "", profile_picture_url: null },
           stranger: { id: "user_01STRANGER", email: "stranger@evil.test", email_verified: true },
+          chatGuest: { id: "user_CHATGUEST", email: "chatguest@example.test", email_verified: true },
           unverified: { id: "user_01UNVERIFIED", email: "friend2@team.test", email_verified: false },
           rude: { id: "user_01RUDE", email: "rude.person@team.test", email_verified: true, first_name: "Zonk" },
           blocker: { id: "user_01BLOCKER", email: "blocker@team.test", email_verified: true, first_name: "Bea" },
@@ -623,7 +624,7 @@ describe("links", () => {
     const db = new Database(join(dataDir, "links.db"), { readonly: true });
     const { sql } = db.query("SELECT sql FROM sqlite_master WHERE name = 'links'").get() as { sql: string };
     expect(sql).toContain("AUTOINCREMENT");
-    expect((db.query("PRAGMA user_version").get() as any).user_version).toBe(20);
+    expect((db.query("PRAGMA user_version").get() as any).user_version).toBe(21);
     db.close();
     const { data } = await call("/api/state", { token });
     expect(data.links.map((l: any) => l.url)).toContain("https://de.wikipedia.org/wiki/M%C3%BCnchen");
@@ -1646,6 +1647,85 @@ describe("group chats", () => {
     // Opened again, either goes back to that chat.
     expect((await call("/api/invites/accept", { token: cy, body: { token: tokenOf(first) } })).data.group.id).toBe(pair.id);
     expect((await state(cy)).groups.filter((g: any) => g.members.includes(dotId))).toHaveLength(2); // and the default chat
+  });
+
+  test("chat links can be fetched, reset and disabled without admitting new people", async () => {
+    const chat = (await call("/api/groups", { token: ann, body: { name: "Private secret chat" } })).data.group;
+    const path = `/api/groups/${chat.id}/link`;
+    expect((await call(path, { token: ann })).data.link).toBeNull();
+    for (const method of ["GET", "POST", "DELETE"]) {
+      expect((await call(path, { token: bo, method })).status).toBe(404);
+      const home = (await state(ann)).groups.find((g: any) => g.default);
+      expect((await call(`/api/groups/${home.id}/link`, { token: ann, method })).status).toBe(400);
+      const direct = (await state(ann)).groups.find((g: any) => g.direct);
+      expect((await call(`/api/groups/${direct.id}/link`, { token: ann, method })).status).toBe(400);
+    }
+    const made = await call(path, { token: ann, method: "POST" });
+    expect(made.status).toBe(201);
+    expect(made.data.link.created_by).toBe(annId);
+    expect((await call(path, { token: ann })).data.link).toEqual(made.data.link);
+    expect((await call(path, { token: ann, method: "POST" })).data.link).toEqual(made.data.link);
+    expect((await call(path, { token: ann, body: { reset: false } })).data.link).toEqual(made.data.link);
+    expect((await call(path, { token: ann, body: { reset: "true" } })).status).toBe(400);
+    const token = made.data.link.url.split("/invite/")[1];
+    expect(token).toMatch(/^[A-Za-z0-9_-]{43}$/);
+    const kind = await fetch(`${api}/api/invites/kind/${token}`);
+    expect(kind.status).toBe(200);
+    expect(kind.headers.get("cache-control")).toBe("no-store");
+    expect(await kind.json()).toEqual({ open: true });
+    const personal = await call("/api/invites", { token: ann, body: {} });
+    const personalToken = personal.data.invite.url.split("/invite/")[1];
+    for (const value of [personalToken, "z".repeat(43), "invalid"]) {
+      expect(await (await fetch(`${api}/api/invites/kind/${value}`)).json()).toEqual({ open: false });
+    }
+    const page = await fetch(`${api}/invite/${token}`);
+    expect(page.status).toBe(200);
+    const html = await page.text();
+    expect(html).toContain("invited you to a chat on Links");
+    expect(html).toContain("personal invite");
+    expect(html).not.toContain("Private secret chat");
+    const denied = await signIn("chatGuest", VERIFIER, token);
+    expect(denied.status).toBe(403);
+    expect(denied.data.error).toContain("already on Links");
+    expect((await signIn("chatGuest")).status).toBe(403);
+    const accept = (value: string) => call("/api/invites/accept", { token: bo, body: { token: value } });
+    expect((await accept(token)).data.group.id).toBe(chat.id);
+    expect((await accept(token)).data.group.id).toBe(chat.id);
+    expect((await call(path, { token: bo })).data.link).toEqual(made.data.link);
+    const signed = await signIn("good", VERIFIER, token);
+    expect(signed.status).toBe(200);
+    expect(signed.data.group_id).toBe(chat.id);
+    const reset = await call(path, { token: bo, body: { reset: true } });
+    expect(reset.data.link.url).not.toBe(made.data.link.url);
+    expect(await (await fetch(`${api}/api/invites/kind/${token}`)).json()).toEqual({ open: false });
+    expect((await accept(token)).status).toBe(404);
+    expect((await call(path, { token: bo, method: "DELETE" })).data.link).toBeNull();
+    expect((await call(path, { token: ann })).data.link).toBeNull();
+    expect((await accept(reset.data.link.url.split("/invite/")[1])).status).toBe(404);
+    expect(await (await fetch(`${api}/api/invites/kind/${reset.data.link.url.split("/invite/")[1]}`)).json()).toEqual({ open: false });
+  });
+
+  test("chat links enforce the same member cap as adding people", async () => {
+    const chat = (await call("/api/groups", { token: ann, body: { name: "Full" } })).data.group;
+    const db = new Database(join(dataDir, "links.db"));
+    const { MAX_GROUP_MEMBERS } = await import("../src/accounts.ts");
+    for (let i = 1; i < MAX_GROUP_MEMBERS; i++) {
+      const id = `open-cap-${i}`;
+      db.run("INSERT INTO users (id, name, created_at, member) VALUES (?, 'Cap', 1, 1)", [id]);
+      db.run("INSERT INTO group_members (group_id, user_id, joined_at) VALUES (?, ?, 1)", [chat.id, id]);
+    }
+    db.close();
+    const made = await call(`/api/groups/${chat.id}/link`, { token: ann, method: "POST" });
+    const token = made.data.link.url.split("/invite/")[1];
+    const accept = (who: string) => call("/api/invites/accept", { token: who, body: { token } });
+    expect((await accept(bo)).status).toBe(400);
+    expect((await accept(ann)).data.group.id).toBe(chat.id);
+    const signed = await signIn("good", VERIFIER, token);
+    expect(signed.status).toBe(200);
+    expect(signed.data.group_id).toBeNull();
+    expect(signed.data.token).toBeString();
+    expect((await state(signed.data.token)).groups.map((g: any) => g.id)).not.toContain(chat.id);
+    expect((await accept(signed.data.token)).status).toBe(400);
   });
 
   test("signing in with an invite takes first-time and returning users only to the inviter's direct chat", async () => {

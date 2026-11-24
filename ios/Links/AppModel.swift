@@ -100,6 +100,7 @@ final class AppModel {
     var me: LinkUser? { account ?? inbox.meUser }
     /// The token from an invite link opened while signed out, kept until a sign-in sends it (#5).
     private(set) var pendingInvite: String?
+    private(set) var pendingInviteIsOpen = false
     /// Invites I sent that nobody has used yet (the People sheet).
     private(set) var invites: [Invite] = []
 
@@ -184,6 +185,7 @@ final class AppModel {
             }
             let result = try await client.exchange(code: code, verifier: pkce.verifier, invite: pendingInvite)
             pendingInvite = nil
+            pendingInviteIsOpen = false
             SessionStore.save(token: result.token, user: result.user)
             account = result.user
             token = result.token
@@ -355,6 +357,21 @@ final class AppModel {
     }
 
     // MARK: Invites
+
+    func loadChatInviteLink(_ groupID: Int) async throws -> ChatInviteLink? {
+        do { return try await client.chatInviteLink(groupID: groupID) }
+        catch APIError.signedOut { endSession(); throw APIError.signedOut }
+    }
+
+    func createChatInviteLink(_ groupID: Int, reset: Bool = false) async throws -> ChatInviteLink {
+        do { return try await client.createChatInviteLink(groupID: groupID, reset: reset) }
+        catch APIError.signedOut { endSession(); throw APIError.signedOut }
+    }
+
+    func turnOffChatInviteLink(_ groupID: Int) async throws {
+        do { try await client.turnOffChatInviteLink(groupID: groupID) }
+        catch APIError.signedOut { endSession(); throw APIError.signedOut }
+    }
 
     func loadInvites() async {
         await perform { self.invites = try await self.client.invites() }
@@ -1022,7 +1039,13 @@ final class AppModel {
         case .invite(let invite):
             if token == nil {
                 pendingInvite = invite
+                pendingInviteIsOpen = false
                 errorMessage = nil
+                Task {
+                    let open = (try? await client.inviteIsOpen(invite)) ?? false
+                    guard token == nil, pendingInvite == invite else { return }
+                    pendingInviteIsOpen = open
+                }
             } else {
                 // Already in: the link is still how a friend brings them into a chat.
                 Task { await acceptInvite(invite) }

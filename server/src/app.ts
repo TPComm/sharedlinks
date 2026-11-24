@@ -104,17 +104,17 @@ ${banner}<title>Open in Links</title><style>body{font:17px/1.5 -apple-system,sys
  * What an invite link shows in a browser and in Messages' preview: who sent it and how to get in,
  * nothing from the inbox. Loading it never uses the invite up; only signing in does.
  */
-function invitePage(config: Config, token: string, invite: { inviter: string | null } | null): string {
+function invitePage(config: Config, token: string, invite: { inviter: string | null; group_id?: number | null; open?: boolean } | null): string {
   const appLink = `${config.appScheme}://invite/${token}`;
   const store = config.appStoreId ? `https://apps.apple.com/app/id${encodeURIComponent(config.appStoreId)}` : "";
-  const title = !invite ? "This invite doesn't work anymore" : invite.inviter ? `${invite.inviter} invited you to Links` : "You're invited to Links";
+  const title = !invite ? "This invite doesn't work anymore" : invite.open ? `${invite.inviter ?? "Someone"} invited you to a chat on Links` : invite.inviter ? `${invite.inviter} invited you to Links` : "You're invited to Links";
   const description = invite
-    ? "Share articles, videos, recipes, gift ideas and more, and see who's seen them."
+    ? invite.open ? "Already on Links? Open this link in the app to join the chat. New people need a personal invite for now." : "Share articles, videos, recipes, gift ideas and more, and see who's seen them."
     : "It was already used, cancelled, or it expired. Ask for a new one.";
   const banner = invite && config.appStoreId
     ? `<meta name="apple-itunes-app" content="app-id=${escapeHtml(config.appStoreId)}, app-argument=${escapeHtml(`${config.publicUrl}/invite/${token}`)}">`
     : "";
-  const steps = invite
+  const steps = invite?.open ? `<p><a class="button" href="${escapeHtml(appLink)}">Open in Links</a></p>` : invite
     ? `<ol><li>${store ? `<a href="${escapeHtml(store)}">Get Links</a>` : "Install Links"} on your iPhone.</li>
 <li>Come back here and tap <b>Open in Links</b>, then sign in.</li></ol>
 <p><a class="button" href="${escapeHtml(appLink)}">Open in Links</a></p>
@@ -167,7 +167,7 @@ function privacyPage(email: string, sessionDays: number): string {
 <ul>
 <li><b>Your account:</b> your email address, display name and profile photo. They come from WorkOS, our sign-in provider, when you first sign in, and you can change your name and photo in the app; a photo you choose is stored on our server. They sign you in, match invites sent to you, and show your friends who sent what.</li>
 <li><b>What you do in Links:</b> the links you send and their notes, your comments, which links you've seen, your reactions, your private favorites, the reports you make and the people you block. For each link the server also fetches its title, author and thumbnail from the link's page.</li>
-<li><b>Invites you send:</b> the email address you invite, if you type one, when the invite expires, and who used it. They let your friend in; cancelling an invite deletes it.</li>
+<li><b>Invites you send:</b> the email address you invite, if you type one, when the invite expires, and who used it. They let your friend in; cancelling an invite deletes it. Chat invite links let people already on Links join a chat; their token, creator and creation time are stored until someone in the chat turns the link off or resets it (or the chat is deleted).</li>
 <li><b>Signed-in devices:</b> a scrambled (hashed) copy of each device's sign-in token, with when it was created and last used, and the push notification token Apple gives the app on that device, which the server uses to send it notifications.</li>
 <li><b>Server logs:</b> one line per request, with what was asked for (for example, "mark link 12 seen") and whether it worked, plus messages about errors and events, which can include a link's address or an account's ID. They're used to fix problems.</li>
 <li><b>Server health:</b> the server computer's CPU, memory, disk and network use, once a minute. It's about the server, not about you.</li>
@@ -332,6 +332,15 @@ export function createApp(config: Config, opts: AppOptions = {}) {
     const n = typeof id === "string" && /^\d+$/.test(id) ? Number(id) : id;
     if (!Number.isSafeInteger(n) || !inGroup(n as number, me)) throw new NotFound("That chat isn't there anymore.");
     return n as number;
+  }
+
+  function linkGroup(id: unknown, me: string): number {
+    const n = groupOf(id, me);
+    if ((db.query("SELECT is_default FROM groups WHERE id = ?").get(n) as { is_default: number }).is_default) {
+      throw new BadRequest("The default chat can't have an invite link.");
+    }
+    if (getGroup(n, me).direct) throw new BadRequest("Start a group chat to invite more people.");
+    return n;
   }
 
   /** A chat as the app sees it: `members` are user ids, oldest first; `default` is the one everyone started in. */
@@ -679,8 +688,10 @@ export function createApp(config: Config, opts: AppOptions = {}) {
     "/api/auth/token": {
       POST: route(async (req) => {
         const data = await readJson(req);
-        return json(await accounts.signIn(String(data.code ?? ""), String(data.code_verifier ?? ""),
-                                          req.headers.get("user-agent") ?? "", String(data.invite ?? "")));
+        const signed = await accounts.signIn(String(data.code ?? ""), String(data.code_verifier ?? ""),
+                                          req.headers.get("user-agent") ?? "", String(data.invite ?? ""));
+        if (signed.group_id !== null) push.badges([signed.user.id]);
+        return json(signed);
       }, pub),
     },
     "/api/auth/logout": {
@@ -916,15 +927,28 @@ export function createApp(config: Config, opts: AppOptions = {}) {
           if (group.direct) throw new BadRequest("Start a group chat to add more people.");
           if (group.default) throw new BadRequest("Start a new group chat to add people. Everyone's history is private to its existing members.");
           const added = newMembers(data.members, me, group.members);
-          const at = now();
-          for (const user of added) {
-            db.run("INSERT OR IGNORE INTO group_members (group_id, user_id, joined_at) VALUES (?, ?, ?)", [id, user, at]);
-          }
-          for (const user of added) ensureDirectChatsFor(db, user, id);
-          return added;
+          return accounts.addGroupMembers(id, added);
         });
         push.badges(added); // the chat's links land in their To Watch
         return json({ group: getGroup(id, me) });
+      }),
+    },
+
+    "/api/groups/:id/link": {
+      GET: route<WithId>((req, me) => json({ link: accounts.chatLink(linkGroup(req.params.id, me)) })),
+      POST: route<WithId>(async (req, me) => {
+        linkGroup(req.params.id, me);
+        const { reset } = await readJson(req);
+        if (reset !== undefined && typeof reset !== "boolean") throw new BadRequest("reset must be a boolean.");
+        const link = asUser(me, () => {
+          const id = linkGroup(req.params.id, me);
+          return (!reset && accounts.chatLink(id)) || accounts.resetChatLink(id, me);
+        });
+        return json({ link }, 201);
+      }),
+      DELETE: route<WithId>((req, me) => {
+        db.run("DELETE FROM chat_invite_links WHERE group_id = ?", [linkGroup(req.params.id, me)]);
+        return json({ link: null });
       }),
     },
 
@@ -947,6 +971,9 @@ export function createApp(config: Config, opts: AppOptions = {}) {
         return json({ group: id === null ? null : getGroup(id, me) });
       }),
     },
+    "/api/invites/kind/:token": {
+      GET: route<Request & { params: { token: string } }>((req) => json({ open: !!accounts.openInvite(req.params.token) }), pub),
+    },
     "/api/invites/:id": {
       DELETE: route<WithId>((req, me) => {
         if (!/^\d+$/.test(req.params.id) || !accounts.revokeInvite(me, Number(req.params.id))) {
@@ -959,7 +986,8 @@ export function createApp(config: Config, opts: AppOptions = {}) {
       GET: (req: Request & { params: { token: string } }) => {
         const { token } = req.params;
         if (!INVITE_TOKEN_RE.test(token)) return new Response("Not found\n", { status: 404 });
-        const invite = accounts.pendingInvite(token);
+        const open = accounts.openInvite(token);
+        const invite = open ? { ...open, open: true } : accounts.pendingInvite(token);
         return new Response(invitePage(config, token, invite), {
           status: invite ? 200 : 404,
           headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" },

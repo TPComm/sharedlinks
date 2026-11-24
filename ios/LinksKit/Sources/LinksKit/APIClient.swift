@@ -62,6 +62,12 @@ public struct APIClient: Sendable {
         let _: [String: Bool]? = try? await send("POST", "api/auth/logout")
     }
 
+    public func inviteIsOpen(_ token: String) async throws -> Bool {
+        struct Kind: Decodable { let open: Bool }
+        let kind: Kind = try await send("GET", "api/invites/kind", component: token)
+        return kind.open
+    }
+
     /// Hands the server this phone's APNs token for the session (signing out removes it).
     /// Returns whether the server sends push notifications at all.
     public func registerDevice(token: String, env: String) async throws -> Bool {
@@ -254,6 +260,23 @@ public struct APIClient: Sendable {
     }
 
     // MARK: Invites
+
+    public func chatInviteLink(groupID: Int) async throws -> ChatInviteLink? {
+        let r: ChatLinkEnvelope = try await send("GET", "api/groups/\(groupID)/link")
+        return r.link
+    }
+
+    public func createChatInviteLink(groupID: Int, reset: Bool = false) async throws -> ChatInviteLink {
+        let r: ChatLinkEnvelope = try await send("POST", "api/groups/\(groupID)/link", json: reset ? ["reset": true] : [:])
+        guard let link = r.link else { throw APIError.server("The invite link wasn't created. Try again.") }
+        return link
+    }
+
+    public func turnOffChatInviteLink(groupID: Int) async throws {
+        let _: ChatLinkEnvelope = try await send("DELETE", "api/groups/\(groupID)/link")
+    }
+
+    private struct ChatLinkEnvelope: Decodable { var link: ChatInviteLink? }
 
     /// Mine that nobody has used yet, newest first.
     public func invites() async throws -> [Invite] {

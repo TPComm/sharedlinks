@@ -1,3 +1,4 @@
+import LinkPresentation
 import LinksKit
 import SwiftUI
 
@@ -171,6 +172,7 @@ struct ChatInfoView: View {
     let groupID: Int
     let openLink: (SharedLink) -> Void
     @State private var choosingDuration = false
+    @State private var sharingInvite: ChatInviteShare?
     @State private var saving = false
     @State private var failure: String?
 
@@ -182,6 +184,11 @@ struct ChatInfoView: View {
                         Text(model.inbox.destinationTitle(of: group)).font(.headline)
                     }
                     TasteMatchSection(group: group, openLink: openLink)
+                    if !group.isDefault && !group.isDirect {
+                        ChatInviteLinkSection(group: group) { url, title in
+                            sharingInvite = ChatInviteShare(url: url, title: title)
+                        }
+                    }
                     if group.muted != nil {
                         Section {
                             Toggle(isOn: Binding(get: { group.isMuted(at: context.date) }, set: { muted in
@@ -226,6 +233,7 @@ struct ChatInfoView: View {
         }
         .navigationTitle("Chat Info")
         .navigationBarTitleDisplayMode(.inline)
+        .sheet(item: $sharingInvite) { ChatInviteShareSheet(invite: $0) }
         .failureAlert($failure)
     }
 
@@ -235,6 +243,126 @@ struct ChatInfoView: View {
             do { try await model.setChatMuted(group, muted: muted, until: until) }
             catch { failure = error.localizedDescription }
             saving = false
+        }
+    }
+}
+
+private struct ChatInviteShare: Identifiable {
+    let id = UUID()
+    let url: URL
+    let title: String
+}
+
+private struct ChatInviteShareSheet: UIViewControllerRepresentable {
+    let invite: ChatInviteShare
+
+    func makeUIViewController(context: Context) -> UIActivityViewController {
+        UIActivityViewController(activityItems: [InviteItem(invite: invite)], applicationActivities: nil)
+    }
+
+    func updateUIViewController(_ controller: UIActivityViewController, context: Context) {}
+
+    private final class InviteItem: NSObject, UIActivityItemSource {
+        let invite: ChatInviteShare
+
+        init(invite: ChatInviteShare) { self.invite = invite }
+
+        func activityViewControllerPlaceholderItem(_ activityViewController: UIActivityViewController) -> Any { invite.url }
+
+        func activityViewController(_ activityViewController: UIActivityViewController,
+                                    itemForActivityType activityType: UIActivity.ActivityType?) -> Any? { invite.url }
+
+        func activityViewController(_ activityViewController: UIActivityViewController,
+                                    subjectForActivityType activityType: UIActivity.ActivityType?) -> String { invite.title }
+
+        func activityViewControllerLinkMetadata(_ activityViewController: UIActivityViewController) -> LPLinkMetadata? {
+            let metadata = LPLinkMetadata()
+            metadata.title = invite.title
+            metadata.originalURL = invite.url
+            metadata.url = invite.url
+            return metadata
+        }
+    }
+}
+
+private struct ChatInviteLinkSection: View {
+    @Environment(AppModel.self) private var model
+    let group: LinkGroup
+    let share: (URL, String) -> Void
+    @State private var link: ChatInviteLink?
+    @State private var loading = true
+    @State private var loaded = false
+    @State private var saving = false
+    @State private var failure: String?
+    @State private var resetting = false
+    @State private var turningOff = false
+
+    var body: some View {
+        Section {
+            if loading && !loaded {
+                ProgressView()
+            } else if !loaded {
+                Button("Try Again") { Task { await load() } }
+                    .accessibilityIdentifier("chatLink.retry")
+            } else if let link {
+                let title = "\(model.me?.name ?? "Someone") invited you to \(model.inbox.title(of: group)) on Links"
+                Button { share(link.url, title) } label: {
+                    Label("Share Invite Link", systemImage: "square.and.arrow.up")
+                }
+                .accessibilityIdentifier("chatLink.share")
+                Button("Reset Link") { resetting = true }
+                    .accessibilityIdentifier("chatLink.reset")
+                Button("Turn Off Link", role: .destructive) { turningOff = true }
+                    .accessibilityIdentifier("chatLink.off")
+            } else {
+                Button("Create Invite Link") { change() }
+                    .accessibilityIdentifier("chatLink.create")
+            }
+        } header: {
+            Text("Invite Link")
+        } footer: {
+            VStack(alignment: .leading) {
+                Text("Anyone already on Links who opens this link joins this chat. People new to Links still need a personal invite.")
+                if let failure { Text(failure).foregroundStyle(.red) }
+            }
+        }
+        .disabled(saving || (loading && !loaded))
+        .task(id: group.id) { if !loaded { await load() } }
+        .confirmationDialog("Reset Invite Link?", isPresented: $resetting, titleVisibility: .visible) {
+            Button("Reset Link", role: .destructive) { change(reset: true) }
+        } message: {
+            Text("The old link stops working. Share the new link with anyone you want to join.")
+        }
+        .confirmationDialog("Turn Off Invite Link?", isPresented: $turningOff, titleVisibility: .visible) {
+            Button("Turn Off Link", role: .destructive) { change(off: true) }
+        } message: {
+            Text("This link will stop working. People who already joined stay in the chat.")
+        }
+    }
+
+    private func load() async {
+        loading = true
+        failure = nil
+        defer { loading = false }
+        do {
+            link = try await model.loadChatInviteLink(group.id)
+            loaded = true
+        } catch { failure = error.localizedDescription }
+    }
+
+    private func change(off: Bool = false, reset: Bool = false) {
+        saving = true
+        failure = nil
+        Task {
+            defer { saving = false }
+            do {
+                if off {
+                    try await model.turnOffChatInviteLink(group.id)
+                    link = nil
+                } else {
+                    link = try await model.createChatInviteLink(group.id, reset: reset)
+                }
+            } catch { failure = error.localizedDescription }
         }
     }
 }

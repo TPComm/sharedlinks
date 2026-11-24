@@ -44,7 +44,9 @@ struct SignInView: View {
                 .multilineTextAlignment(.center)
                 .padding(.top, 6)
             if model.pendingInvite != nil {
-                Label("You’re invited. Sign in or create an account to join.", systemImage: "envelope.open")
+                Label(model.pendingInviteIsOpen
+                      ? "You’re invited to a chat. Sign in with your Links account to join. New to Links? Ask a friend for a personal invite."
+                      : "You’re invited. Sign in or create an account to join.", systemImage: "envelope.open")
                     .font(.callout.weight(.medium))
                     .padding(.top, 14)
                     .accessibilityIdentifier("invited")

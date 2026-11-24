@@ -147,6 +147,13 @@ struct LinksServer: Sendable {
         _ = try send("DELETE", "api/groups/\(id)", as: token)
     }
 
+    func chatInvite(to groupID: Int, as token: String) throws -> String {
+        struct Made: Decodable { struct Link: Decodable { let url: String }; let link: Link }
+        let data = try send("POST", "api/groups/\(groupID)/link", json: [:], as: token)
+        let url = try JSONDecoder().decode(Made.self, from: data).link.url
+        return String(url.split(separator: "/").last ?? "")
+    }
+
     func setSeen(_ id: Int, _ seen: Bool, as token: String) throws {
         _ = try send("POST", "api/links/\(id)/seen", json: ["seen": seen], as: token)
     }

@@ -131,6 +131,40 @@ export class Accounts {
       .get(sha256(token), now()) as (InviteRow & { inviter: string | null }) | null;
   }
 
+  openInvite(token: string) {
+    if (!INVITE_TOKEN_RE.test(token)) return null;
+    return this.db.query(`SELECT i.*, u.name AS inviter FROM chat_invite_links i
+      LEFT JOIN users u ON u.id = i.created_by WHERE i.token = ?`).get(token) as
+      { group_id: number; created_by: string | null; inviter: string | null } | null;
+  }
+
+  chatLink(groupId: number) {
+    const row = this.db.query("SELECT * FROM chat_invite_links WHERE group_id = ?").get(groupId) as
+      { token: string; created_at: number; created_by: string | null } | null;
+    return row ? { url: `${this.config.publicUrl}/invite/${row.token}`, created_at: row.created_at, created_by: row.created_by } : null;
+  }
+
+  resetChatLink(groupId: number, userId: string) {
+    this.db.run(`INSERT INTO chat_invite_links (group_id, token, created_by, created_at) VALUES (?, ?, ?, ?)
+      ON CONFLICT(group_id) DO UPDATE SET token = excluded.token, created_by = excluded.created_by, created_at = excluded.created_at`,
+      [groupId, randomToken(), userId, now()]);
+    return this.chatLink(groupId);
+  }
+
+  addGroupMembers(groupId: number, ids: string[]) {
+    const have = (this.db.query("SELECT user_id FROM group_members WHERE group_id = ?").all(groupId) as { user_id: string }[])
+      .map((m) => m.user_id);
+    const added = [...new Set(ids)].filter((id) => !have.includes(id));
+    if (added.length && have.length + added.length > MAX_GROUP_MEMBERS) {
+      throw new BadRequest(`A chat can have up to ${MAX_GROUP_MEMBERS} people.`);
+    }
+    for (const user of added) {
+      this.db.run("INSERT INTO group_members (group_id, user_id, joined_at) VALUES (?, ?, ?)", [groupId, user, now()]);
+    }
+    for (const user of added) ensureDirectChatsFor(this.db, user, groupId);
+    return added;
+  }
+
   /**
    * The invite that lets this person in, if any: the link's token (bound to their email, if it names
    * one), or else one sent to their email. An email only counts once WorkOS has verified it.
@@ -462,9 +496,12 @@ export class Accounts {
         try {
           return this.useInviteAsMember(user.id, inviteToken);
         } catch (e) {
-          if (e instanceof AuthError) return null;
+          if (e instanceof AuthError || e instanceof BadRequest) return null;
           throw e;
         }
+      }
+      if (this.openInvite(inviteToken)) {
+        throw new AuthError("Chat invite links only work for people already on Links for now. Ask a friend for a personal invite.", 403);
       }
       const invite = this.findInvite(inviteToken, email, !!user.email_verified);
       if (!invite) {
@@ -511,6 +548,11 @@ export class Accounts {
   }
 
   private useInviteAsMember(userId: string, token: string): number | null {
+    const open = this.openInvite(token);
+    if (open) {
+      this.addGroupMembers(open.group_id, [userId]);
+      return open.group_id;
+    }
     const row = INVITE_TOKEN_RE.test(token)
       ? this.db.query("SELECT * FROM invites WHERE token_hash = ?").get(sha256(token)) as InviteRow | null
       : null;
