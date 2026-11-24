@@ -329,6 +329,36 @@ final class LinksUITests: XCTestCase {
         XCTAssertNil(try server.state(as: server.friend).link(link.id)?.seen[me], "the shared link marked it watched")
     }
 
+    func testChatDeepLinkOpensTheChatFromFavorites() throws {
+        let meID = try server.state(as: server.me).me
+        let name = "Chat link \(shortID())"
+        let chat = try server.startChat(name: name, members: [meID], as: server.friend)
+        leaveAfterwards(chat.id)
+        let link = try server.add(uniqueURL(), to: chat.id, as: server.friend)
+        deleteAfterwards(link.id)
+
+        let notification = "com.tpcomm.links.open-url.\(UUID().uuidString)"
+        launch(environment: ["LINKS_TEST_OPEN_URL_NOTIFICATION": notification,
+                             "LINKS_TEST_OPEN_URL": "sharedlinks://g/\(chat.id)"])
+        waitForRow(link, in: "toWatch").tap()
+        XCTAssert(page(link).waitForExistence(timeout: 10))
+        let star = app.buttons["link.favorite"]
+        star.tap()
+        waitFor(star, labelContaining: "Remove from Favorites")
+        app.tabBars.buttons["Favorites"].tap()
+        waitForRow(link, in: "favorites").tap()
+        XCTAssert(page(link).waitForExistence(timeout: 10))
+
+        CFNotificationCenterPostNotification(CFNotificationCenterGetDarwinNotifyCenter(),
+                                             CFNotificationName(rawValue: notification as CFString), nil, nil, true)
+        XCTAssert(page(link).waitForNonExistence(timeout: 10), "chat link did not dismiss the Favorites link page")
+        let picker = app.buttons["chatPicker"]
+        XCTAssert(picker.waitForExistence(timeout: 10), "chat link left Favorites open")
+        waitFor(picker, labelContaining: name)
+        XCTAssert(app.tabBars.buttons["Queue"].isSelected)
+        waitForRow(link, in: "toWatch")
+    }
+
     func testWidgetDeepLinkOpensTheNewLinkSheet() throws {
         launch()
         app.open(URL(string: "sharedlinks://add")!)
