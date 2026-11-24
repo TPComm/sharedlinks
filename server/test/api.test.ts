@@ -1728,6 +1728,22 @@ describe("group chats", () => {
     expect((await accept(signed.data.token)).status).toBe(400);
   });
 
+  test("a reusable chat link doesn't displace a verified personal email invite", async () => {
+    const chat = (await call("/api/groups", { token: ann, body: { name: "Email admission" } })).data.group;
+    const made = await call(`/api/groups/${chat.id}/link`, { token: ann, method: "POST" });
+    expect(made.status).toBe(201);
+    const token = made.data.link.url.split("/invite/")[1];
+    const personal = await call("/api/invites", { token: bo, body: { email: "chatguest@example.test" } });
+    expect(personal.status).toBe(201);
+
+    const signed = await signIn("chatGuest", VERIFIER, token);
+    expect(signed.status).toBe(200);
+    const groups = (await state(signed.data.token)).groups;
+    expect(groups).toHaveLength(1);
+    expect(groups[0]).toMatchObject({ id: signed.data.group_id, direct: true });
+    expect(groups[0].members).toContain(boId);
+  });
+
   test("signing in with an invite takes first-time and returning users only to the inviter's direct chat", async () => {
     const tokenOf = (made: any) => made.data.invite.url.split("/invite/")[1];
     expect((await signIn("good")).data.group_id).toBeNull();
