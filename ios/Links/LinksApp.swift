@@ -111,7 +111,7 @@ struct RootView: View {
         .onChange(of: delegate.openQueue, initial: true) { _, open in
             guard open, model.isSignedIn else { return }
             delegate.openQueue = false
-            model.handle(DeepLink.inbox.url)
+            model.openQueue()
         }
         .onChange(of: delegate.refreshes) { Task { await model.refresh() } }
         .onChange(of: model.navigation) { _, navigation in

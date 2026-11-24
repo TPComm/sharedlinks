@@ -1070,12 +1070,16 @@ final class AppModel {
             }
         case .inbox:
             swipeQueue = nil
-            tab = .toWatch
-            chat = nil
-            paths[.toWatch] = []
         case nil:
             break
         }
+    }
+
+    func openQueue() {
+        handle(DeepLink.inbox.url)
+        tab = .toWatch
+        chat = nil
+        paths[.toWatch] = []
     }
 
     /// The page of the first link that matches, refreshing once if this (backgrounded) app's inbox
