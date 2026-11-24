@@ -268,9 +268,9 @@ function migrateToV21(db: Database) {
   })();
 }
 
-function migrateToV22(db: Database) {
+function migrateToV23(db: Database) {
   const { user_version } = db.query("PRAGMA user_version").get() as { user_version: number };
-  if (user_version >= 22) return;
+  if (user_version >= 23) return;
   db.transaction(() => {
     const have = (db.query("PRAGMA table_info(users)").all() as { name: string }[]).map((c) => c.name);
     for (const [column, type] of [["catchup_minute", "INTEGER"], ["catchup_tz", "TEXT"], ["catchup_sent_on", "TEXT"]]) {
