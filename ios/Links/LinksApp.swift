@@ -54,11 +54,20 @@ struct RootView: View {
                     .onReceive(NotificationCenter.default.publisher(for: UIApplication.didBecomeActiveNotification)) { _ in
                         model.showTourIfNeeded()
                     }
+                    .task(id: scenePhase == .active ? model.featureTourRequest?.id : nil) {
+                        guard scenePhase == .active, let id = model.featureTourRequest?.id else { return }
+                        await model.presentFeatureTours(id)
+                    }
                     .fullScreenCover(isPresented: $model.showTour, onDismiss: model.welcomeTourDismissed) {
                         TourView(start: model.tourStart)
                     }
-                    .sheet(isPresented: $model.showFeatureTours, onDismiss: model.finishFeatureTours) {
-                        FeatureTourView(tours: model.pendingFeatureTours)
+                    .sheet(isPresented: Binding(get: { model.shouldPresentFeatureTours },
+                                                set: { model.showFeatureTours = $0 }),
+                           onDismiss: model.finishFeatureTours) {
+                        if let request = model.featureTourRequest {
+                            FeatureTourView(tours: request.tours)
+                                .onAppear(perform: model.featureToursDidAppear)
+                        }
                     }
             } else {
                 SignInView()

@@ -80,6 +80,26 @@ final class FeatureTourUITests: XCTestCase {
         XCTAssertFalse(app.staticTexts["Save Your Favorites"].exists)
     }
 
+    func testRecoversAutomaticallyWhenPresentationDoesNotAppear() {
+        launch(reset: true, dropPresentation: "once")
+        waitForNotificationsBeforeFeatureTour(in: app)
+        XCTAssert(waitForTitle("Make Links Yours"))
+    }
+
+    func testWhatsNewRecoversAfterDroppedAutomaticPresentation() {
+        launch(reset: true, dropPresentation: "until-replay")
+        XCTAssert(app.buttons["account"].waitForExistence(timeout: 20))
+        XCTAssertFalse(app.buttons["featureTour.skip"].exists)
+        app.buttons["account"].tap()
+        let replay = app.buttons["profile.whatsNew"]
+        for _ in 0..<6 where !(replay.exists && replay.isHittable) { app.swipeUp() }
+        XCTAssert(replay.isHittable)
+        replay.tap()
+        XCTAssert(waitForTitle("Make Links Yours"), "What's New did not recover the dropped sheet")
+        XCTAssertFalse(app.navigationBars["Profile"].exists)
+        capture("What's New recovered the dropped sheet")
+    }
+
     func testFeatureTourResumesAfterDismissingNewLink() {
         launch(reset: true, openNewLink: true)
         let cancel = app.navigationBars["New Link"].buttons["Cancel"]
@@ -94,13 +114,14 @@ final class FeatureTourUITests: XCTestCase {
         XCTAssert(app.buttons["featureTour.skip"].waitForNonExistence(timeout: 20))
     }
 
-    private func launch(reset: Bool, openNewLink: Bool = false) {
+    private func launch(reset: Bool, dropPresentation: String? = nil, openNewLink: Bool = false) {
         app.launchEnvironment = [
             "LINKS_SERVER_URL": server.url.absoluteString,
             "LINKS_DEV_TOKEN": server.me,
             "LINKS_COMPLETE_ONBOARDING": "1",
         ]
         if reset { app.launchEnvironment["LINKS_RESET_FEATURE_TOURS"] = "1" }
+        app.launchEnvironment["LINKS_TEST_DROP_FEATURE_TOUR_PRESENTATION"] = dropPresentation
         if openNewLink { app.launchEnvironment["LINKS_TEST_OPEN_NEW_LINK_ON_LAUNCH"] = "1" }
         app.launch()
     }
