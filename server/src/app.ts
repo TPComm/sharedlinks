@@ -802,7 +802,7 @@ export function createApp(config: Config, opts: AppOptions = {}) {
         const group = params.get("group_id");
         const groupId = group === null ? null : groupOf(group, me);
         const scope = `${VISIBLE} AND added_at >= ?2 AND added_at < ?3 AND (?4 IS NULL OR group_id = ?4)`;
-        const rows = db.query(`WITH scoped AS (SELECT * FROM links WHERE ${scope}),
+        const rows = db.query(`WITH scoped AS (SELECT links.*, ${MY_FAVORITE} FROM links WHERE ${scope}),
           reaction_counts AS (SELECT r.link_id, count(*) AS total FROM reactions r
             JOIN scoped ON scoped.id = r.link_id WHERE r.emoji != '👎'
               AND NOT EXISTS (SELECT 1 FROM blocks WHERE blocker = ?1 AND blocked = r.person)
@@ -810,7 +810,7 @@ export function createApp(config: Config, opts: AppOptions = {}) {
           SELECT scoped.*, coalesce(reaction_counts.total, 0) AS reaction_count, seen.person IS NOT NULL AS watched
           FROM scoped LEFT JOIN reaction_counts ON reaction_counts.link_id = scoped.id
           LEFT JOIN seen ON seen.link_id = scoped.id AND seen.person = ?1
-          ORDER BY scoped.added_at DESC, scoped.id DESC`).all(me, start, end, groupId) as (LinkRow & { reaction_count: number; watched: number })[];
+          ORDER BY scoped.added_at DESC, scoped.id DESC`).all(me, start, end, groupId) as (LinkWithFavorite & { reaction_count: number; watched: number })[];
         const received = rows.filter(r => r.added_by !== me);
         const counts = (values: string[]) => {
           const result = new Map<string, number>();

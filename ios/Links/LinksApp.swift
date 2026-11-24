@@ -2,6 +2,11 @@ import AppIntents
 import LinksKit
 import SwiftUI
 import UIKit
+#if DEBUG
+import CoreFoundation
+
+private let testOpenURL = Notification.Name("LinksTestOpenURL")
+#endif
 
 @main
 struct LinksApp: App {
@@ -16,6 +21,18 @@ struct LinksApp: App {
         #endif
         let model = AppModel()
         _model = State(initialValue: model)
+        #if DEBUG
+        let env = ProcessInfo.processInfo.environment
+        if AppModel.isUITesting, let name = env["LINKS_TEST_OPEN_URL_NOTIFICATION"] {
+            CFNotificationCenterAddObserver(CFNotificationCenterGetDarwinNotifyCenter(), nil, { _, _, _, _, _ in
+                DispatchQueue.main.async {
+                    guard let address = ProcessInfo.processInfo.environment["LINKS_TEST_OPEN_URL"],
+                          let url = URL(string: address) else { return }
+                    NotificationCenter.default.post(name: testOpenURL, object: url)
+                }
+            }, name as CFString, nil, .deliverImmediately)
+        }
+        #endif
         // Lets App Intents (e.g. "New Link") act on the running app.
         AppDependencyManager.shared.add(dependency: model)
         LinkTips.configure()
@@ -74,6 +91,11 @@ struct RootView: View {
             }
         }
         .onOpenURL { model.handle($0) }
+        #if DEBUG
+        .onReceive(NotificationCenter.default.publisher(for: testOpenURL)) { notification in
+            if let url = notification.object as? URL { model.handle(url) }
+        }
+        #endif
         // Again for each sign-in: the token moves to whoever signed in on this phone.
         .task(id: "\(delegate.deviceToken ?? "")|\(model.isSignedIn)") {
             if let token = delegate.deviceToken { await model.registerDevice(token) }

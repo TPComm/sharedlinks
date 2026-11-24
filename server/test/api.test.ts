@@ -1152,6 +1152,13 @@ describe("wrapped", () => {
     expect(await get()).toMatchObject({ received: 3, sent: 1, watched: 1,
       top_sender: { id: amyId, name: "Amy", count: 2 }, top_platform: { platform: "youtube", count: 2 },
       most_reacted: { id: z, sender_name: "Zoe", reactions: 1 } });
+    const star = await call(`/api/links/${z}/favorite`, { method: "PUT", token: viewer });
+    expect(star.status).toBe(200);
+    expect(star.data.link.favorited_at).toBeNumber();
+    expect((await get()).most_reacted).toMatchObject({ id: z, favorited_at: star.data.link.favorited_at });
+    const senderWrapped = await call(`/api/wrapped?start=100&end=200&group_id=${chat}`, { token: zoe });
+    expect(senderWrapped.data.most_reacted).toMatchObject({ id: z });
+    expect(senderWrapped.data.most_reacted).not.toHaveProperty("favorited_at");
     expect(await get(`&group_id=${chat}`)).toMatchObject({ received: 2, sent: 1, top_sender: { id: amyId }, top_platform: { platform: "instagram" } });
     expect((await call(`/api/wrapped?start=100&end=200&group_id=${secret}`, { token: viewer })).status).toBe(404);
     expect((await call("/api/wrapped?start=0&end=1", { token: viewer })).data).toEqual({ start: 0, end: 1, received: 0, sent: 0, watched: 0, top_sender: null, top_platform: null, most_reacted: null });
