@@ -4,11 +4,10 @@ import SwiftUI
 struct ActivityScreen: View {
     @Environment(AppModel.self) private var model
     @Environment(\.dismiss) private var dismiss
-    @State private var path: [Int] = []
+    @State private var path: [ActivityItem] = []
     @State private var feed = ActivityFeed()
     @State private var loading = false
     @State private var error: String?
-    @State private var commentLinkID: Int?
 
     var body: some View {
         NavigationStack(path: $path) {
@@ -16,8 +15,8 @@ struct ActivityScreen: View {
                 ForEach(feed.items) { item in
                     if let link = model.inbox.links.first(where: { $0.id == item.linkID }) {
                         Button {
-                            commentLinkID = item.kind == .comment ? link.id : nil
-                            path.append(link.id)
+                            model.markActivityRead(item)
+                            path.append(item)
                         } label: {
                             HStack(spacing: 12) {
                                 AvatarView(user: model.inbox.user(item.person), size: 36)
@@ -38,7 +37,7 @@ struct ActivityScreen: View {
                         }
                         .buttonStyle(.plain)
                         .accessibilityElement(children: .combine)
-                        .accessibilityIdentifier("activity.\(item.kind.rawValue).\(item.linkID)")
+                        .accessibilityIdentifier("activity.\(item.kind.rawValue).\(item.linkID)\(item.commentID.map { ".\($0)" } ?? "")")
                     }
                 }
                 if let error {
@@ -58,7 +57,10 @@ struct ActivityScreen: View {
                     Button("Done") { dismiss() }
                 }
             }
-            .navigationDestination(for: Int.self) { LinkDetailView(linkID: $0, showComments: commentLinkID == $0) }
+            .navigationDestination(for: ActivityItem.self) { item in
+                LinkDetailView(linkID: item.linkID, destination: item.kind == .comment
+                               ? .comment(item.commentID) : item.kind == .seen ? .seen : .reactions)
+            }
             .overlay {
                 if !loading && error == nil && !feed.items.contains(where: { item in model.inbox.links.contains { $0.id == item.linkID } }) {
                     ContentUnavailableView("No activity yet", systemImage: "bell",
@@ -92,6 +94,9 @@ struct ActivityScreen: View {
             let page = try await model.client.activity(cursor: update == .older ? feed.next : nil)
             try Task.checkCancellation()
             feed.apply(page, update: update)
+            if update == .reset, let newest = page.items.map(\.at).max() {
+                model.markActivityViewed(through: newest)
+            }
             error = nil
         } catch is CancellationError {
         } catch {

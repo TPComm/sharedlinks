@@ -111,6 +111,7 @@ struct CommentThreadView: View {
             }
             ForEach(thread.comments) { comment in
                 bubble(comment)
+                    .id("comment.\(comment.id)")
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)

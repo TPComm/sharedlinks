@@ -1,5 +1,42 @@
 import Foundation
 
+public struct ActivityReadState: Codable, Sendable {
+    private var viewed: [String: Date] = [:]
+    private var read: [String: Set<String>] = [:]
+    private static let key = "activityReadState"
+
+    public init() {}
+
+    private func scope(_ person: String, _ server: URL) -> String { "\(server.absoluteString)|\(person)" }
+
+    public func isNew(_ date: Date, person: String, server: URL) -> Bool {
+        date > (viewed[scope(person, server)] ?? .distantPast)
+    }
+
+    public func hasUnread(_ item: ActivityItem, person: String, server: URL) -> Bool {
+        item.kind == .comment && item.person != person && !(read[scope(person, server)]?.contains(item.id) ?? false)
+    }
+
+    public mutating func markRead(_ item: ActivityItem, person: String, server: URL) {
+        read[scope(person, server), default: []].insert(item.id)
+    }
+
+    public mutating func markViewed(through date: Date, person: String, server: URL) {
+        let key = scope(person, server)
+        viewed[key] = max(viewed[key] ?? .distantPast, date)
+    }
+
+    public static func load(defaults: UserDefaults = .standard) -> Self {
+        guard let data = defaults.data(forKey: key) else { return Self() }
+        return (try? APIClient.decoder.decode(Self.self, from: data)) ?? Self()
+    }
+
+    public func save(defaults: UserDefaults = .standard) {
+        guard let data = try? APIClient.encoder.encode(self) else { return }
+        defaults.set(data, forKey: Self.key)
+    }
+}
+
 public struct ActivityItem: Codable, Sendable, Hashable, Identifiable {
     public enum Kind: String, Codable, Sendable { case comment, reaction, seen }
 

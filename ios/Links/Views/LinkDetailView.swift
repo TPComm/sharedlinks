@@ -2,6 +2,18 @@ import LinksKit
 import SharedWithYou
 import SwiftUI
 
+enum LinkDetailDestination: Hashable {
+    case comment(Int?), seen, reactions
+
+    var scrollID: String {
+        switch self {
+        case .comment(let id): id.map { "comment.\($0)" } ?? "comments"
+        case .seen: "seen"
+        case .reactions: "reactions"
+        }
+    }
+}
+
 /// A link's own page, pushed when its row is tapped or its widget row opens the app: the preview,
 /// who sent it and why, the button that opens it in TikTok (or wherever), reactions, and who has
 /// seen it. Opening it from here marks it watched; the page stays underneath, with Mark as Not
@@ -9,11 +21,11 @@ import SwiftUI
 struct LinkDetailView: View {
     @Environment(AppModel.self) private var model
     let linkID: Int
-    var showComments = false
+    var destination: LinkDetailDestination?
 
     var body: some View {
         if let link = model.inbox.links.first(where: { $0.id == linkID }) {
-            LinkPage(link: link, showComments: showComments)
+            LinkPage(link: link, destination: destination)
         } else {
             // Someone deleted it while this page was open (or while the app was away), or I
             // reported it or blocked its sender on another device.
@@ -29,7 +41,9 @@ private struct LinkPage: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.scenePhase) private var scenePhase
     let link: SharedLink
-    var showComments = false
+    var destination: LinkDetailDestination?
+    @State private var contentHeight: CGFloat = 0
+    @State private var landed = false
     @State private var thread = LinkThread()
     @State private var highlight: SWHighlight?
 
@@ -57,8 +71,8 @@ private struct LinkPage: View {
                     about
                     if let highlight { SharedAttributionView(highlight: highlight) }
                     actions
-                    reactions
-                    receipts
+                    reactions.id("reactions")
+                    receipts.id("seen")
                     CommentThreadView(thread: thread, linkID: link.id)
                         .id("comments")
                 }
@@ -66,6 +80,7 @@ private struct LinkPage: View {
                 .padding(.vertical, 16)
                 .frame(maxWidth: 600)
                 .frame(maxWidth: .infinity)
+                .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { contentHeight = $0 }
             }
             .accessibilityIdentifier("linkPage.\(link.id)")
             .navigationTitle(link.platform.noun)
@@ -75,7 +90,20 @@ private struct LinkPage: View {
             .scrollDismissesKeyboard(.interactively)
             .task {
                 await thread.load(link.id, model: model)
-                if showComments { proxy.scrollTo("comments", anchor: .top) }
+            }
+            .task(id: "\(thread.loaded)-\(contentHeight)") {
+                guard let destination, thread.loaded, contentHeight > 0, !landed else { return }
+                await Task.yield()
+                guard !Task.isCancelled else { return }
+                let target: String
+                if case .comment(let id) = destination, let id,
+                   !thread.comments.contains(where: { $0.id == id }) {
+                    target = "comments"
+                } else {
+                    target = destination.scrollID
+                }
+                proxy.scrollTo(target, anchor: .center)
+                landed = true
             }
             .onChange(of: model.inboxRefresh) { _, _ in
                 Task { await thread.load(link.id, model: model) }

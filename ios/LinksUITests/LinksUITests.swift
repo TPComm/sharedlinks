@@ -493,7 +493,7 @@ final class LinksUITests: XCTestCase {
     // MARK: Comments
 
     func testActivityShowsReactionsAndOpensComments() throws {
-        let link = try seed(by: server.me, note: "Activity link")
+        let link = try seed(by: server.me, note: String(repeating: "Activity link with a long sender note. ", count: 18))
         let comment = try server.addComment(link.id, body: "Activity reply", as: server.friend)
         try server.react(link.id, emoji: "😂", as: server.friend)
         launch()
@@ -502,15 +502,38 @@ final class LinksUITests: XCTestCase {
         XCTAssertEqual(activity.label, "Activity")
         XCTAssertEqual(activity.value as? String, "1 unread")
         activity.tap()
+        let unreadRow = app.buttons["activity.comment.\(link.id).\(comment.id)"]
+        XCTAssert(unreadRow.waitForExistence(timeout: 10))
+        XCTAssert(unreadRow.label.contains("Unread comment"))
+        app.buttons["Done"].tap()
+        XCTAssert(activity.waitForExistence(timeout: 5))
+        XCTAssertEqual(activity.value as? String, "0 unread")
+        launch()
+        XCTAssert(activity.waitForExistence(timeout: 10))
+        XCTAssertEqual(activity.value as? String, "0 unread")
+        _ = try server.addComment(link.id, body: "A newer Activity reply", as: server.friend)
+        launch()
+        XCTAssert(activity.waitForExistence(timeout: 10))
+        XCTAssertEqual(activity.value as? String, "1 unread")
+        activity.tap()
+        XCTAssert(unreadRow.waitForExistence(timeout: 10))
+        XCTAssert(unreadRow.label.contains("Unread comment"))
         let reaction = scrolledTo(app.buttons["activity.reaction.\(link.id)"])
         XCTAssert(reaction.waitForExistence(timeout: 10))
         XCTAssert(reaction.label.contains("reacted 😂"))
         let seen = scrolledTo(app.buttons["activity.seen.\(link.id)"])
         XCTAssert(seen.waitForExistence(timeout: 10))
         XCTAssert(seen.label.contains("saw your link"))
-        let row = scrolledTo(app.buttons["activity.comment.\(link.id)"])
+        seen.tap()
+        let seenHeading = app.staticTexts["Seen By"]
+        XCTAssert(seenHeading.waitForExistence(timeout: 10))
+        XCTAssert(seenHeading.isHittable)
+        XCTAssertLessThan(seenHeading.frame.maxY, app.textFields["comments.draft"].frame.minY)
+        app.navigationBars.buttons.element(boundBy: 0).tap()
+        let row = scrolledTo(unreadRow)
         XCTAssert(row.waitForExistence(timeout: 10))
         XCTAssert(row.label.contains("commented: Activity reply"))
+        XCTAssert(row.label.contains("Unread comment"))
         let screenshot = XCTAttachment(screenshot: app.screenshot())
         screenshot.name = "Activity tab"
         screenshot.lifetime = .keepAlways
@@ -520,6 +543,11 @@ final class LinksUITests: XCTestCase {
         XCTAssert(app.staticTexts["Activity reply"].waitForExistence(timeout: 10))
         XCTAssert(app.staticTexts["Activity reply"].isHittable)
         XCTAssert(app.textFields["comments.draft"].exists)
+        XCTAssertLessThan(app.staticTexts["Activity reply"].frame.maxY, app.textFields["comments.draft"].frame.minY)
+        let landing = XCTAttachment(screenshot: app.screenshot())
+        landing.name = "Activity comment landing"
+        landing.lifetime = .keepAlways
+        add(landing)
         XCTAssertFalse(app.buttons["comment.edit.\(comment.id)"].exists)
     }
 

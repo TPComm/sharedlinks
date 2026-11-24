@@ -3,6 +3,41 @@ import Testing
 @testable import LinksKit
 
 struct ActivityTests {
+    @Test func feedViewingIsIndependentOfRowReadingAndPersists() throws {
+        let suite = "activity-\(UUID())"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let server = URL(string: "https://links.test")!
+        let other = URL(string: "https://other.test")!
+        let items = try APIClient.decoder.decode(ActivityPage.self, from: Data(Self.page.utf8)).items
+        let comment = items[0]
+        var state = ActivityReadState.load(defaults: defaults)
+        #expect(state.isNew(comment.at, person: "me", server: server))
+        #expect(state.hasUnread(comment, person: "me", server: server))
+        #expect(!state.hasUnread(comment, person: "friend", server: server))
+        #expect(!state.hasUnread(items[1], person: "me", server: server))
+        state.markViewed(through: comment.at, person: "me", server: server)
+        state.markViewed(through: .distantPast, person: "me", server: server)
+        #expect(!state.isNew(comment.at, person: "me", server: server))
+        #expect(state.isNew(comment.at.addingTimeInterval(1), person: "me", server: server))
+        #expect(state.hasUnread(comment, person: "me", server: server))
+        state.save(defaults: defaults)
+        state = ActivityReadState.load(defaults: defaults)
+        #expect(!state.isNew(comment.at, person: "me", server: server))
+        state.markRead(comment, person: "me", server: server)
+        state.save(defaults: defaults)
+        state = ActivityReadState.load(defaults: defaults)
+        #expect(!state.hasUnread(comment, person: "me", server: server))
+        let newer = try APIClient.decoder.decode(ActivityPage.self, from: Data(Self.page.replacingOccurrences(of: "\"comment_id\":42", with: "\"comment_id\":43").utf8)).items[0]
+        #expect(state.hasUnread(newer, person: "me", server: server))
+        #expect(state.hasUnread(comment, person: "another", server: server))
+        #expect(state.hasUnread(comment, person: "me", server: other))
+        #expect(state.isNew(comment.at, person: "another", server: server))
+        #expect(state.isNew(comment.at, person: "me", server: other))
+        defaults.set(Data("broken".utf8), forKey: "activityReadState")
+        #expect(ActivityReadState.load(defaults: defaults).isNew(comment.at, person: "me", server: server))
+    }
+
     private static let page = #"{"items":[{"kind":"comment","link_id":7,"person":"friend","at":30,"comment_id":42,"snippet":"Hello"},{"kind":"reaction","link_id":7,"person":"friend","at":20,"emoji":"😂"},{"kind":"seen","link_id":7,"person":"friend","at":10}],"has_more":true,"next":"opaque-cursor"}"#
 
     @Test func decodesKindsAndReadPositions() throws {
