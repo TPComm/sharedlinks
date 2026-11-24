@@ -63,10 +63,7 @@ final class FeatureTourUITests: XCTestCase {
         XCTAssert(app.tabBars.buttons["Queue"].waitForExistence(timeout: 20))
         XCTAssertFalse(app.staticTexts["Make Links Yours"].waitForExistence(timeout: 3))
         app.buttons["account"].tap()
-        let replay = app.buttons["profile.whatsNew"]
-        for _ in 0..<6 where !(replay.exists && replay.isHittable) { app.swipeUp() }
-        XCTAssert(replay.isHittable)
-        replay.tap()
+        scrollToWhatsNew().tap()
         waitForNotificationsBeforeFeatureTour(in: app)
         XCTAssert(waitForTitle("Make Links Yours"))
         for title in ["Send Today's Links Together", "Links Wrapped", "See Who Shared It",
@@ -179,6 +176,21 @@ final class FeatureTourUITests: XCTestCase {
             RunLoop.current.run(until: Date(timeIntervalSinceNow: 0.25))
         } while ContinuousClock.now < deadline
         XCTFail("automatic feature tour presentation was not dropped")
+    }
+
+    private func scrollToWhatsNew() -> XCUIElement {
+        let replay = app.buttons["profile.whatsNew"]
+        let shown = NSPredicate(format: "exists == true AND isHittable == true")
+        XCTAssert(app.navigationBars["Profile"].waitForExistence(timeout: 20))
+        for _ in 0..<12 {
+            let ready = XCTNSPredicateExpectation(predicate: shown, object: replay)
+            if XCTWaiter.wait(for: [ready], timeout: 1) == .completed { return replay }
+            app.swipeUp(velocity: .slow)
+        }
+        let ready = XCTNSPredicateExpectation(predicate: shown, object: replay)
+        XCTAssertEqual(XCTWaiter.wait(for: [ready], timeout: 5), .completed,
+                       "What's New did not become hittable after scrolling Profile")
+        return replay
     }
 
     private func waitForTitle(_ title: String) -> Bool {
