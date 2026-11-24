@@ -2,6 +2,9 @@ import AppIntents
 import LinksKit
 import SwiftUI
 import UIKit
+#if DEBUG
+import Darwin
+#endif
 
 @main
 struct LinksApp: App {
@@ -16,6 +19,17 @@ struct LinksApp: App {
         #endif
         let model = AppModel()
         _model = State(initialValue: model)
+        #if DEBUG
+        let env = ProcessInfo.processInfo.environment
+        if AppModel.isUITesting, let name = env["LINKS_TEST_OPEN_URL_NOTIFICATION"],
+           let address = env["LINKS_TEST_OPEN_URL"], let url = URL(string: address) {
+            var token: Int32 = 0
+            notify_register_dispatch(name, &token, .main) { [weak model] _ in
+                guard let model else { return }
+                Task { @MainActor in model.handle(url) }
+            }
+        }
+        #endif
         // Lets App Intents (e.g. "New Link") act on the running app.
         AppDependencyManager.shared.add(dependency: model)
         LinkTips.configure()

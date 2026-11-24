@@ -337,12 +337,21 @@ final class LinksUITests: XCTestCase {
         let link = try server.add(uniqueURL(), to: chat.id, as: server.friend)
         deleteAfterwards(link.id)
 
-        launch()
-        waitForRow(link, in: "toWatch")
+        let notification = "com.tpcomm.links.open-url.\(UUID().uuidString)"
+        launch(environment: ["LINKS_TEST_OPEN_URL_NOTIFICATION": notification,
+                             "LINKS_TEST_OPEN_URL": "sharedlinks://g/\(chat.id)"])
+        waitForRow(link, in: "toWatch").tap()
+        XCTAssert(page(link).waitForExistence(timeout: 10))
+        let star = app.buttons["link.favorite"]
+        star.tap()
+        waitFor(star, labelContaining: "Remove from Favorites")
         app.tabBars.buttons["Favorites"].tap()
-        XCTAssert(app.navigationBars["Favorites"].waitForExistence(timeout: 10))
+        waitForRow(link, in: "favorites").tap()
+        XCTAssert(page(link).waitForExistence(timeout: 10))
 
-        app.open(URL(string: "sharedlinks://g/\(chat.id)")!)
+        CFNotificationCenterPostNotification(CFNotificationCenterGetDarwinNotifyCenter(),
+                                             CFNotificationName(rawValue: notification as CFString), nil, nil, true)
+        XCTAssert(page(link).waitForNonExistence(timeout: 10), "chat link did not dismiss the Favorites link page")
         let picker = app.buttons["chatPicker"]
         XCTAssert(picker.waitForExistence(timeout: 10), "chat link left Favorites open")
         waitFor(picker, labelContaining: name)
