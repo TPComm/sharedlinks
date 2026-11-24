@@ -977,6 +977,7 @@ final class AppModel {
     private func showChat(_ id: Int) {
         swipeQueue = nil
         chat = id
+        if tab == .favorites { tab = .toWatch }
         paths[tab] = []
     }
 
