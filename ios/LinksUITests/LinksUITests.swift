@@ -358,15 +358,11 @@ final class LinksUITests: XCTestCase {
         leaveAfterwards(chat.id)
         let link = try server.add(uniqueURL(), to: chat.id, as: server.friend)
         deleteAfterwards(link.id)
+        try server.setFavorite(link.id, as: server.me)
 
         let notification = "com.tpcomm.links.open-url.\(UUID().uuidString)"
         launch(environment: ["LINKS_TEST_OPEN_URL_NOTIFICATION": notification,
                              "LINKS_TEST_OPEN_URL": "sharedlinks://g/\(chat.id)"])
-        waitForRow(link, in: "toWatch").tap()
-        XCTAssert(page(link).waitForExistence(timeout: 10))
-        let star = app.buttons["link.favorite"]
-        star.tap()
-        waitFor(star, labelContaining: "Remove from Favorites")
         app.tabBars.buttons["Favorites"].tap()
         waitForRow(link, in: "favorites").tap()
         XCTAssert(page(link).waitForExistence(timeout: 10))

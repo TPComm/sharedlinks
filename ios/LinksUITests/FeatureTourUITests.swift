@@ -88,9 +88,11 @@ final class FeatureTourUITests: XCTestCase {
 
     func testWhatsNewRecoversAfterDroppedAutomaticPresentation() {
         launch(reset: true, dropPresentation: "until-replay")
-        XCTAssert(app.buttons["account"].waitForExistence(timeout: 20))
+        let account = app.buttons["account"]
+        XCTAssert(account.waitForExistence(timeout: 20))
+        waitForDroppedFeatureTour(in: account)
         XCTAssertFalse(app.buttons["featureTour.skip"].exists)
-        app.buttons["account"].tap()
+        account.tap()
         let replay = app.buttons["profile.whatsNew"]
         for _ in 0..<6 where !(replay.exists && replay.isHittable) { app.swipeUp() }
         XCTAssert(replay.isHittable)
@@ -143,6 +145,22 @@ final class FeatureTourUITests: XCTestCase {
         if openNewLink { app.launchEnvironment["LINKS_TEST_OPEN_NEW_LINK_ON_LAUNCH"] = "1" }
         if let swipeQueueLinkID { app.launchEnvironment["LINKS_TEST_OPEN_SWIPE_QUEUE_ON_LAUNCH"] = String(swipeQueueLinkID) }
         app.launch()
+    }
+
+    private func waitForDroppedFeatureTour(in account: XCUIElement) {
+        let springBoard = XCUIApplication(bundleIdentifier: "com.apple.springboard")
+        let allow = springBoard.alerts.buttons["Allow"]
+        let deadline = ContinuousClock.now + .seconds(90)
+        var answeredPrompt = false
+        repeat {
+            if account.value as? String == "Feature tour presentation dropped" { return }
+            if !answeredPrompt, allow.exists {
+                allow.tap()
+                answeredPrompt = true
+            }
+            RunLoop.current.run(until: Date(timeIntervalSinceNow: 0.25))
+        } while ContinuousClock.now < deadline
+        XCTFail("automatic feature tour presentation was not dropped")
     }
 
     private func waitForTitle(_ title: String) -> Bool {
