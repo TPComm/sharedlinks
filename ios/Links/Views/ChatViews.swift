@@ -259,7 +259,7 @@ private struct TasteMatchSection: View {
                         .accessibilityAddTraits(.isHeader)
                         .accessibilityIdentifier("tasteMatch.empty")
                     Text(group.members.count < 2
-                         ? "Add someone to this chat to find your shared favorites."
+                         ? "Add someone to this chat to see what you both love."
                          : "When everyone reacts with ❤️, 😂 or 🔥 to the same link, you’ll find it here.")
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
@@ -268,7 +268,7 @@ private struct TasteMatchSection: View {
                         .font(.title3.weight(.semibold))
                         .accessibilityAddTraits(.isHeader)
                         .accessibilityIdentifier("tasteMatch.summary")
-                    Text("Your latest shared favorites.")
+                    Text("Recent links everyone loved.")
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
                 }

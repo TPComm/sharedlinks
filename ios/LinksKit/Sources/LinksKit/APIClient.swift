@@ -174,6 +174,11 @@ public struct APIClient: Sendable {
         return r.link
     }
 
+    public func setFavorite(_ linkID: Int, _ starred: Bool) async throws -> SharedLink {
+        let r: LinkEnvelope = try await send(starred ? "PUT" : "DELETE", "api/links/\(linkID)/favorite")
+        return r.link
+    }
+
     /// `nil` removes my reaction.
     public func react(_ linkID: Int, _ emoji: String?) async throws -> SharedLink {
         let r: LinkEnvelope = try await send("POST", "api/links/\(linkID)/react",

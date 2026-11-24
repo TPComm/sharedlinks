@@ -116,13 +116,21 @@ struct LinkRow: View {
                 .foregroundStyle(.secondary)
                 .padding(.trailing, ReactButton.capsule(reactGlyph).width + 2) // room for ReactButton
 
-                if link.isLoadingPreview {
-                    Text("Loading preview title")
-                        .redacted(reason: .placeholder)
-                } else {
-                    Text(link.displayTitle)
-                        .fontWeight(unwatched ? .semibold : .regular)
-                        .lineLimit(2)
+                HStack(alignment: .firstTextBaseline, spacing: 5) {
+                    if link.favoritedAt != nil {
+                        Image(systemName: "star.fill")
+                            .font(.caption)
+                            .foregroundStyle(.orange)
+                            .accessibilityLabel("Favorite")
+                    }
+                    if link.isLoadingPreview {
+                        Text("Loading preview title")
+                            .redacted(reason: .placeholder)
+                    } else {
+                        Text(link.displayTitle)
+                            .fontWeight(unwatched ? .semibold : .regular)
+                            .lineLimit(2)
+                    }
                 }
                 if !link.note.isEmpty {
                     Text(link.note)
@@ -248,6 +256,8 @@ struct LinkRow: View {
         }
 
         Section {
+            FavoriteButton(link: link)
+                .environment(model)
             ShareLink(item: link.shareableURL, subject: Text(link.displayTitle), preview: link.sharePreview) {
                 Label("Share…", systemImage: "square.and.arrow.up")
             }
@@ -263,6 +273,22 @@ struct LinkRow: View {
         Button(role: .destructive) { confirmingDelete = true } label: {
             Label("Delete", systemImage: "trash")
         }
+    }
+}
+
+struct FavoriteButton: View {
+    @Environment(AppModel.self) private var model
+    let link: SharedLink
+
+    var body: some View {
+        let starred = link.favoritedAt != nil
+        Button {
+            Task { await model.toggleFavorite(link.id) }
+        } label: {
+            Label(starred ? "Remove from Favorites" : "Add to Favorites", systemImage: starred ? "star.fill" : "star")
+        }
+        .disabled(model.favoriteSaves.contains(link.id))
+        .accessibilityIdentifier("link.favorite")
     }
 }
 

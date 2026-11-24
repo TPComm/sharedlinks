@@ -209,6 +209,7 @@ export function openDatabase(dataDir: string, legacyAllowedEmails: string[] = []
   migrateToV17(db);
   migrateToV18(db);
   migrateToV19(db);
+  migrateToV20(db);
   db.transaction(() => {
     const update = db.query("UPDATE links SET share_token = ? WHERE id = ? AND share_token IS NULL");
     for (const row of db.query("SELECT id FROM links WHERE share_token IS NULL").all() as { id: number }[]) {
@@ -280,6 +281,23 @@ function migrateToV18(db: Database) {
       BEGIN SELECT RAISE(ABORT, 'Direct chats cannot add members'); END;`);
     db.run("PRAGMA user_version = 18");
   }).immediate();
+}
+
+function migrateToV20(db: Database) {
+  const { user_version } = db.query("PRAGMA user_version").get() as { user_version: number };
+  if (user_version >= 20) return;
+  db.transaction(() => {
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS favorites (
+        person TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        link_id INTEGER NOT NULL REFERENCES links(id) ON DELETE CASCADE,
+        created_at REAL NOT NULL,
+        PRIMARY KEY (person, link_id)
+      );
+      CREATE INDEX IF NOT EXISTS favorites_link ON favorites(link_id);
+      PRAGMA user_version = 20;
+    `);
+  })();
 }
 
 /**

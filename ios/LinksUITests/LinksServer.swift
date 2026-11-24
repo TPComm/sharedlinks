@@ -214,6 +214,21 @@ struct LinksServer: Sendable {
         _ = try send("DELETE", "api/invites/\(id)", as: token)
     }
 
+    struct PendingInvite: Decodable {
+        let id: Int
+        let groupID: Int?
+
+        enum CodingKeys: String, CodingKey {
+            case id
+            case groupID = "group_id"
+        }
+    }
+
+    func pendingInvites(as token: String) throws -> [PendingInvite] {
+        struct Pending: Decodable { let invites: [PendingInvite] }
+        return try JSONDecoder().decode(Pending.self, from: send("GET", "api/invites", as: token)).invites
+    }
+
     func state(as token: String) throws -> State {
         try JSONDecoder().decode(State.self, from: try send("GET", "api/state", as: token))
     }

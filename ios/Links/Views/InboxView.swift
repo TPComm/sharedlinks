@@ -2,7 +2,7 @@ import LinksKit
 import SwiftUI
 
 enum InboxTab: String, Hashable, Codable {
-    case toWatch, watched, sent, search
+    case toWatch, watched, sent, favorites, search
 
     /// The tab that shows a filter's list.
     init(_ filter: InboxFilter) {
@@ -11,6 +11,7 @@ enum InboxTab: String, Hashable, Codable {
         case .watched: self = .watched
         case .sent: self = .sent
         case .all: self = .search
+        case .favorites: self = .favorites
         }
     }
 }
@@ -18,6 +19,7 @@ enum InboxTab: String, Hashable, Codable {
 struct InboxView: View {
     @Environment(AppModel.self) private var model
     @State private var query = ""
+    @State private var searchFilter: InboxFilter = .all
 
     var body: some View {
         @Bindable var model = model
@@ -35,9 +37,17 @@ struct InboxView: View {
                 LinkListScreen(filter: .sent)
             }
 
+            Tab("Favorites", systemImage: "star", value: .favorites) {
+                LinkListScreen(filter: .favorites)
+            }
+
             Tab(value: .search, role: .search) {
-                LinkListScreen(filter: .all, query: query)
+                LinkListScreen(filter: searchFilter, query: query, search: true)
                     .searchable(text: $query, prompt: "Titles, people, notes")
+                    .searchScopes($searchFilter) {
+                        Text(InboxFilter.all.title).tag(InboxFilter.all)
+                        Text(InboxFilter.favorites.title).tag(InboxFilter.favorites)
+                    }
             }
         }
         .sheet(isPresented: $model.showAddSheet, onDismiss: { model.showTourIfNeeded() }) {
@@ -66,12 +76,13 @@ struct LinkListScreen: View {
     @Environment(AppModel.self) private var model
     let filter: InboxFilter
     var query: String = ""
+    var search = false
 
     var body: some View {
-        let tab = InboxTab(filter)
+        let tab = search ? .search : InboxTab(filter)
         NavigationStack(path: Binding(get: { model.paths[tab] ?? [] }, set: { model.paths[tab] = $0 })) {
-            LinkList(filter: filter, query: query)
-                .navigationTitle(filter.title)
+            LinkList(filter: filter, query: query, tab: tab)
+                .navigationTitle(search ? InboxFilter.all.title : filter.title)
                 .navigationDestination(for: Int.self) { LinkDetailView(linkID: $0) }
                 .toolbar {
                     ToolbarItem(placement: .topBarLeading) { ProfileButton() }
@@ -86,17 +97,19 @@ struct LinkListScreen: View {
                         }
                     }
                     // Servers from before chats have none to pick from.
-                    if !model.inbox.groups.isEmpty {
+                    if tab != .favorites && !model.inbox.groups.isEmpty {
                         ToolbarItem(placement: .topBarTrailing) { ChatPicker() }
                     }
-                    ToolbarItem(placement: .topBarTrailing) {
-                        Button {
-                            model.addPrefill = ""
-                            model.showAddSheet = true
-                        } label: {
-                            Label("New Link", systemImage: "plus")
+                    if tab != .favorites {
+                        ToolbarItem(placement: .topBarTrailing) {
+                            Button {
+                                model.addPrefill = ""
+                                model.showAddSheet = true
+                            } label: {
+                                Label("New Link", systemImage: "plus")
+                            }
+                            .accessibilityIdentifier("newLink")
                         }
-                        .accessibilityIdentifier("newLink")
                     }
                 }
         }
@@ -107,6 +120,9 @@ struct LinkList: View {
     @Environment(AppModel.self) private var model
     let filter: InboxFilter
     let query: String
+    let tab: InboxTab
+
+    private var chat: Int? { tab == .favorites ? nil : model.chat }
 
     var body: some View {
         if filter == .watched && query.isEmpty {
@@ -120,7 +136,7 @@ struct LinkList: View {
     }
 
     private func list(on date: Date) -> some View {
-        let links = model.inbox.links(for: filter, in: model.chat, matching: query)
+        let links = model.inbox.links(for: filter, in: chat, matching: query)
         return List {
             if filter == .watched && query.isEmpty,
                !model.inbox.throwbacks(in: model.chat, now: date, minimumAge: ThrowbackCard.minimumAge).isEmpty {
@@ -129,7 +145,7 @@ struct LinkList: View {
                     .listRowSeparator(.hidden)
             }
             ForEach(links) { link in
-                LinkRow(link: link, tab: InboxTab(filter))
+                LinkRow(link: link, tab: tab)
             }
         }
         .listStyle(.plain)
@@ -155,7 +171,10 @@ struct LinkList: View {
     @ViewBuilder private var emptyState: some View {
         if !query.isEmpty {
             ContentUnavailableView.search(text: query)
-        } else if let group = model.inbox.group(model.chat), model.inbox.links(in: group.id).isEmpty {
+        } else if filter == .favorites {
+            ContentUnavailableView("No Favorites Yet", systemImage: "star",
+                                   description: Text("Star a link to save it here. Only you can see your favorites."))
+        } else if let group = model.inbox.group(chat), model.inbox.links(in: group.id).isEmpty {
             ContentUnavailableView {
                 Label("Nothing in \(model.inbox.title(of: group)) Yet", systemImage: "bubble.left.and.bubble.right")
             } description: {
@@ -187,7 +206,7 @@ struct LinkList: View {
             case .sent:
                 ContentUnavailableView("Nothing Sent Yet", systemImage: "paperplane",
                                        description: Text("Links you share show up here, with who's seen them."))
-            case .all:
+            case .all, .favorites:
                 ContentUnavailableView("No Links Yet", systemImage: "film.stack")
             }
         }

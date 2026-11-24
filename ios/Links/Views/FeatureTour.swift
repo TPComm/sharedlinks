@@ -4,7 +4,7 @@ import SwiftUI
 
 /// Add a stable case in display order, its page content below, and a UI test assertion.
 enum FeatureTour: String, CaseIterable, Identifiable {
-    case profilePhoto, rollup, wrapped, sharedWithYou, nudge, swipeQueue
+    case profilePhoto, rollup, wrapped, sharedWithYou, nudge, swipeQueue, favorites
 
     var id: String { rawValue }
 
@@ -16,14 +16,14 @@ enum FeatureTour: String, CaseIterable, Identifiable {
     }
 
     enum Action {
-        case profilePhoto, openURL(String, String)
+        case profilePhoto, openURL(String, String), favorites
     }
 
     var page: Page {
         switch self {
         case .wrapped:
             Page(symbol: "sparkles.rectangle.stack", title: "Links Wrapped",
-                 body: "Profile → Links Wrapped shows who sent you the most links, your watch rate and your top platform. Share your highlights as a card whenever you like.",
+                 body: "Profile → Links Wrapped shows who sent you the most links, your seen rate and your top platform. Share your highlights as a card whenever you like.",
                  action: nil)
         case .profilePhoto:
             Page(symbol: "person.crop.circle", title: "Make Links Yours",
@@ -38,13 +38,17 @@ enum FeatureTour: String, CaseIterable, Identifiable {
                  body: "Links friends send you in Messages now show who shared them on the link's page. Tap their name to jump back to the conversation and reply.",
                  action: nil)
         case .nudge:
-            Page(symbol: "hand.wave", title: "Nudge Friends Who Haven't Watched",
-                 body: "Open a link you sent and tap Nudge next to someone who hasn't watched. You can nudge each person once per day.",
+            Page(symbol: "hand.wave", title: "Nudge Friends About Links They Haven't Seen",
+                 body: "Open a link you sent and tap Nudge next to someone who hasn't seen it yet. You can nudge each person once per day.",
                  action: nil)
         case .swipeQueue:
             Page(symbol: "rectangle.stack", title: "Swipe Through Your Queue",
                  body: "Tap the stack button at the top of your Queue to go through your links one at a time. Swipe up for the next one, and each link you swipe past moves to Seen.",
                  action: nil)
+        case .favorites:
+            Page(symbol: "star.fill", title: "Save Your Favorites",
+                 body: "Tap the star on any link to save it for later. Find your starred links in Favorites. Only you can see what you save.",
+                 action: .favorites)
         }
     }
 }
@@ -144,6 +148,12 @@ struct FeatureTourView: View {
                 }
             case .openURL(let title, let address)?:
                 if let url = URL(string: address) { Button(title) { openURL(url) } }
+            case .favorites?:
+                Button("Open Favorites") {
+                    model.paths[.favorites] = []
+                    model.tab = .favorites
+                    model.showFeatureTours = false
+                }
             case nil:
                 EmptyView()
             }

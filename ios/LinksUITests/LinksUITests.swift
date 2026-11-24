@@ -27,6 +27,7 @@ final class LinksUITests: XCTestCase {
         scrolledTo(app.buttons["profile.wrapped"]).tap()
         let sender = app.staticTexts["Friend"]
         XCTAssert(sender.waitForExistence(timeout: 20))
+        XCTAssert(app.staticTexts["Seen rate"].exists)
         scrolledTo(app.buttons["wrapped.share"])
         XCTAssert(app.buttons["wrapped.share"].exists)
         let attachment = XCTAttachment(screenshot: app.screenshot())
@@ -273,6 +274,52 @@ final class LinksUITests: XCTestCase {
         type(word, into: field)
         XCTAssert(row(match, in: "all").waitForExistence(timeout: 5))
         XCTAssert(row(other, in: "all").waitForNonExistence(timeout: 5), "a link that doesn't match")
+    }
+
+    func testFavoritesFromLinkPageAndRowCanBeSearchedAndRemoved() throws {
+        let word = "weekend"
+        let first = try seed(by: server.friend, note: "Pasta recipe for the weekend")
+        let second = try seed(by: server.friend, note: "A short weekend walk with a view")
+        let other = try seed(by: server.friend, note: "Weekend packing list")
+        launch()
+        waitForRow(second, in: "toWatch").tap()
+        XCTAssert(page(second).waitForExistence(timeout: 10))
+        let star = app.buttons["link.favorite"]
+        XCTAssertEqual(star.label, "Add to Favorites")
+        star.tap()
+        waitFor(star, labelContaining: "Remove from Favorites")
+        captureFavorites("Starred link page")
+        app.navigationBars.buttons.firstMatch.tap()
+
+        menu(on: waitForRow(first, in: "toWatch"), item: "Add to Favorites").tap()
+        app.tabBars.buttons["Favorites"].tap()
+        let latest = waitForRow(first, in: "favorites")
+        let earlier = waitForRow(second, in: "favorites")
+        XCTAssertLessThan(latest.frame.minY, earlier.frame.minY, "Newest star should be first")
+        captureFavorites("Favorites list")
+
+        app.tabBars.buttons["Search"].tap()
+        waitForRow(other, in: "all")
+        app.collectionViews["links.all"].swipeDown()
+        type(word, into: app.searchFields["Titles, people, notes"])
+        let scope = app.segmentedControls.buttons["Favorites"].firstMatch
+        XCTAssert(scope.waitForExistence(timeout: 10), "missing Favorites search scope")
+        scope.tap()
+        waitForRow(first, in: "favorites")
+        waitForRow(second, in: "favorites")
+        XCTAssertFalse(row(other, in: "favorites").exists)
+
+        menu(on: row(first, in: "favorites"), item: "Remove from Favorites").tap()
+        XCTAssert(row(first, in: "favorites").waitForNonExistence(timeout: 10))
+        XCTAssert(row(second, in: "favorites").exists)
+    }
+
+    private func captureFavorites(_ name: String) {
+        guard ProcessInfo.processInfo.environment["LINKS_CAPTURE_FAVORITES_SCREENSHOTS"] == "1" else { return }
+        let attachment = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
+        attachment.name = name
+        attachment.lifetime = .keepAlways
+        add(attachment)
     }
 
     func testWidgetLinkOpensTheLinksPage() throws {
@@ -665,8 +712,24 @@ final class LinksUITests: XCTestCase {
         XCTAssert(invite.waitForExistence(timeout: 5), "no Invite a Friend")
         invite.tap()
         XCTAssert(app.staticTexts["Starts a chat with just you two."].waitForExistence(timeout: 5), "All Chats invites someone into a chat with just me")
+        app.buttons["Cancel"].tap()
+        app.buttons["Done"].tap()
+
+        let everyone = try XCTUnwrap(server.state(as: server.me).groups.first(where: \.isDefault))
+        pickChat(everyone.name.isEmpty ? "Everyone" : everyone.name)
+        app.buttons["account"].tap()
+        app.buttons["People"].tap()
+        app.buttons["inviteFriend"].tap()
+        XCTAssert(app.staticTexts["Starts a chat with just you two."].waitForExistence(timeout: 5), "Everyone invites someone into a chat with just me")
+        let destination = app.descendants(matching: .any)["invite.chat"].firstMatch
+        XCTAssert(app.staticTexts["Just You Two"].exists || (destination.exists &&
+            (destination.label.contains("Just You Two") || destination.value as? String == "Just You Two")))
+        let existing = Set(try server.pendingInvites(as: server.me).map(\.id))
         app.buttons["createInvite"].tap()
         XCTAssert(app.buttons["sendInvite"].waitForExistence(timeout: 10), "no invite link to send")
+        let created = try XCTUnwrap(server.pendingInvites(as: server.me).first { !existing.contains($0.id) })
+        XCTAssertNil(created.groupID, "an invite from Everyone must not grant access to Everyone")
+        XCTAssert(app.staticTexts["Starts a chat with just you two. The link works once, for a week."].waitForExistence(timeout: 5))
         app.buttons["Done"].firstMatch.tap()
         let pending = app.staticTexts["Invite link"]
         XCTAssert(pending.waitForExistence(timeout: 5), "not under Invited")
@@ -1148,12 +1211,18 @@ final class LinksUITests: XCTestCase {
         XCTAssert(row(everyone, in: "toWatch").waitForNonExistence(timeout: 5), "a link from another chat still shows")
         XCTAssert(row(inChat, in: "toWatch").exists)
 
-        // An invite from here is into this chat.
+        // An invite from a group still starts a chat with just the inviter.
         app.buttons["account"].tap()
         app.buttons["People"].tap()
         app.buttons["inviteFriend"].tap()
-        XCTAssert(app.staticTexts["They’ll join \(name)."].waitForExistence(timeout: 5), "the invite isn't into the picked chat")
-        app.buttons["Cancel"].tap()
+        XCTAssert(app.staticTexts["Starts a chat with just you two."].waitForExistence(timeout: 5))
+        let existing = Set(try server.pendingInvites(as: server.me).map(\.id))
+        app.buttons["createInvite"].tap()
+        XCTAssert(app.buttons["sendInvite"].waitForExistence(timeout: 10), "no invite link to send")
+        let created = try XCTUnwrap(server.pendingInvites(as: server.me).first { !existing.contains($0.id) })
+        defer { try? server.cancelInvite(created.id, as: server.me) }
+        XCTAssertNil(created.groupID, "an invite from a named group must not grant access to the group")
+        app.buttons["Done"].firstMatch.tap()
         app.buttons["Done"].tap()
 
         // Every tab shows the same chat.

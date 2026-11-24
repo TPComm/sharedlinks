@@ -19,31 +19,35 @@ final class FeatureTourUITests: XCTestCase {
         XCTAssert(waitForTitle("Make Links Yours"))
         XCTAssert(app.buttons["featureTour.action.profilePhoto"].exists)
         let progress = app.descendants(matching: .any)["featureTour.progress"]
-        XCTAssertEqual(progress.label, "Page 1 of 6")
+        XCTAssertEqual(progress.label, "Page 1 of 7")
         capture("Profile photo action")
         app.buttons["featureTour.continue"].tap()
         XCTAssert(waitForTitle("Send Today's Links Together"))
         XCTAssert(app.buttons["featureTour.action.rollup"].exists)
-        XCTAssertEqual(progress.label, "Page 2 of 6")
+        XCTAssertEqual(progress.label, "Page 2 of 7")
         capture("Roll-up action")
         app.buttons["featureTour.continue"].tap()
         XCTAssert(waitForTitle("Links Wrapped"))
-        XCTAssertEqual(progress.label, "Page 3 of 6")
+        XCTAssertEqual(progress.label, "Page 3 of 7")
         capture("Wrapped page")
         app.buttons["featureTour.continue"].tap()
         XCTAssert(waitForTitle("See Who Shared It"))
         XCTAssertFalse(app.buttons["featureTour.action.sharedWithYou"].exists)
-        XCTAssertEqual(progress.label, "Page 4 of 6")
+        XCTAssertEqual(progress.label, "Page 4 of 7")
         capture("Shared with You")
         app.buttons["featureTour.continue"].tap()
-        XCTAssert(waitForTitle("Nudge Friends Who Haven't Watched"))
-        XCTAssertEqual(progress.label, "Page 5 of 6")
+        XCTAssert(waitForTitle("Nudge Friends About Links They Haven't Seen"))
+        XCTAssertEqual(progress.label, "Page 5 of 7")
         app.buttons["featureTour.continue"].tap()
         XCTAssert(waitForTitle("Swipe Through Your Queue"))
         XCTAssertFalse(app.buttons["featureTour.action.swipeQueue"].exists)
-        XCTAssertEqual(progress.label, "Page 6 of 6")
-        app.buttons["featureTour.done"].tap()
-        XCTAssert(app.tabBars.buttons["Queue"].waitForExistence(timeout: 20))
+        XCTAssertEqual(progress.label, "Page 6 of 7")
+        app.buttons["featureTour.continue"].tap()
+        XCTAssert(waitForTitle("Save Your Favorites"))
+        XCTAssertEqual(progress.label, "Page 7 of 7")
+        capture("Favorites tour")
+        app.buttons["featureTour.action.favorites"].tap()
+        XCTAssert(app.navigationBars["Favorites"].waitForExistence(timeout: 20))
 
         app.terminate()
         launch(reset: false)
@@ -71,8 +75,29 @@ final class FeatureTourUITests: XCTestCase {
         XCTAssertFalse(app.staticTexts["Make Links Yours"].waitForExistence(timeout: 3))
         XCTAssertFalse(app.staticTexts["Send Today's Links Together"].exists)
         XCTAssertFalse(app.staticTexts["See Who Shared It"].exists)
-        XCTAssertFalse(app.staticTexts["Nudge Friends Who Haven't Watched"].exists)
+        XCTAssertFalse(app.staticTexts["Nudge Friends About Links They Haven't Seen"].exists)
         XCTAssertFalse(app.staticTexts["Swipe Through Your Queue"].exists)
+        XCTAssertFalse(app.staticTexts["Save Your Favorites"].exists)
+    }
+
+    func testRecoversAutomaticallyWhenPresentationDoesNotAppear() {
+        launch(reset: true, dropPresentation: "once")
+        waitForNotificationsBeforeFeatureTour(in: app)
+        XCTAssert(waitForTitle("Make Links Yours"))
+    }
+
+    func testWhatsNewRecoversAfterDroppedAutomaticPresentation() {
+        launch(reset: true, dropPresentation: "until-replay")
+        XCTAssert(app.buttons["account"].waitForExistence(timeout: 20))
+        XCTAssertFalse(app.buttons["featureTour.skip"].exists)
+        app.buttons["account"].tap()
+        let replay = app.buttons["profile.whatsNew"]
+        for _ in 0..<6 where !(replay.exists && replay.isHittable) { app.swipeUp() }
+        XCTAssert(replay.isHittable)
+        replay.tap()
+        XCTAssert(waitForTitle("Make Links Yours"), "What's New did not recover the dropped sheet")
+        XCTAssertFalse(app.navigationBars["Profile"].exists)
+        capture("What's New recovered the dropped sheet")
     }
 
     func testFeatureTourResumesAfterDismissingNewLink() {
@@ -106,13 +131,15 @@ final class FeatureTourUITests: XCTestCase {
         XCTAssert(app.buttons["featureTour.skip"].waitForNonExistence(timeout: 20))
     }
 
-    private func launch(reset: Bool, openNewLink: Bool = false, swipeQueueLinkID: Int? = nil) {
+    private func launch(reset: Bool, dropPresentation: String? = nil, openNewLink: Bool = false,
+                        swipeQueueLinkID: Int? = nil) {
         app.launchEnvironment = [
             "LINKS_SERVER_URL": server.url.absoluteString,
             "LINKS_DEV_TOKEN": server.me,
             "LINKS_COMPLETE_ONBOARDING": "1",
         ]
         if reset { app.launchEnvironment["LINKS_RESET_FEATURE_TOURS"] = "1" }
+        app.launchEnvironment["LINKS_TEST_DROP_FEATURE_TOUR_PRESENTATION"] = dropPresentation
         if openNewLink { app.launchEnvironment["LINKS_TEST_OPEN_NEW_LINK_ON_LAUNCH"] = "1" }
         if let swipeQueueLinkID { app.launchEnvironment["LINKS_TEST_OPEN_SWIPE_QUEUE_ON_LAUNCH"] = String(swipeQueueLinkID) }
         app.launch()

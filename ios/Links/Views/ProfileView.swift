@@ -142,7 +142,7 @@ struct ProfileSheet: View {
                         close { model.startTour() }
                     }
                     row("What's New", systemImage: "gift") {
-                        close { model.startFeatureTours() }
+                        close { model.replayFeatureTours() }
                     }
                     .accessibilityIdentifier("profile.whatsNew")
                     NavigationLink { WrappedView() } label: {
