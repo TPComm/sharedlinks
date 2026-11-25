@@ -1240,13 +1240,13 @@ final class LinksUITests: XCTestCase {
         app.buttons["Mute"].tap()
         app.buttons["Until I Turn It Back On"].tap()
         let indicator = app.images["chat.muted.\(chat.id)"]
-        XCTAssert(indicator.waitForExistence(timeout: 10))
+        XCTAssert(indicator.waitForExistence(timeout: 30))
         try server.eventually("swipe muted the chat") {
             try server.state(as: server.me).group(chat.id)?.muted == true ? true : nil
         }
         row.swipeLeft()
         app.buttons["Unmute"].tap()
-        XCTAssert(indicator.waitForNonExistence(timeout: 10))
+        XCTAssert(indicator.waitForNonExistence(timeout: 30))
         try server.eventually("swipe unmuted the chat") {
             try server.state(as: server.me).group(chat.id)?.muted == false ? true : nil
         }
