@@ -3,7 +3,7 @@ import XCTest
 @MainActor
 final class FeatureTourUITests: XCTestCase {
     private var server: LinksServer!
-    private let app = XCUIApplication()
+    private var app = XCUIApplication()
 
     override func setUp() async throws {
         continueAfterFailure = false
@@ -87,6 +87,7 @@ final class FeatureTourUITests: XCTestCase {
         app.buttons["featureTour.skip"].tap()
         XCTAssert(app.staticTexts["Make Links Yours"].waitForNonExistence(timeout: 20))
         app.quit()
+        app = XCUIApplication()
         launch(reset: false)
         XCTAssert(app.tabBars.buttons["Queue"].waitForExistence(timeout: 20))
         XCTAssertFalse(app.staticTexts["Make Links Yours"].waitForExistence(timeout: 3))
