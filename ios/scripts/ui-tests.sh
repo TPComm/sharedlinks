@@ -273,6 +273,10 @@ stop_stuck_app() {
       echo "warning: XCTest is waiting for Links to quit, but no Links is running; listing processes in $logs/links-missing.txt" >&2
       { date -u +%T; ps -axo pid,ppid,stat,rss,%cpu,etime,command | grep -E "Links\.app|launchd_sim|testmanagerd" | grep -v grep; } \
         >>"$logs/links-missing.txt" 2>&1
+      # Then XCTest itself is what's stuck, so take the stacks of its side instead.
+      for app in $(pgrep -x testmanagerd || true) $(pgrep -f "LinksUITests-Runner\.app/LinksUITests-Runner( |$)" || true); do
+        stack_of "$app" 3 -noSymbolicate >>"$logs/xctest-$app.stack.txt" 2>&1 &
+      done
     fi
     for app in $apps; do
       echo "warning: Links ($app) didn't quit; sampling it to $logs/links-$app.sample.txt and killing it" >&2
