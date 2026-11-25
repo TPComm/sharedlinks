@@ -500,13 +500,13 @@ export class Accounts {
           throw e;
         }
       }
-      if (this.openInvite(inviteToken)) {
-        throw new AuthError("Chat invite links only work for people already on Links for now. Ask a friend for a personal invite.", 403);
-      }
       const invite = this.findInvite(inviteToken, email, !!user.email_verified);
       if (!invite) {
         if (!user.email_verified && email && this.findInvite(inviteToken, email, true)) {
           throw new AuthError("Verify your email address, then sign in again.", 403);
+        }
+        if (this.openInvite(inviteToken)) {
+          throw new AuthError("Chat invite links only work for people already on Links for now. Ask a friend for a personal invite.", 403);
         }
         if (inviteToken && this.pendingInvite(inviteToken)?.email) {
           throw new AuthError("This invite is for a different email address. Sign in with the one it was sent to.", 403);
