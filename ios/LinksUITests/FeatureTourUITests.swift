@@ -63,7 +63,7 @@ final class FeatureTourUITests: XCTestCase {
         XCTAssert(app.tabBars.buttons["Queue"].waitForExistence(timeout: 20))
         XCTAssertFalse(app.staticTexts["Make Links Yours"].waitForExistence(timeout: 3))
         app.buttons["account"].tap()
-        scrollToWhatsNew().tap()
+        tapWhatsNew()
         waitForNotificationsBeforeFeatureTour(in: app)
         XCTAssert(waitForTitle("Make Links Yours"))
         for title in ["Send Today's Links Together", "Links Wrapped", "See Who Shared It",
@@ -178,29 +178,36 @@ final class FeatureTourUITests: XCTestCase {
         XCTFail("automatic feature tour presentation was not dropped")
     }
 
-    private func scrollToWhatsNew() -> XCUIElement {
+    private func tapWhatsNew() {
         let replay = app.buttons["profile.whatsNew"]
-        let shown = NSPredicate { _, _ in
-            guard replay.exists else { return false }
-            let frame = replay.frame
+        XCTAssert(app.navigationBars["Profile"].waitForExistence(timeout: 30))
+        let deadline = ContinuousClock.now + .seconds(120)
+        var scrollingDown = true
+        repeat {
             let window = self.app.windows.firstMatch.frame
             let list = self.app.collectionViews.containing(.button, identifier: "profile.whatsNew").firstMatch
-            guard list.exists else { return false }
-            let viewport = list.frame.intersection(window).insetBy(dx: 1, dy: 1)
-            guard !frame.isEmpty, !frame.isNull, !frame.isInfinite,
-                  viewport.contains(frame) else { return false }
-            return replay.isHittable
-        }
-        XCTAssert(app.navigationBars["Profile"].waitForExistence(timeout: 20))
-        for _ in 0..<12 {
-            let ready = XCTNSPredicateExpectation(predicate: shown, object: replay)
-            if XCTWaiter.wait(for: [ready], timeout: 1) == .completed { return replay }
-            app.swipeUp(velocity: .slow)
-        }
-        let ready = XCTNSPredicateExpectation(predicate: shown, object: replay)
-        XCTAssertEqual(XCTWaiter.wait(for: [ready], timeout: 5), .completed,
-                       "What's New did not become hittable after scrolling Profile")
-        return replay
+            var viewport = (list.exists ? list.frame.intersection(window) : window).insetBy(dx: 8, dy: 8)
+            let navigation = app.navigationBars["Profile"].frame
+            viewport = viewport.intersection(CGRect(x: window.minX, y: navigation.maxY,
+                                                    width: window.width, height: max(0, window.maxY - navigation.maxY)))
+            if replay.exists {
+                let frame = replay.frame
+                if !frame.isEmpty, !frame.isNull, !frame.isInfinite {
+                    if viewport.contains(frame) {
+                        app.coordinate(withNormalizedOffset: .zero)
+                            .withOffset(CGVector(dx: frame.midX, dy: frame.midY)).tap()
+                        return
+                    }
+                    scrollingDown = frame.midY > viewport.midY
+                }
+            }
+            let start = app.coordinate(withNormalizedOffset: .zero)
+                .withOffset(CGVector(dx: viewport.midX, dy: viewport.minY + viewport.height * (scrollingDown ? 0.7 : 0.3)))
+            let end = app.coordinate(withNormalizedOffset: .zero)
+                .withOffset(CGVector(dx: viewport.midX, dy: viewport.minY + viewport.height * (scrollingDown ? 0.3 : 0.7)))
+            start.press(forDuration: 0.1, thenDragTo: end)
+        } while ContinuousClock.now < deadline
+        XCTFail("What's New did not enter the Profile viewport within 120 seconds: \(app.debugDescription)")
     }
 
     private func waitForTitle(_ title: String) -> Bool {
