@@ -69,7 +69,10 @@ struct AddLinkSheet: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
+                    // Stays until the send settles: success closes the sheet, which would
+                    // otherwise close one reopened in the meantime.
                     Button("Cancel", role: .cancel) { dismiss() }
+                        .disabled(sending)
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Send") {
@@ -92,6 +95,7 @@ struct AddLinkSheet: View {
             }
             .failureAlert($failure)
         }
+        .interactiveDismissDisabled(sending)
         .presentationDetents([.medium, .large])
         .onAppear {
             if groupID == nil { groupID = (model.inbox.group(model.chat) ?? model.inbox.preferredGroup)?.id }
