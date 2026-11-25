@@ -1198,8 +1198,7 @@ final class LinksUITests: XCTestCase {
         XCTAssertEqual(hour, start + 3600, accuracy: 60)
         XCTAssertEqual(try server.state(as: server.friend).group(chat.id)?.muted, false)
 
-        app.buttons["Change Duration…"].tap()
-        app.buttons["Until Tomorrow"].tap()
+        changeMuteDuration(to: "Until Tomorrow")
         let tomorrow = try server.eventually("chat muted until tomorrow") {
             let until = try server.state(as: server.me).group(chat.id)?.mutedUntil
             return until != hour ? until : nil
@@ -1208,8 +1207,7 @@ final class LinksUITests: XCTestCase {
             of: Calendar.current.date(byAdding: .day, value: 1, to: Date())!)!
         XCTAssertEqual(tomorrow, expected.timeIntervalSince1970, accuracy: 1)
 
-        app.buttons["Change Duration…"].tap()
-        app.buttons["Until I Turn It Back On"].tap()
+        changeMuteDuration(to: "Until I Turn It Back On")
         try server.eventually("chat muted indefinitely") {
             let group = try server.state(as: server.me).group(chat.id)
             return group?.muted == true && group?.mutedUntil == nil ? true : nil
@@ -1597,6 +1595,19 @@ final class LinksUITests: XCTestCase {
             if XCTWaiter().wait(for: [flipped], timeout: 10) == .completed { return }
         }
         waitFor(toggle, value: value)
+    }
+
+    private func changeMuteDuration(to title: String) {
+        let change = app.buttons["Change Duration…"]
+        // The updated mute can be visible before the save has re-enabled this button.
+        XCTAssert(change.wait(for: \.isEnabled, toEqual: true, timeout: 5),
+                  "Change Duration… did not become enabled")
+        change.tap()
+        let option = app.buttons[title]
+        XCTAssert(option.waitForExistence(timeout: 5), "Change Duration… did not show \(title)")
+        XCTAssert(option.wait(for: \.isHittable, toEqual: true, timeout: 5),
+                  "Mute duration option \(title) is not hittable")
+        option.tap()
     }
 
     private func waitFor(_ toggle: XCUIElement, value: String, timeout: TimeInterval = 30) {
