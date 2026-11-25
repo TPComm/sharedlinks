@@ -257,7 +257,7 @@ stack_of() {
 # sample the app for the logs and kill it from the host before quit() gives up on it.
 quit_grace_seconds="${LINKS_UI_TEST_QUIT_GRACE_SECONDS:-3}"
 stop_stuck_app() {
-  local pid=$1 log="$logs/xcodebuild.log" app apps sampler line reported=""
+  local pid=$1 log="$logs/xcodebuild.log" app apps sampler line reported="" stacked=""
   while kill -0 "$pid" 2>/dev/null; do
     sleep 1 >/dev/null 2>&1
     if [[ -z "${udid:-}" || ! -f "$log" ]] ||
@@ -273,8 +273,13 @@ stop_stuck_app() {
       echo "warning: XCTest is waiting for Links to quit, but no Links is running; listing processes in $logs/links-missing.txt" >&2
       { date -u +%T; ps -axo pid,ppid,stat,rss,%cpu,etime,command | grep -E "Links\.app|launchd_sim|testmanagerd" | grep -v grep; } \
         >>"$logs/links-missing.txt" 2>&1
-      # Then XCTest itself is what's stuck, so take the stacks of its side instead.
+    fi
+    # XCTest often takes a few seconds to see Links has gone, even in a passing run; near its 10 s
+    # timeout it is XCTest that's stuck, so take the stacks of its side instead.
+    if [[ -z "$apps" && "$line" != "$stacked" ]] && (( $(date +%s) - $(date -r "$log" +%s) >= 8 )); then
+      stacked=$line
       for app in $(pgrep -x testmanagerd || true) $(pgrep -f "LinksUITests-Runner\.app/LinksUITests-Runner( |$)" || true); do
+        echo "warning: XCTest still waiting on a Links that's gone; taking stack of $app to $logs/xctest-$app.stack.txt" >&2
         stack_of "$app" 3 -noSymbolicate >>"$logs/xctest-$app.stack.txt" 2>&1 &
       done
     fi
