@@ -151,8 +151,9 @@ final class LinksUITests: XCTestCase {
         let link = try seed(by: server.friend)
         launch()
         let row = waitForRow(link, in: "toWatch")
-        row.swipeRight()
-        app.collectionViews["links.toWatch"].buttons["Seen"].tap()
+        let seen = app.collectionViews["links.toWatch"].buttons["Seen"]
+        swipe(row, revealing: seen, leading: true)
+        seen.tap()
         XCTAssert(row.waitForNonExistence(timeout: 5), "still in To Watch")
 
         app.tabBars.buttons["Seen"].tap()
@@ -759,7 +760,7 @@ final class LinksUITests: XCTestCase {
         app.buttons["Done"].firstMatch.tap()
         let pending = app.staticTexts["Invite link"]
         XCTAssert(pending.waitForExistence(timeout: 5), "not under Invited")
-        pending.swipeLeft()
+        swipe(pending, revealing: app.buttons["Cancel Invite"])
         app.buttons["Cancel Invite"].tap()
         XCTAssert(pending.waitForNonExistence(timeout: 5), "still under Invited")
         app.buttons["Done"].tap()
@@ -774,7 +775,7 @@ final class LinksUITests: XCTestCase {
         XCTAssert(pending.waitForExistence(timeout: 5), "not under Invited")
         // Cancelled on another phone (or used) while this one still lists it.
         try server.cancelInvite(id, as: server.me)
-        pending.swipeLeft()
+        swipe(pending, revealing: app.buttons["Cancel Invite"])
         app.buttons["Cancel Invite"].tap()
 
         let alert = app.alerts["Couldn't Do That"]
@@ -829,8 +830,9 @@ final class LinksUITests: XCTestCase {
         launch()
         app.tabBars.buttons["Sent"].tap()
         let row = waitForRow(link, in: "sent")
-        row.swipeLeft()
-        app.collectionViews["links.sent"].buttons["Delete"].tap()
+        let delete = app.collectionViews["links.sent"].buttons["Delete"]
+        swipe(row, revealing: delete)
+        delete.tap()
 
         let confirm = app.sheets.buttons["Delete"]
         XCTAssert(confirm.waitForExistence(timeout: 5), "no delete confirmation")
@@ -1229,7 +1231,7 @@ final class LinksUITests: XCTestCase {
         app.buttons["Chats…"].tap()
         let row = app.buttons["chat.row.\(chat.id)"]
         XCTAssert(row.waitForExistence(timeout: 5))
-        row.swipeLeft()
+        swipe(row, revealing: app.buttons["Mute"])
         app.buttons["Mute"].tap()
         app.buttons["Until I Turn It Back On"].tap()
         let indicator = app.images["chat.muted.\(chat.id)"]
@@ -1237,7 +1239,7 @@ final class LinksUITests: XCTestCase {
         try server.eventually("swipe muted the chat") {
             try server.state(as: server.me).group(chat.id)?.muted == true ? true : nil
         }
-        row.swipeLeft()
+        swipe(row, revealing: app.buttons["Unmute"])
         app.buttons["Unmute"].tap()
         XCTAssert(indicator.waitForNonExistence(timeout: 10))
         try server.eventually("swipe unmuted the chat") {
@@ -1556,6 +1558,15 @@ final class LinksUITests: XCTestCase {
 
     /// A change made on the server shows up at the app's next inbox poll, up to 8 seconds away, and
     /// on a slow CI Simulator a single accessibility query can take another 15.
+    /// Swipes `row` until `action` shows. On a slow CI Simulator a synthesized swipe can land as
+    /// a drag that reveals nothing, so swipe again rather than tap a button that isn't there.
+    private func swipe(_ row: XCUIElement, revealing action: XCUIElement, leading: Bool = false) {
+        for _ in 1...3 {
+            leading ? row.swipeRight() : row.swipeLeft()
+            if action.waitForExistence(timeout: 5) { return }
+        }
+    }
+
     private func waitFor(_ element: XCUIElement, labelContaining text: String, timeout: TimeInterval = 30) {
         let label = XCTNSPredicateExpectation(predicate: NSPredicate(format: "label CONTAINS %@", text), object: element)
         wait(for: [label], timeout: timeout)
