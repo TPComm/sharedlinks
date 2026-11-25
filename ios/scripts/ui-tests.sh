@@ -268,16 +268,21 @@ stop_stuck_app() {
   done
 }
 
-# A UI query that times out once means Links has stopped answering XCTest; its retry starts with
-# the app still stuck, so sample it then (without killing it) to show what it was doing.
+# A UI query that times out (~30 s) means Links has stopped answering XCTest; the retry starts with
+# the app still stuck, so sample it then (without killing it) to show what it was doing. A retry
+# that follows its first try within seconds is just an element that hadn't appeared yet.
 sample_unresponsive_app() {
-  local pid=$1 log="$logs/xcodebuild.log" app line last=""
+  local pid=$1 log="$logs/xcodebuild.log" app line last="" gap
   while kill -0 "$pid" 2>/dev/null; do
     sleep 2 >/dev/null 2>&1
     [[ -n "${udid:-}" && -f "$log" ]] && command -v sample >/dev/null || continue
     line=$(tail -n 1 "$log")
     [[ "$line" == *"(retry 1)"* && "$line" != "$last" ]] || continue
     last=$line
+    # The gap between the XCTest times ("t = 12.34s") of the try and its retry.
+    gap=$(tail -n 2 "$log" | awk '{ for (i = 1; i < NF - 1; i++) if ($i == "t" && $(i + 1) == "=") { t[NR] = $(i + 2) + 0; break } }
+      END { print (1 in t && 2 in t) ? int(t[2] - t[1]) : 0 }')
+    (( gap >= 20 )) || continue
     for app in $(pgrep -f "Devices/$udid/.*/Links\.app/Links( |$)" || true); do
       echo "warning: a UI query timed out; sampling Links ($app) to $logs/links-$app-query.sample.txt" >&2
       { echo "$line"; ps -o pid,stat,rss,%cpu,etime -p "$app"; sample "$app" 3 -mayDie; } \
