@@ -1599,25 +1599,15 @@ final class LinksUITests: XCTestCase {
 
     private func changeMuteDuration(to title: String) {
         let change = app.buttons["Change Duration…"]
+        // The updated mute can be visible before the save has re-enabled this button.
+        XCTAssert(change.wait(for: \.isEnabled, toEqual: true, timeout: 5),
+                  "Change Duration… did not become enabled")
+        change.tap()
         let option = app.buttons[title]
-        for _ in 1...3 {
-            if !option.exists {
-                guard change.wait(for: \.isEnabled, toEqual: true, timeout: 5) else {
-                    XCTFail("Change Duration… did not become enabled")
-                    return
-                }
-                if !option.exists { change.tap() }
-            }
-            if option.waitForExistence(timeout: 5) {
-                guard option.wait(for: \.isHittable, toEqual: true, timeout: 5) else {
-                    XCTFail("Mute duration option \(title) is not hittable")
-                    return
-                }
-                option.tap()
-                return
-            }
-        }
-        XCTFail("Change Duration… did not show the mute duration option \(title)")
+        XCTAssert(option.waitForExistence(timeout: 5), "Change Duration… did not show \(title)")
+        XCTAssert(option.wait(for: \.isHittable, toEqual: true, timeout: 5),
+                  "Mute duration option \(title) is not hittable")
+        option.tap()
     }
 
     private func waitFor(_ toggle: XCUIElement, value: String, timeout: TimeInterval = 30) {
