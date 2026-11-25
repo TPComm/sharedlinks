@@ -238,6 +238,20 @@ watch_for_stall() {
   done
 }
 
+# The stack of a Links that has stopped answering. On CI, sample has read no threads from one, so
+# prefer spindump, which reads a suspended task too and says if it is; it needs root, which CI's
+# runners give without a password. Symbolicating takes spindump 30 s or more, so a caller that is
+# about to kill the app passes -noSymbolicate.
+stack_of() {
+  local app=$1 seconds=$2
+  shift 2
+  if [[ -x /usr/sbin/spindump ]] && sudo -n true 2>/dev/null; then
+    sudo -n /usr/sbin/spindump "$app" "$seconds" -onlyTarget -stdout -noFile -noBinary "$@"
+  else
+    sample "$app" "$seconds" -mayDie
+  fi
+}
+
 # A Links that has stopped answering can miss quit()'s notification, and XCTest's terminate then
 # fails too and leaves the run silent for the watchdog. Once quit() has waited a few of its 10 s,
 # sample the app for the logs and kill it from the host before quit() gives up on it.
@@ -256,7 +270,7 @@ stop_stuck_app() {
       ps -o pid,stat,rss,%cpu,etime -p "$app" >"$logs/links-$app.sample.txt" 2>&1 || true
       if command -v sample >/dev/null; then
         # A stuck app can take sample far longer than asked, so it doesn't get to hold up the kill.
-        sample "$app" 1 -mayDie >>"$logs/links-$app.sample.txt" 2>&1 &
+        stack_of "$app" 1 -noSymbolicate >>"$logs/links-$app.sample.txt" 2>&1 &
         sampler=$!
         for _ in 1 2 3; do
           kill -0 "$sampler" 2>/dev/null || break
@@ -285,7 +299,7 @@ sample_unresponsive_app() {
     (( gap >= 20 )) || continue
     for app in $(pgrep -f "Devices/$udid/.*/Links\.app/Links( |$)" || true); do
       echo "warning: a UI query timed out; sampling Links ($app) to $logs/links-$app-query.sample.txt" >&2
-      { echo "$line"; ps -o pid,stat,rss,%cpu,etime -p "$app"; sample "$app" 3 -mayDie; } \
+      { echo "$line"; ps -o pid,stat,rss,%cpu,etime -p "$app"; stack_of "$app" 3; } \
         >>"$logs/links-$app-query.sample.txt" 2>&1 &
     done
   done
