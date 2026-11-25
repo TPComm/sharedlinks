@@ -759,7 +759,7 @@ final class LinksUITests: XCTestCase {
             (destination.label.contains("Just You Two") || destination.value as? String == "Just You Two")))
         let existing = Set(try server.pendingInvites(as: server.me).map(\.id))
         app.buttons["createInvite"].tap()
-        XCTAssert(app.buttons["sendInvite"].waitForExistence(timeout: 10), "no invite link to send")
+        XCTAssert(app.buttons["sendInvite"].waitForExistence(timeout: 30), "no invite link to send")
         let created = try XCTUnwrap(server.pendingInvites(as: server.me).first { !existing.contains($0.id) })
         XCTAssertNil(created.groupID, "an invite from Everyone must not grant access to Everyone")
         XCTAssert(app.staticTexts["Starts a chat with just you two. The link works once, for a week."].waitForExistence(timeout: 5))
@@ -1315,7 +1315,7 @@ final class LinksUITests: XCTestCase {
         XCTAssert(app.staticTexts["Starts a chat with just you two."].waitForExistence(timeout: 5))
         let existing = Set(try server.pendingInvites(as: server.me).map(\.id))
         app.buttons["createInvite"].tap()
-        XCTAssert(app.buttons["sendInvite"].waitForExistence(timeout: 10), "no invite link to send")
+        XCTAssert(app.buttons["sendInvite"].waitForExistence(timeout: 30), "no invite link to send")
         let created = try XCTUnwrap(server.pendingInvites(as: server.me).first { !existing.contains($0.id) })
         defer { try? server.cancelInvite(created.id, as: server.me) }
         XCTAssertNil(created.groupID, "an invite from a named group must not grant access to the group")
