@@ -208,10 +208,10 @@ fi
 # after a long silence instead, and log host memory so the next stall shows its cause.
 stall_seconds="${LINKS_UI_TEST_STALL_SECONDS:-600}"
 # Children too: one left holding the tee pipe would keep the run waiting.
-stop_tree() {
+process_tree() {
   local child
-  for child in $(pgrep -P "$2" || true); do stop_tree "$1" "$child"; done
-  kill "-$1" "$2" 2>/dev/null || true
+  echo "$1"
+  for child in $(pgrep -P "$1" || true); do process_tree "$child"; done
 }
 watch_for_stall() {
   local pid=$1 log="$logs/xcodebuild.log" silent
@@ -225,9 +225,14 @@ watch_for_stall() {
     if (( silent >= stall_seconds )); then
       echo "error: no UI test output for ${silent}s; stopping xcodebuild" >&2
       ps -axo pid,rss,%cpu,comm | sort -k2 -nr | head -20 >>"$logs/host-memory.log"
-      stop_tree TERM "$pid"
+      touch "$tmp/xcodebuild-stalled"
+      local pids
+      pids=$(process_tree "$pid")
+      # shellcheck disable=SC2086 # one pid per word
+      kill -TERM $pids 2>/dev/null || true
       sleep 30 >/dev/null 2>&1
-      stop_tree KILL "$pid"
+      # shellcheck disable=SC2086
+      kill -KILL $pids 2>/dev/null || true
       return
     fi
   done
@@ -239,6 +244,7 @@ watch_for_stall() {
 run_tests() {
   (
     cd "$ios"
+    rm -f "$tmp/xcodebuild-stalled"
     export TEST_RUNNER_LINKS_SERVER_URL="$url"
     export TEST_RUNNER_LINKS_DEV_TOKEN="$me_token"
     export TEST_RUNNER_LINKS_FRIEND_TOKEN="$friend_token"
@@ -258,7 +264,11 @@ run_tests() {
     watch_for_stall "$xcodebuild_pid" &
     watchdog_pid=$!
     trap 'kill "$xcodebuild_pid" "$watchdog_pid" 2>/dev/null' EXIT INT TERM
-    wait "$xcodebuild_pid"
+    status=0
+    wait "$xcodebuild_pid" || status=$?
+    # Let a watchdog that stopped a stall finish off what's left.
+    if [[ -e "$tmp/xcodebuild-stalled" ]]; then wait "$watchdog_pid" || true; fi
+    exit "$status"
   ) 2>&1 | tee "$logs/xcodebuild.log"
 }
 status=0
