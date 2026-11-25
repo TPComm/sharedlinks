@@ -1556,8 +1556,6 @@ final class LinksUITests: XCTestCase {
         return button
     }
 
-    /// A change made on the server shows up at the app's next inbox poll, up to 8 seconds away, and
-    /// on a slow CI Simulator a single accessibility query can take another 15.
     /// Swipes `row` until `action` shows. On a slow CI Simulator a synthesized swipe can land as
     /// a drag that reveals nothing, so swipe again rather than tap a button that isn't there.
     private func swipe(_ row: XCUIElement, revealing action: XCUIElement, leading: Bool = false) {
@@ -1567,6 +1565,8 @@ final class LinksUITests: XCTestCase {
         }
     }
 
+    /// A change made on the server shows up at the app's next inbox poll, up to 8 seconds away, and
+    /// on a slow CI Simulator a single accessibility query can take another 15.
     private func waitFor(_ element: XCUIElement, labelContaining text: String, timeout: TimeInterval = 30) {
         let label = XCTNSPredicateExpectation(predicate: NSPredicate(format: "label CONTAINS %@", text), object: element)
         wait(for: [label], timeout: timeout)
