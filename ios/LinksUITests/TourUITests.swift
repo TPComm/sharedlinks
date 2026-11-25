@@ -13,6 +13,11 @@ final class TourUITests: XCTestCase {
         server = try LinksServer.fromEnvironment()
     }
 
+    override func tearDown() async throws {
+        await MainActor.run { app.quit() }
+        try await super.tearDown()
+    }
+
     func testTheTourShowsOnceAndComesBackFromTheProfile() throws {
         // A friend's link, so the gesture tips have a row in To Watch to sit on.
         let link = try server.add("https://links-e2e.invalid/\(UUID().uuidString.lowercased())", as: server.friend)
@@ -72,7 +77,7 @@ final class TourUITests: XCTestCase {
         }
 
         // Once is enough: neither the tour nor the tips come back on the next launch.
-        app.terminate()
+        app.quit()
         launch(firstRun: false)
         XCTAssert(app.tabBars.buttons["Queue"].waitForExistence(timeout: 20), "no inbox")
         XCTAssertFalse(app.staticTexts["Welcome to Links"].waitForExistence(timeout: 3), "the tour came back")
@@ -104,6 +109,7 @@ final class TourUITests: XCTestCase {
         ]
         if firstRun { app.launchEnvironment["LINKS_RESET_ONBOARDING"] = "1" }
         app.launchEnvironment["LINKS_HOLD_PRACTICE_CONFIRMATION"] = "1"
+        app.prepareToQuit()
         app.launch()
     }
 

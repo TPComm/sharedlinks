@@ -66,6 +66,7 @@ final class AppModel {
     private var dropNextFeatureTourPresentation =
         ProcessInfo.processInfo.environment["LINKS_TEST_DROP_FEATURE_TOUR_PRESENTATION"] != nil
     private var droppingFeatureTourPresentation = false
+    private var heldFeatureTourRequestID: UUID?
     var hasDroppedFeatureTourForReplay: Bool {
         holdDroppedFeatureTourForReplay && droppingFeatureTourPresentation && showFeatureTours
     }
@@ -713,6 +714,14 @@ final class AppModel {
                     continue
                 }
                 if showFeatureTours {
+                    #if DEBUG
+                    // A scene phase change restarts this task; keep holding the simulated drop
+                    // so only What's New (a new request) recovers it.
+                    if heldFeatureTourRequestID == requestID {
+                        try await Task.sleep(for: featureTourAppearanceTimeout)
+                        continue
+                    }
+                    #endif
                     tourLog.notice("Retrying feature tour: requested sheet did not appear")
                     clearFeatureTourPresentation()
                     // SwiftUI must see the binding off before another attempt.
@@ -723,6 +732,7 @@ final class AppModel {
                 if dropNextFeatureTourPresentation {
                     dropNextFeatureTourPresentation = false
                     droppingFeatureTourPresentation = true
+                    if holdDroppedFeatureTourForReplay { heldFeatureTourRequestID = requestID }
                     tourLog.notice("Simulating a dropped feature tour presentation")
                 }
                 #endif
