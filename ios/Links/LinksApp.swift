@@ -4,6 +4,7 @@ import SwiftUI
 import UIKit
 #if DEBUG
 import CoreFoundation
+import notify
 
 private let testOpenURL = Notification.Name("LinksTestOpenURL")
 #endif
@@ -32,12 +33,11 @@ struct LinksApp: App {
         // CI Simulator fails at ("Failed to terminate", "does not have a process ID"). The UI tests
         // post these Darwin notifications instead (UITestApp.swift in LinksUITests).
         // The quit name is random per launch, so only the test that launched the app can quit it.
-        // _exit, not exit: exit's atexit handlers can hang a busy app, leaving XCTest a process it
-        // can't terminate either.
+        // Handled off the main thread, which can be too busy on CI to quit in time, and with _exit,
+        // whose lack of atexit handlers means a busy app can't hang on the way out.
         if let quit = ProcessInfo.processInfo.environment["LINKS_TEST_QUIT_NOTIFICATION"] {
-            CFNotificationCenterAddObserver(CFNotificationCenterGetDarwinNotifyCenter(), nil, { _, _, _, _, _ in
-                _exit(0)
-            }, quit as CFString, nil, .deliverImmediately)
+            var token: Int32 = 0
+            notify_register_dispatch(quit, &token, .global(qos: .userInteractive)) { _ in _exit(0) }
         }
         if AppModel.isUITesting, let routes = Self.testOpenURLs {
             for name in routes.keys {
