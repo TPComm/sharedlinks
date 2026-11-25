@@ -270,7 +270,7 @@ stop_stuck_app() {
     if [[ -z "$apps" && "$line" != "$reported" ]]; then
       # Seen on CI: XCTest waiting on a Links that no longer shows up as a process.
       reported=$line
-      echo "warning: XCTest is waiting for Links to quit, but no Links is running; listing processes in $logs/links-missing.txt" >&2
+      echo "warning: XCTest is waiting for Links to quit, but no Links is running; listing processes in $logs/links-missing.txt" >&3
       { date -u +%T; ps -axo pid,ppid,stat,rss,%cpu,etime,command | grep -E "Links\.app|launchd_sim|testmanagerd" | grep -v grep; } \
         >>"$logs/links-missing.txt" 2>&1
     fi
@@ -279,7 +279,7 @@ stop_stuck_app() {
     if [[ -z "$apps" && "$line" != "$stacked" ]] && (( $(date +%s) - $(date -r "$log" +%s) >= 8 )); then
       stacked=$line
       for app in $(pgrep -x testmanagerd || true) $(pgrep -f "LinksUITests-Runner\.app/LinksUITests-Runner( |$)" || true); do
-        echo "warning: XCTest still waiting on a Links that's gone; taking stack of $app to $logs/xctest-$app.stack.txt" >&2
+        echo "warning: XCTest still waiting on a Links that's gone; taking stack of $app to $logs/xctest-$app.stack.txt" >&3
         stack_of "$app" 3 -noSymbolicate >>"$logs/xctest-$app.stack.txt" 2>&1 &
       done
     fi
@@ -361,6 +361,8 @@ run_tests() {
     exit "$status"
   ) 2>&1 | tee "$logs/xcodebuild.log"
 }
+# The quit guard reads xcodebuild.log's last line, so its notes about a missing Links go around it.
+exec 3>&2
 status=0
 run_tests "$@" || status=$?
 
