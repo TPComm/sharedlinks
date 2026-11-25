@@ -215,12 +215,20 @@ process_tree() {
   for child in $(pgrep -P "$1" || true); do process_tree "$child"; done
 }
 watch_for_stall() {
-  local pid=$1 log="$logs/xcodebuild.log" silent
+  local pid=$1 log="$logs/xcodebuild.log" silent pressure free tick
   while kill -0 "$pid" 2>/dev/null; do
+    tick=$(date +%s)
     # Not on the tee pipe, which would otherwise wait for the last sleep.
     sleep $(( stall_seconds < 30 ? stall_seconds : 30 )) >/dev/null 2>&1
     if command -v memory_pressure >/dev/null; then
-      echo "$(date -u +%T) $(memory_pressure -Q | tail -1) $(sysctl -n vm.swapusage)" >>"$logs/host-memory.log"
+      pressure=$(memory_pressure -Q | tail -1)
+      echo "$(date -u +%T) $pressure $(sysctl -n vm.swapusage)" >>"$logs/host-memory.log"
+      # CI's UI-test stalls have come with free memory falling from ~50% to ~25% and this loop
+      # running 10-25 s late, so name what is using the memory then.
+      free=$(sed -n 's/.*percentage: \([0-9]*\)%.*/\1/p' <<<"$pressure")
+      if (( ${free:-100} < 40 || $(date +%s) - tick >= 40 )); then
+        ps -axo pid,rss,%cpu,etime,comm | sort -k2 -nr | head -8 | sed 's/^/  /' >>"$logs/host-memory.log"
+      fi
     fi
     silent=$(( $(date +%s) - $(date -r "$log" +%s) ))
     if (( silent >= stall_seconds )); then
@@ -239,12 +247,26 @@ watch_for_stall() {
   done
 }
 
+# The stack of a Links that has stopped answering. On CI, sample has read no threads from one, so
+# prefer spindump, which reads a suspended task too and says if it is; it needs root, which CI's
+# runners give without a password. Symbolicating takes spindump 30 s or more, so a caller that is
+# about to kill the app passes -noSymbolicate.
+stack_of() {
+  local app=$1 seconds=$2
+  shift 2
+  if [[ -x /usr/sbin/spindump ]] && sudo -n true 2>/dev/null; then
+    sudo -n /usr/sbin/spindump "$app" "$seconds" -onlyTarget -stdout -noFile -noBinary "$@"
+  else
+    sample "$app" "$seconds" -mayDie
+  fi
+}
+
 # A Links that has stopped answering can miss quit()'s notification, and XCTest's terminate then
 # fails too and leaves the run silent for the watchdog. Once quit() has waited a few of its 10 s,
 # sample the app for the logs and kill it from the host before quit() gives up on it.
 quit_grace_seconds="${LINKS_UI_TEST_QUIT_GRACE_SECONDS:-3}"
 stop_stuck_app() {
-  local pid=$1 log="$logs/xcodebuild.log" app sampler
+  local pid=$1 log="$logs/xcodebuild.log" app apps sampler line reported="" stacked=""
   while kill -0 "$pid" 2>/dev/null; do
     sleep 1 >/dev/null 2>&1
     if [[ -z "${udid:-}" || ! -f "$log" ]] ||
@@ -252,12 +274,30 @@ stop_stuck_app() {
        (( $(date +%s) - $(date -r "$log" +%s) < quit_grace_seconds )); then
       continue
     fi
-    for app in $(pgrep -f "Devices/$udid/.*/Links\.app/Links( |$)" || true); do
+    apps=$(pgrep -f "Devices/$udid/.*/Links\.app/Links( |$)" || true)
+    line=$(tail -n 1 "$log")
+    if [[ -z "$apps" && "$line" != "$reported" ]]; then
+      # Seen on CI: XCTest waiting on a Links that no longer shows up as a process.
+      reported=$line
+      echo "warning: XCTest is waiting for Links to quit, but no Links is running; listing processes in $logs/links-missing.txt" >&3
+      { date -u +%T; ps -axo pid,ppid,stat,rss,%cpu,etime,command | grep -E "Links\.app|launchd_sim|testmanagerd" | grep -v grep; } \
+        >>"$logs/links-missing.txt" 2>&1
+    fi
+    # XCTest often takes a few seconds to see Links has gone, even in a passing run; near its 10 s
+    # timeout it is XCTest that's stuck, so take the stacks of its side instead.
+    if [[ -z "$apps" && "$line" != "$stacked" ]] && (( $(date +%s) - $(date -r "$log" +%s) >= 8 )); then
+      stacked=$line
+      for app in $(pgrep -x testmanagerd || true) $(pgrep -f "LinksUITests-Runner\.app/LinksUITests-Runner( |$)" || true); do
+        echo "warning: XCTest still waiting on a Links that's gone; taking stack of $app to $logs/xctest-$app.stack.txt" >&3
+        stack_of "$app" 3 -noSymbolicate >>"$logs/xctest-$app.stack.txt" 2>&1 &
+      done
+    fi
+    for app in $apps; do
       echo "warning: Links ($app) didn't quit; sampling it to $logs/links-$app.sample.txt and killing it" >&2
       ps -o pid,stat,rss,%cpu,etime -p "$app" >"$logs/links-$app.sample.txt" 2>&1 || true
       if command -v sample >/dev/null; then
         # A stuck app can take sample far longer than asked, so it doesn't get to hold up the kill.
-        sample "$app" 1 -mayDie >>"$logs/links-$app.sample.txt" 2>&1 &
+        stack_of "$app" 1 -noSymbolicate >>"$logs/links-$app.sample.txt" 2>&1 &
         sampler=$!
         for _ in 1 2 3; do
           kill -0 "$sampler" 2>/dev/null || break
@@ -269,19 +309,25 @@ stop_stuck_app() {
   done
 }
 
-# A UI query that times out once means Links has stopped answering XCTest; its retry starts with
-# the app still stuck, so sample it then (without killing it) to show what it was doing.
+# A UI query that hasn't come back for 15 s means Links has probably stopped answering XCTest, so
+# sample it then (without killing it) to show what it was doing. A waitForExistence polls quietly
+# after its first check, and quit() has its own handling above, so those don't count.
+query_stall_seconds="${LINKS_UI_TEST_QUERY_STALL_SECONDS:-15}"
 sample_unresponsive_app() {
   local pid=$1 log="$logs/xcodebuild.log" app line last=""
   while kill -0 "$pid" 2>/dev/null; do
     sleep 2 >/dev/null 2>&1
     [[ -n "${udid:-}" && -f "$log" ]] && command -v sample >/dev/null || continue
+    (( $(date +%s) - $(date -r "$log" +%s) >= query_stall_seconds )) || continue
     line=$(tail -n 1 "$log")
-    [[ "$line" == *"(retry 1)"* && "$line" != "$last" ]] || continue
+    [[ "$line" == *" t = "* && "$line" != "$last" ]] || continue
+    [[ "$line" == *"Expect predicate"* || "$line" == *"Waiting "*"s for "* ||
+       "$line" == *"to become Not Running"* ||
+       "$(tail -n 2 "$log" | head -n 1)" == *"Expect predicate"* ]] && continue
     last=$line
     for app in $(pgrep -f "Devices/$udid/.*/Links\.app/Links( |$)" || true); do
-      echo "warning: a UI query timed out; sampling Links ($app) to $logs/links-$app-query.sample.txt" >&2
-      { echo "$line"; ps -o pid,stat,rss,%cpu,etime -p "$app"; sample "$app" 3 -mayDie; } \
+      echo "warning: a UI query has taken ${query_stall_seconds}s+; sampling Links ($app) to $logs/links-$app-query.sample.txt" >&2
+      { echo "$line"; ps -o pid,stat,rss,%cpu,etime -p "$app"; stack_of "$app" 3; } \
         >>"$logs/links-$app-query.sample.txt" 2>&1 &
     done
   done
@@ -324,6 +370,8 @@ run_tests() {
     exit "$status"
   ) 2>&1 | tee "$logs/xcodebuild.log"
 }
+# The quit guard reads xcodebuild.log's last line, so its notes about a missing Links go around it.
+exec 3>&2
 status=0
 run_tests "$@" || status=$?
 
