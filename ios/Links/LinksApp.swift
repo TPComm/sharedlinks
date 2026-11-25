@@ -34,10 +34,11 @@ struct LinksApp: App {
         // post these Darwin notifications instead (UITestApp.swift in LinksUITests).
         // The quit name is random per launch, so only the test that launched the app can quit it.
         // Handled off the main thread, which can be too busy on CI to quit in time, and with _exit,
-        // whose lack of atexit handlers means a busy app can't hang on the way out.
+        // whose lack of atexit handlers means a busy app can't hang on the way out. @Sendable keeps
+        // the block off the main actor; otherwise Swift 6 traps when it runs on this queue.
         if let quit = ProcessInfo.processInfo.environment["LINKS_TEST_QUIT_NOTIFICATION"] {
             var token: Int32 = 0
-            notify_register_dispatch(quit, &token, .global(qos: .userInteractive)) { _ in _exit(0) }
+            notify_register_dispatch(quit, &token, .global(qos: .userInteractive)) { @Sendable _ in _exit(0) }
         }
         if AppModel.isUITesting, let routes = Self.testOpenURLs {
             for name in routes.keys {
