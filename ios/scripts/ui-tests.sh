@@ -257,7 +257,7 @@ stack_of() {
 # sample the app for the logs and kill it from the host before quit() gives up on it.
 quit_grace_seconds="${LINKS_UI_TEST_QUIT_GRACE_SECONDS:-3}"
 stop_stuck_app() {
-  local pid=$1 log="$logs/xcodebuild.log" app sampler
+  local pid=$1 log="$logs/xcodebuild.log" app apps sampler line reported=""
   while kill -0 "$pid" 2>/dev/null; do
     sleep 1 >/dev/null 2>&1
     if [[ -z "${udid:-}" || ! -f "$log" ]] ||
@@ -265,7 +265,16 @@ stop_stuck_app() {
        (( $(date +%s) - $(date -r "$log" +%s) < quit_grace_seconds )); then
       continue
     fi
-    for app in $(pgrep -f "Devices/$udid/.*/Links\.app/Links( |$)" || true); do
+    apps=$(pgrep -f "Devices/$udid/.*/Links\.app/Links( |$)" || true)
+    line=$(tail -n 1 "$log")
+    if [[ -z "$apps" && "$line" != "$reported" ]]; then
+      # Seen on CI: XCTest waiting on a Links that no longer shows up as a process.
+      reported=$line
+      echo "warning: XCTest is waiting for Links to quit, but no Links is running; listing processes in $logs/links-missing.txt" >&2
+      { date -u +%T; ps -axo pid,ppid,stat,rss,%cpu,etime,command | grep -E "Links\.app|launchd_sim|testmanagerd" | grep -v grep; } \
+        >>"$logs/links-missing.txt" 2>&1
+    fi
+    for app in $apps; do
       echo "warning: Links ($app) didn't quit; sampling it to $logs/links-$app.sample.txt and killing it" >&2
       ps -o pid,stat,rss,%cpu,etime -p "$app" >"$logs/links-$app.sample.txt" 2>&1 || true
       if command -v sample >/dev/null; then
@@ -282,23 +291,24 @@ stop_stuck_app() {
   done
 }
 
-# A UI query that times out (~30 s) means Links has stopped answering XCTest; the retry starts with
-# the app still stuck, so sample it then (without killing it) to show what it was doing. A retry
-# that follows its first try within seconds is just an element that hadn't appeared yet.
+# A UI query that hasn't come back for 15 s means Links has probably stopped answering XCTest, so
+# sample it then (without killing it) to show what it was doing. A waitForExistence polls quietly
+# after its first check, and quit() has its own handling above, so those don't count.
+query_stall_seconds="${LINKS_UI_TEST_QUERY_STALL_SECONDS:-15}"
 sample_unresponsive_app() {
-  local pid=$1 log="$logs/xcodebuild.log" app line last="" gap
+  local pid=$1 log="$logs/xcodebuild.log" app line last=""
   while kill -0 "$pid" 2>/dev/null; do
     sleep 2 >/dev/null 2>&1
     [[ -n "${udid:-}" && -f "$log" ]] && command -v sample >/dev/null || continue
+    (( $(date +%s) - $(date -r "$log" +%s) >= query_stall_seconds )) || continue
     line=$(tail -n 1 "$log")
-    [[ "$line" == *"(retry 1)"* && "$line" != "$last" ]] || continue
+    [[ "$line" == *" t = "* && "$line" != "$last" ]] || continue
+    [[ "$line" == *"Expect predicate"* || "$line" == *"Waiting "*"s for "* ||
+       "$line" == *"to become Not Running"* ||
+       "$(tail -n 2 "$log" | head -n 1)" == *"Expect predicate"* ]] && continue
     last=$line
-    # The gap between the XCTest times ("t = 12.34s") of the try and its retry.
-    gap=$(tail -n 2 "$log" | awk '{ for (i = 1; i < NF - 1; i++) if ($i == "t" && $(i + 1) == "=") { t[NR] = $(i + 2) + 0; break } }
-      END { print (1 in t && 2 in t) ? int(t[2] - t[1]) : 0 }')
-    (( gap >= 20 )) || continue
     for app in $(pgrep -f "Devices/$udid/.*/Links\.app/Links( |$)" || true); do
-      echo "warning: a UI query timed out; sampling Links ($app) to $logs/links-$app-query.sample.txt" >&2
+      echo "warning: a UI query has taken ${query_stall_seconds}s+; sampling Links ($app) to $logs/links-$app-query.sample.txt" >&2
       { echo "$line"; ps -o pid,stat,rss,%cpu,etime -p "$app"; stack_of "$app" 3; } \
         >>"$logs/links-$app-query.sample.txt" 2>&1 &
     done
