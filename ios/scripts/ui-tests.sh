@@ -268,6 +268,24 @@ stop_stuck_app() {
   done
 }
 
+# A UI query that times out once means Links has stopped answering XCTest; its retry starts with
+# the app still stuck, so sample it then (without killing it) to show what it was doing.
+sample_unresponsive_app() {
+  local pid=$1 log="$logs/xcodebuild.log" app line last=""
+  while kill -0 "$pid" 2>/dev/null; do
+    sleep 2 >/dev/null 2>&1
+    [[ -n "${udid:-}" && -f "$log" ]] && command -v sample >/dev/null || continue
+    line=$(tail -n 1 "$log")
+    [[ "$line" == *"(retry 1)"* && "$line" != "$last" ]] || continue
+    last=$line
+    for app in $(pgrep -f "Devices/$udid/.*/Links\.app/Links( |$)" || true); do
+      echo "warning: a UI query timed out; sampling Links ($app) to $logs/links-$app-query.sample.txt" >&2
+      { echo "$line"; ps -o pid,stat,rss,%cpu,etime -p "$app"; sample "$app" 3 -mayDie; } \
+        >>"$logs/links-$app-query.sample.txt" 2>&1 &
+    done
+  done
+}
+
 # xcodebuild hands TEST_RUNNER_<NAME> to the test runner as <NAME>. The tests pass the URL and
 # token on to the app (DEBUG builds read LINKS_SERVER_URL and LINKS_DEV_TOKEN).
 # Signed (ad hoc, for the Simulator): the app needs its App Group entitlement for the keychain.
@@ -295,7 +313,9 @@ run_tests() {
     watchdog_pid=$!
     stop_stuck_app "$xcodebuild_pid" &
     quit_watch_pid=$!
-    trap 'kill "$xcodebuild_pid" "$watchdog_pid" "$quit_watch_pid" 2>/dev/null' EXIT INT TERM
+    sample_unresponsive_app "$xcodebuild_pid" &
+    query_watch_pid=$!
+    trap 'kill "$xcodebuild_pid" "$watchdog_pid" "$quit_watch_pid" "$query_watch_pid" 2>/dev/null' EXIT INT TERM
     status=0
     wait "$xcodebuild_pid" || status=$?
     # Let a watchdog that stopped a stall finish off what's left.
