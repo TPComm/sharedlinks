@@ -30,7 +30,11 @@ enum LinkTips {
     /// Call once at launch, before any tip is shown.
     static func configure() {
         if AppModel.resetsOnboarding { try? Tips.resetDatastore() }
-        if AppModel.isUITesting { Tips.hideAllTipsForTesting() }
+        #if DEBUG
+        if AppModel.isUITesting || ProcessInfo.processInfo.environment["LINKS_TEST_HIDE_GESTURE_TIPS"] == "1" {
+            Tips.hideAllTipsForTesting()
+        }
+        #endif
         try? Tips.configure([.displayFrequency(.immediate)])
     }
 }

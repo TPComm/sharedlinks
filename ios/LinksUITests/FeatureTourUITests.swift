@@ -10,6 +10,11 @@ final class FeatureTourUITests: XCTestCase {
         server = try LinksServer.fromEnvironment()
     }
 
+    override func tearDown() async throws {
+        await MainActor.run { app.quit() }
+        try await super.tearDown()
+    }
+
     func testNewFeaturesShowOnceAndReplayFromTheProfile() {
         launch(reset: true)
         waitForNotificationsBeforeFeatureTour(
@@ -54,7 +59,7 @@ final class FeatureTourUITests: XCTestCase {
         app.buttons["featureTour.done"].tap()
         XCTAssert(app.tabBars.buttons["Queue"].waitForExistence(timeout: 20))
 
-        app.terminate()
+        app.quit()
         launch(reset: false)
         XCTAssert(app.tabBars.buttons["Queue"].waitForExistence(timeout: 20))
         XCTAssertFalse(app.staticTexts["Make Links Yours"].waitForExistence(timeout: 3))
@@ -81,7 +86,7 @@ final class FeatureTourUITests: XCTestCase {
         XCTAssert(waitForTitle("Make Links Yours"))
         app.buttons["featureTour.skip"].tap()
         XCTAssert(app.staticTexts["Make Links Yours"].waitForNonExistence(timeout: 20))
-        app.terminate()
+        app.quit()
         launch(reset: false)
         XCTAssert(app.tabBars.buttons["Queue"].waitForExistence(timeout: 20))
         XCTAssertFalse(app.staticTexts["Make Links Yours"].waitForExistence(timeout: 3))
@@ -152,11 +157,13 @@ final class FeatureTourUITests: XCTestCase {
             "LINKS_SERVER_URL": server.url.absoluteString,
             "LINKS_DEV_TOKEN": server.me,
             "LINKS_COMPLETE_ONBOARDING": "1",
+            "LINKS_TEST_HIDE_GESTURE_TIPS": "1",
         ]
         if reset { app.launchEnvironment["LINKS_RESET_FEATURE_TOURS"] = "1" }
         app.launchEnvironment["LINKS_TEST_DROP_FEATURE_TOUR_PRESENTATION"] = dropPresentation
         if openNewLink { app.launchEnvironment["LINKS_TEST_OPEN_NEW_LINK_ON_LAUNCH"] = "1" }
         if let swipeQueueLinkID { app.launchEnvironment["LINKS_TEST_OPEN_SWIPE_QUEUE_ON_LAUNCH"] = String(swipeQueueLinkID) }
+        app.prepareToQuit()
         app.launch()
     }
 

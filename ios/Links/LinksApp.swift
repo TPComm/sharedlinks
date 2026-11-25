@@ -4,6 +4,7 @@ import SwiftUI
 import UIKit
 #if DEBUG
 import CoreFoundation
+import notify
 
 private let testOpenURL = Notification.Name("LinksTestOpenURL")
 #endif
@@ -12,6 +13,12 @@ private let testOpenURL = Notification.Name("LinksTestOpenURL")
 struct LinksApp: App {
     @UIApplicationDelegateAdaptor private var delegate: AppDelegate
     @State private var model: AppModel
+
+    #if DEBUG
+    /// Darwin notification name -> URL to open when it's posted (LINKS_TEST_OPEN_URLS, JSON).
+    nonisolated private static let testOpenURLs: [String: String]? = ProcessInfo.processInfo.environment["LINKS_TEST_OPEN_URLS"]
+        .flatMap { try? JSONDecoder().decode([String: String].self, from: Data($0.utf8)) }
+    #endif
 
     init() {
         #if DEBUG
@@ -22,15 +29,25 @@ struct LinksApp: App {
         let model = AppModel()
         _model = State(initialValue: model)
         #if DEBUG
-        let env = ProcessInfo.processInfo.environment
-        if AppModel.isUITesting, let name = env["LINKS_TEST_OPEN_URL_NOTIFICATION"] {
-            CFNotificationCenterAddObserver(CFNotificationCenterGetDarwinNotifyCenter(), nil, { _, _, _, _, _ in
-                DispatchQueue.main.async {
-                    guard let address = ProcessInfo.processInfo.environment["LINKS_TEST_OPEN_URL"],
+        // XCTest relaunching or reopening the app terminates and re-finds its process, which a slow
+        // CI Simulator fails at ("Failed to terminate", "does not have a process ID"). The UI tests
+        // post these Darwin notifications instead (UITestApp.swift in LinksUITests).
+        // The quit name is random per launch, so only the test that launched the app can quit it.
+        // Handled off the main thread, which can be too busy on CI to quit in time, and with _exit,
+        // whose lack of atexit handlers means a busy app can't hang on the way out. @Sendable keeps
+        // the block off the main actor; otherwise Swift 6 traps when it runs on this queue.
+        if let quit = ProcessInfo.processInfo.environment["LINKS_TEST_QUIT_NOTIFICATION"] {
+            var token: Int32 = 0
+            notify_register_dispatch(quit, &token, .global(qos: .userInteractive)) { @Sendable _ in _exit(0) }
+        }
+        if AppModel.isUITesting, let routes = Self.testOpenURLs {
+            for name in routes.keys {
+                CFNotificationCenterAddObserver(CFNotificationCenterGetDarwinNotifyCenter(), nil, { _, _, name, _, _ in
+                    guard let name = name?.rawValue as String?, let address = LinksApp.testOpenURLs?[name],
                           let url = URL(string: address) else { return }
-                    NotificationCenter.default.post(name: testOpenURL, object: url)
-                }
-            }, name as CFString, nil, .deliverImmediately)
+                    DispatchQueue.main.async { NotificationCenter.default.post(name: testOpenURL, object: url) }
+                }, name as CFString, nil, .deliverImmediately)
+            }
         }
         #endif
         // Lets App Intents (e.g. "New Link") act on the running app.

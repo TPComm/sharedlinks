@@ -13,6 +13,11 @@ final class LinksUITests: XCTestCase {
         server = try LinksServer.fromEnvironment()
     }
 
+    override func tearDown() async throws {
+        await MainActor.run { app.quit() }
+        try await super.tearDown()
+    }
+
     // MARK: Inbox
 
     func testWrappedShowsTopSenderAndShare() throws {
@@ -216,11 +221,12 @@ final class LinksUITests: XCTestCase {
 
     func testNewLinkDeepLinkClosesSwipeThrough() throws {
         let link = try seed(by: server.friend)
-        launch()
+        let add = URL(string: "sharedlinks://add")!
+        launch(opening: [add])
         waitForRow(link, in: "toWatch")
         app.buttons["swipeQueue.open"].tap()
         XCTAssert(app.scrollViews["swipeQueue"].waitForExistence(timeout: 10))
-        app.open(URL(string: "sharedlinks://add")!)
+        app.openInApp(add)
         XCTAssert(app.textFields["addLink.text"].waitForExistence(timeout: 10), "New Link stuck behind Swipe Through")
         XCTAssertFalse(app.scrollViews["swipeQueue"].exists)
     }
@@ -324,10 +330,11 @@ final class LinksUITests: XCTestCase {
 
     func testWidgetLinkOpensTheLinksPage() throws {
         let link = try seed(by: server.friend)
-        launch()
+        let widget = URL(string: "sharedlinks://open/\(link.id)")!
+        launch(opening: [widget])
         waitForRow(link, in: "toWatch")
         app.tabBars.buttons["Sent"].tap() // the page opens on the tab whose list has the link
-        app.open(URL(string: "sharedlinks://open/\(link.id)")!)
+        app.openInApp(widget)
         XCTAssert(page(link).waitForExistence(timeout: 10), "no page for the link")
         XCTAssert(app.tabBars.buttons["Queue"].isSelected)
         // It stays in the app, and doesn't count as watched.
@@ -339,11 +346,12 @@ final class LinksUITests: XCTestCase {
     func testSharedLinkPageOpensTheLinksPage() throws {
         let link = try seed(by: server.friend)
         let token = try XCTUnwrap(link.token, "the server gave the link no share token")
-        launch()
+        // What a /l/ universal link hands the app; the Simulator can't open universal links.
+        let shared = URL(string: "sharedlinks://l/\(token)")!
+        launch(opening: [shared])
         waitForRow(link, in: "toWatch")
         app.tabBars.buttons["Sent"].tap()
-        // What a /l/ universal link hands the app; the Simulator can't open universal links.
-        app.open(URL(string: "sharedlinks://l/\(token)")!)
+        app.openInApp(shared)
         XCTAssert(page(link).waitForExistence(timeout: 10), "no page for the shared link")
         XCTAssert(app.tabBars.buttons["Queue"].isSelected)
         XCTAssertEqual(app.state, .runningForeground)
@@ -360,15 +368,13 @@ final class LinksUITests: XCTestCase {
         deleteAfterwards(link.id)
         try server.setFavorite(link.id, as: server.me)
 
-        let notification = "com.tpcomm.links.open-url.\(UUID().uuidString)"
-        launch(environment: ["LINKS_TEST_OPEN_URL_NOTIFICATION": notification,
-                             "LINKS_TEST_OPEN_URL": "sharedlinks://g/\(chat.id)"])
+        let chatURL = URL(string: "sharedlinks://g/\(chat.id)")!
+        launch(opening: [chatURL])
         app.tabBars.buttons["Favorites"].tap()
         waitForRow(link, in: "favorites").tap()
         XCTAssert(page(link).waitForExistence(timeout: 10))
 
-        CFNotificationCenterPostNotification(CFNotificationCenterGetDarwinNotifyCenter(),
-                                             CFNotificationName(rawValue: notification as CFString), nil, nil, true)
+        app.openInApp(chatURL)
         XCTAssert(page(link).waitForNonExistence(timeout: 10), "chat link did not dismiss the Favorites link page")
         let picker = app.buttons["chatPicker"]
         XCTAssert(picker.waitForExistence(timeout: 10), "chat link left Favorites open")
@@ -378,8 +384,9 @@ final class LinksUITests: XCTestCase {
     }
 
     func testWidgetDeepLinkOpensTheNewLinkSheet() throws {
-        launch()
-        app.open(URL(string: "sharedlinks://add")!)
+        let add = URL(string: "sharedlinks://add")!
+        launch(opening: [add])
+        app.openInApp(add)
         XCTAssert(app.textFields["addLink.text"].waitForExistence(timeout: 10))
         XCTAssert(app.buttons["addLink.send"].exists)
         XCTAssertFalse(app.buttons["addLink.send"].isEnabled, "Send with nothing to send")
@@ -541,7 +548,7 @@ final class LinksUITests: XCTestCase {
         let seenRow = waitForRow(link, in: "watched")
         waitFor(seenRow, labelContaining: "1 comment")
         XCTAssertFalse(seenRow.label.contains("· New"), seenRow.label)
-        app.terminate()
+        app.quit()
         launch()
         app.tabBars.buttons["Seen"].tap()
         let readRow = waitForRow(link, in: "watched")
@@ -752,7 +759,7 @@ final class LinksUITests: XCTestCase {
             (destination.label.contains("Just You Two") || destination.value as? String == "Just You Two")))
         let existing = Set(try server.pendingInvites(as: server.me).map(\.id))
         app.buttons["createInvite"].tap()
-        XCTAssert(app.buttons["sendInvite"].waitForExistence(timeout: 10), "no invite link to send")
+        XCTAssert(app.buttons["sendInvite"].waitForExistence(timeout: 30), "no invite link to send")
         let created = try XCTUnwrap(server.pendingInvites(as: server.me).first { !existing.contains($0.id) })
         XCTAssertNil(created.groupID, "an invite from Everyone must not grant access to Everyone")
         XCTAssert(app.staticTexts["Starts a chat with just you two. The link works once, for a week."].waitForExistence(timeout: 5))
@@ -889,18 +896,15 @@ final class LinksUITests: XCTestCase {
         XCTAssertEqual(watched.value as? String, "1")
         XCTAssertEqual(reactions.value as? String, "1")
 
-        watched.switches.firstMatch.tap()
-        waitFor(watched, value: "0")
+        flip(watched, to: "0")
         try api.eventually("watched pushes off") {
             try api.notifications(as: api.me) == .init(watched: false, reactions: true) ? true : nil
         }
-        reactions.switches.firstMatch.tap()
-        waitFor(reactions, value: "0")
+        flip(reactions, to: "0")
         try api.eventually("reaction pushes off") {
             try api.notifications(as: api.me) == .init(watched: false, reactions: false) ? true : nil
         }
-        watched.switches.firstMatch.tap()
-        waitFor(watched, value: "1")
+        flip(watched, to: "1")
         try api.eventually("watched pushes back on") {
             try api.notifications(as: api.me) == .init(watched: true, reactions: false) ? true : nil
         }
@@ -948,12 +952,15 @@ final class LinksUITests: XCTestCase {
             "LINKS_DEV_TOKEN": "expired-session",
             "LINKS_UI_TESTS": "1",
         ]
+        let invites = [chatToken, personalToken, "invalid"].map { URL(string: "sharedlinks://invite/\($0)")! }
+        app.prepareToOpen(invites)
+        app.prepareToQuit()
         app.launch()
         XCTAssert(app.buttons["signIn"].waitForExistence(timeout: 20), "no signed-out screen")
         XCTAssertFalse(app.descendants(matching: .any)["invited"].exists)
         app.launchEnvironment.removeValue(forKey: "LINKS_DEV_TOKEN")
 
-        app.open(URL(string: "sharedlinks://invite/\(chatToken)")!)
+        app.openInApp(invites[0])
         let invited = app.descendants(matching: .any)["invited"]
         XCTAssert(invited.waitForExistence(timeout: 10))
         let chatCopy = "You’re invited to a chat. Sign in with your Links account to join. New to Links? Ask a friend for a personal invite."
@@ -965,8 +972,8 @@ final class LinksUITests: XCTestCase {
         attachment.lifetime = .keepAlways
         add(attachment)
 
-        for token in [personalToken, "invalid"] {
-            app.open(URL(string: "sharedlinks://invite/\(token)")!)
+        for invite in invites.dropFirst() {
+            app.openInApp(invite)
             XCTAssert(invited.waitForExistence(timeout: 10))
             XCTAssertEqual(invited.label, "You’re invited. Sign in or create an account to join.")
         }
@@ -1206,7 +1213,7 @@ final class LinksUITests: XCTestCase {
         }
         app.buttons["Done"].tap()
         waitForRow(link, in: "toWatch")
-        app.terminate()
+        app.quit()
         launch()
         pickChat(name)
         openChatPicker()
@@ -1233,13 +1240,13 @@ final class LinksUITests: XCTestCase {
         app.buttons["Mute"].tap()
         app.buttons["Until I Turn It Back On"].tap()
         let indicator = app.images["chat.muted.\(chat.id)"]
-        XCTAssert(indicator.waitForExistence(timeout: 10))
+        XCTAssert(indicator.waitForExistence(timeout: 30))
         try server.eventually("swipe muted the chat") {
             try server.state(as: server.me).group(chat.id)?.muted == true ? true : nil
         }
         row.swipeLeft()
         app.buttons["Unmute"].tap()
-        XCTAssert(indicator.waitForNonExistence(timeout: 10))
+        XCTAssert(indicator.waitForNonExistence(timeout: 30))
         try server.eventually("swipe unmuted the chat") {
             try server.state(as: server.me).group(chat.id)?.muted == false ? true : nil
         }
@@ -1308,7 +1315,7 @@ final class LinksUITests: XCTestCase {
         XCTAssert(app.staticTexts["Starts a chat with just you two."].waitForExistence(timeout: 5))
         let existing = Set(try server.pendingInvites(as: server.me).map(\.id))
         app.buttons["createInvite"].tap()
-        XCTAssert(app.buttons["sendInvite"].waitForExistence(timeout: 10), "no invite link to send")
+        XCTAssert(app.buttons["sendInvite"].waitForExistence(timeout: 30), "no invite link to send")
         let created = try XCTUnwrap(server.pendingInvites(as: server.me).first { !existing.contains($0.id) })
         defer { try? server.cancelInvite(created.id, as: server.me) }
         XCTAssertNil(created.groupID, "an invite from a named group must not grant access to the group")
@@ -1334,8 +1341,9 @@ final class LinksUITests: XCTestCase {
         deleteAfterwards(inDirect.id)
         let invite = try server.invite(to: chat.id, as: server.friend)
 
-        launch()
-        app.open(URL(string: "sharedlinks://invite/\(invite)")!)
+        let inviteURL = URL(string: "sharedlinks://invite/\(invite)")!
+        launch(opening: [inviteURL])
+        app.openInApp(inviteURL)
         waitFor(app.buttons["chatPicker"], labelContaining: "Friend")
         XCTAssert(row(inDirect, in: "toWatch").waitForExistence(timeout: 5))
         XCTAssertNil(try server.state(as: server.me).group(chat.id), "the invite granted access to the group")
@@ -1348,8 +1356,13 @@ final class LinksUITests: XCTestCase {
         let mine = try server.add(uniqueURL(), to: chat.id, as: server.me)
         deleteAfterwards(mine.id)
 
-        launch()
-        pickChat("Just You")
+        let chatURL = URL(string: "sharedlinks://g/\(chat.id)")!
+        launch(opening: [chatURL])
+        let picker = app.buttons["chatPicker"]
+        let unfilteredLabel = picker.label
+        app.openInApp(chatURL)
+        let selected = XCTNSPredicateExpectation(predicate: NSPredicate(format: "label != %@", unfilteredLabel), object: picker)
+        wait(for: [selected], timeout: 10)
         let name = "Renamed \(shortID())"
         openChatPicker()
         app.buttons["Rename…"].tap()
@@ -1495,7 +1508,7 @@ final class LinksUITests: XCTestCase {
     }
 
     /// Launches signed in (DEBUG builds take a session token from LINKS_DEV_TOKEN), on the inbox.
-    private func launch(as token: String? = nil, environment: [String: String] = [:]) {
+    private func launch(as token: String? = nil, environment: [String: String] = [:], opening urls: [URL] = []) {
         app.launchEnvironment = [
             "LINKS_SERVER_URL": server.url.absoluteString,
             "LINKS_DEV_TOKEN": token ?? server.me,
@@ -1504,6 +1517,8 @@ final class LinksUITests: XCTestCase {
             "LINKS_UI_TESTS": "1",
         ]
         app.launchEnvironment.merge(environment) { _, value in value }
+        app.prepareToOpen(urls)
+        app.prepareToQuit()
         app.launch()
         XCTAssert(app.tabBars.buttons["Queue"].waitForExistence(timeout: 20), "no inbox")
     }
@@ -1559,6 +1574,18 @@ final class LinksUITests: XCTestCase {
     private func waitFor(_ element: XCUIElement, labelContaining text: String, timeout: TimeInterval = 30) {
         let label = XCTNSPredicateExpectation(predicate: NSPredicate(format: "label CONTAINS %@", text), object: element)
         wait(for: [label], timeout: timeout)
+    }
+
+    /// The app flips a notification toggle as soon as the tap lands (AppModel.setNotifications), so a
+    /// toggle that hasn't flipped missed the tap: a slow Simulator can still be scrolling the profile
+    /// when it lands. Tap again rather than wait out the 30 seconds.
+    private func flip(_ toggle: XCUIElement, to value: String) {
+        for _ in 1...3 where toggle.value as? String != value {
+            toggle.switches.firstMatch.tap()
+            let flipped = XCTNSPredicateExpectation(predicate: NSPredicate(format: "value == %@", value), object: toggle)
+            if XCTWaiter().wait(for: [flipped], timeout: 10) == .completed { return }
+        }
+        waitFor(toggle, value: value)
     }
 
     private func waitFor(_ toggle: XCUIElement, value: String, timeout: TimeInterval = 30) {
