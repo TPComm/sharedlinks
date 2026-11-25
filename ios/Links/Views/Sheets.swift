@@ -77,7 +77,9 @@ struct AddLinkSheet: View {
                         Task {
                             do {
                                 try await model.send(text, note: note, groupID: groupID)
-                                dismiss()
+                                // Not dismiss(): send() also switches to Sent, and a dismiss in that
+                                // same update can be dropped, leaving the sheet open.
+                                model.showAddSheet = false
                             } catch {
                                 failure = error.localizedDescription
                             }
