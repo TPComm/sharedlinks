@@ -154,6 +154,7 @@ final class FeatureTourUITests: XCTestCase {
     private func launch(reset: Bool, dropPresentation: String? = nil, openNewLink: Bool = false,
                         swipeQueueLinkID: Int? = nil) {
         app.launchEnvironment = [
+            "LINKS_TEST_NOTIFICATION_TIMEOUT_SECONDS": "150",
             "LINKS_SERVER_URL": server.url.absoluteString,
             "LINKS_DEV_TOKEN": server.me,
             "LINKS_COMPLETE_ONBOARDING": "1",
@@ -170,7 +171,7 @@ final class FeatureTourUITests: XCTestCase {
     private func waitForDroppedFeatureTour(in account: XCUIElement) {
         let springBoard = XCUIApplication(bundleIdentifier: "com.apple.springboard")
         let allow = springBoard.alerts.buttons["Allow"]
-        let deadline = ContinuousClock.now + .seconds(90)
+        let deadline = ContinuousClock.now + .seconds(180)
         var answeredPrompt = false
         repeat {
             if account.value as? String == "Feature tour presentation dropped" { return }
@@ -205,7 +206,7 @@ extension XCTestCase {
         let springBoard = XCUIApplication(bundleIdentifier: "com.apple.springboard")
         let allow = springBoard.alerts.buttons["Allow"]
         let featureTour = app.buttons["featureTour.skip"]
-        let deadline = ContinuousClock.now + .seconds(90)
+        let deadline = ContinuousClock.now + .seconds(180)
         var answeredPrompt = false
         var failure = "neither the notification prompt nor the feature tour appeared"
         repeat {

@@ -104,6 +104,7 @@ final class TourUITests: XCTestCase {
 
     private func launch(firstRun: Bool) {
         app.launchEnvironment = [
+            "LINKS_TEST_NOTIFICATION_TIMEOUT_SECONDS": "150",
             "LINKS_SERVER_URL": server.url.absoluteString,
             "LINKS_DEV_TOKEN": server.me,
         ]

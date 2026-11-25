@@ -552,7 +552,7 @@ final class AppModel {
         // The system request isn't cancellable. Give SpringBoard time on cold boots, but don't
         // leave onboarding stuck if it never answers. Presentation still waits for activation.
         let timeout = Task {
-            try await Task.sleep(for: .seconds(75))
+            try await Task.sleep(for: self.notificationPermissionTimeout)
             tourLog.notice("Notification authorization timed out; continuing onboarding when active")
             finishNotificationPermission()
         }
@@ -583,6 +583,16 @@ final class AppModel {
             }
             finishNotificationPermission()
         }
+    }
+
+    private var notificationPermissionTimeout: Duration {
+        #if DEBUG
+        // A slow CI Simulator can take over 75 s to show the prompt; let the UI tests see it first.
+        if let seconds = ProcessInfo.processInfo.environment["LINKS_TEST_NOTIFICATION_TIMEOUT_SECONDS"].flatMap(Double.init) {
+            return .seconds(seconds)
+        }
+        #endif
+        return .seconds(75)
     }
 
     private func finishNotificationPermission() {

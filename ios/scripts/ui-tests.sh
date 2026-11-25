@@ -16,6 +16,7 @@
 #   LINKS_UI_TEST_SHARD         K/N: run the Kth duration-weighted slice across N runners
 #                               (default: all tests); ui-test-durations.tsv steers balance
 #   LINKS_UI_TEST_FIRST_SHARD_OVERHEAD  extra seconds on slice 1 before testing (default: 0)
+#   LINKS_UI_TEST_STALL_SECONDS stop xcodebuild after this long without output (default: 600)
 set -euo pipefail
 
 ios="$(cd "$(dirname "$0")/.." && pwd)"
@@ -202,12 +203,48 @@ if [[ "${LINKS_UI_TEST_ACTION:-test}" == test-without-building ]]; then
   fi
 fi
 
+# When the runner runs short of memory the Simulator can fall over (SpringBoard crash-looping)
+# and leave xcodebuild waiting silently until CI's step timeout, which loses the logs. Stop it
+# after a long silence instead, and log host memory so the next stall shows its cause.
+stall_seconds="${LINKS_UI_TEST_STALL_SECONDS:-600}"
+# Children too: one left holding the tee pipe would keep the run waiting.
+process_tree() {
+  local child
+  echo "$1"
+  for child in $(pgrep -P "$1" || true); do process_tree "$child"; done
+}
+watch_for_stall() {
+  local pid=$1 log="$logs/xcodebuild.log" silent
+  while kill -0 "$pid" 2>/dev/null; do
+    # Not on the tee pipe, which would otherwise wait for the last sleep.
+    sleep $(( stall_seconds < 30 ? stall_seconds : 30 )) >/dev/null 2>&1
+    if command -v memory_pressure >/dev/null; then
+      echo "$(date -u +%T) $(memory_pressure -Q | tail -1) $(sysctl -n vm.swapusage)" >>"$logs/host-memory.log"
+    fi
+    silent=$(( $(date +%s) - $(date -r "$log" +%s) ))
+    if (( silent >= stall_seconds )); then
+      echo "error: no UI test output for ${silent}s; stopping xcodebuild" >&2
+      ps -axo pid,rss,%cpu,comm | sort -k2 -nr | head -20 >>"$logs/host-memory.log"
+      touch "$tmp/xcodebuild-stalled"
+      local pids
+      pids=$(process_tree "$pid")
+      # shellcheck disable=SC2086 # one pid per word
+      kill -TERM $pids 2>/dev/null || true
+      sleep 30 >/dev/null 2>&1
+      # shellcheck disable=SC2086
+      kill -KILL $pids 2>/dev/null || true
+      return
+    fi
+  done
+}
+
 # xcodebuild hands TEST_RUNNER_<NAME> to the test runner as <NAME>. The tests pass the URL and
 # token on to the app (DEBUG builds read LINKS_SERVER_URL and LINKS_DEV_TOKEN).
 # Signed (ad hoc, for the Simulator): the app needs its App Group entitlement for the keychain.
 run_tests() {
   (
     cd "$ios"
+    rm -f "$tmp/xcodebuild-stalled"
     export TEST_RUNNER_LINKS_SERVER_URL="$url"
     export TEST_RUNNER_LINKS_DEV_TOKEN="$me_token"
     export TEST_RUNNER_LINKS_FRIEND_TOKEN="$friend_token"
@@ -222,7 +259,16 @@ run_tests() {
       -derivedDataPath "${LINKS_UI_TEST_DERIVED_DATA:-build}" \
       -parallel-testing-enabled NO \
       ${shard_args[@]+"${shard_args[@]}"} \
-      "$@"
+      "$@" &
+    xcodebuild_pid=$!
+    watch_for_stall "$xcodebuild_pid" &
+    watchdog_pid=$!
+    trap 'kill "$xcodebuild_pid" "$watchdog_pid" 2>/dev/null' EXIT INT TERM
+    status=0
+    wait "$xcodebuild_pid" || status=$?
+    # Let a watchdog that stopped a stall finish off what's left.
+    if [[ -e "$tmp/xcodebuild-stalled" ]]; then wait "$watchdog_pid" || true; fi
+    exit "$status"
   ) 2>&1 | tee "$logs/xcodebuild.log"
 }
 status=0

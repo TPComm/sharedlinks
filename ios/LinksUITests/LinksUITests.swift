@@ -1223,8 +1223,7 @@ final class LinksUITests: XCTestCase {
         app.buttons["Chat Info"].tap()
         XCTAssert(toggle.waitForExistence(timeout: 5))
         waitFor(toggle, value: "1")
-        toggle.switches.firstMatch.tap()
-        waitFor(toggle, value: "0")
+        flip(scrolledTo(toggle), to: "0")
         try server.eventually("chat unmuted") {
             try server.state(as: server.me).group(chat.id)?.muted == false ? true : nil
         }
