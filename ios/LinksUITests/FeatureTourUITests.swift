@@ -156,6 +156,7 @@ final class FeatureTourUITests: XCTestCase {
             "LINKS_SERVER_URL": server.url.absoluteString,
             "LINKS_DEV_TOKEN": server.me,
             "LINKS_COMPLETE_ONBOARDING": "1",
+            "LINKS_TEST_HIDE_GESTURE_TIPS": "1",
         ]
         if reset { app.launchEnvironment["LINKS_RESET_FEATURE_TOURS"] = "1" }
         app.launchEnvironment["LINKS_TEST_DROP_FEATURE_TOUR_PRESENTATION"] = dropPresentation

@@ -1355,8 +1355,13 @@ final class LinksUITests: XCTestCase {
         let mine = try server.add(uniqueURL(), to: chat.id, as: server.me)
         deleteAfterwards(mine.id)
 
-        launch()
-        pickChat("Just You")
+        let chatURL = URL(string: "sharedlinks://g/\(chat.id)")!
+        launch(opening: [chatURL])
+        let picker = app.buttons["chatPicker"]
+        let unfilteredLabel = picker.label
+        app.openInApp(chatURL)
+        let selected = XCTNSPredicateExpectation(predicate: NSPredicate(format: "label != %@", unfilteredLabel), object: picker)
+        wait(for: [selected], timeout: 10)
         let name = "Renamed \(shortID())"
         openChatPicker()
         app.buttons["Rename…"].tap()
