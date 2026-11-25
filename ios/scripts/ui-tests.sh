@@ -238,6 +238,36 @@ watch_for_stall() {
   done
 }
 
+# A Links that has stopped answering can miss quit()'s notification, and XCTest's terminate then
+# fails too and leaves the run silent for the watchdog. Once quit() has waited a few of its 10 s,
+# sample the app for the logs and kill it from the host before quit() gives up on it.
+quit_grace_seconds="${LINKS_UI_TEST_QUIT_GRACE_SECONDS:-3}"
+stop_stuck_app() {
+  local pid=$1 log="$logs/xcodebuild.log" app sampler
+  while kill -0 "$pid" 2>/dev/null; do
+    sleep 1 >/dev/null 2>&1
+    if [[ -z "${udid:-}" || ! -f "$log" ]] ||
+       [[ "$(tail -n 1 "$log")" != *"Wait for com.tpcomm.links to become Not Running"* ]] ||
+       (( $(date +%s) - $(date -r "$log" +%s) < quit_grace_seconds )); then
+      continue
+    fi
+    for app in $(pgrep -f "Devices/$udid/.*/Links\.app/Links( |$)" || true); do
+      echo "warning: Links ($app) didn't quit; sampling it to $logs/links-$app.sample.txt and killing it" >&2
+      ps -o pid,stat,rss,%cpu,etime -p "$app" >"$logs/links-$app.sample.txt" 2>&1 || true
+      if command -v sample >/dev/null; then
+        # A stuck app can take sample far longer than asked, so it doesn't get to hold up the kill.
+        sample "$app" 1 -mayDie >>"$logs/links-$app.sample.txt" 2>&1 &
+        sampler=$!
+        for _ in 1 2 3; do
+          kill -0 "$sampler" 2>/dev/null || break
+          sleep 1 >/dev/null 2>&1
+        done
+      fi
+      kill -KILL "$app" 2>/dev/null || true
+    done
+  done
+}
+
 # xcodebuild hands TEST_RUNNER_<NAME> to the test runner as <NAME>. The tests pass the URL and
 # token on to the app (DEBUG builds read LINKS_SERVER_URL and LINKS_DEV_TOKEN).
 # Signed (ad hoc, for the Simulator): the app needs its App Group entitlement for the keychain.
@@ -263,7 +293,9 @@ run_tests() {
     xcodebuild_pid=$!
     watch_for_stall "$xcodebuild_pid" &
     watchdog_pid=$!
-    trap 'kill "$xcodebuild_pid" "$watchdog_pid" 2>/dev/null' EXIT INT TERM
+    stop_stuck_app "$xcodebuild_pid" &
+    quit_watch_pid=$!
+    trap 'kill "$xcodebuild_pid" "$watchdog_pid" "$quit_watch_pid" 2>/dev/null' EXIT INT TERM
     status=0
     wait "$xcodebuild_pid" || status=$?
     # Let a watchdog that stopped a stall finish off what's left.
