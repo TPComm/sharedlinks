@@ -63,6 +63,7 @@ final class FeatureTourUITests: XCTestCase {
         for _ in 0..<6 where !(replay.exists && replay.isHittable) { app.swipeUp() }
         XCTAssert(replay.isHittable)
         replay.tap()
+        waitForNotificationsBeforeFeatureTour(in: app)
         XCTAssert(waitForTitle("Make Links Yours"))
         for title in ["Send Today's Links Together", "Links Wrapped", "See Who Shared It",
                       "Nudge Friends About Links They Haven't Seen", "Swipe Through Your Queue", "Save Your Favorites"] {
