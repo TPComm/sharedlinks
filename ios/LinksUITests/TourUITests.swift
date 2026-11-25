@@ -109,6 +109,7 @@ final class TourUITests: XCTestCase {
         ]
         if firstRun { app.launchEnvironment["LINKS_RESET_ONBOARDING"] = "1" }
         app.launchEnvironment["LINKS_HOLD_PRACTICE_CONFIRMATION"] = "1"
+        app.prepareToQuit()
         app.launch()
     }
 

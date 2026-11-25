@@ -31,9 +31,12 @@ struct LinksApp: App {
         // XCTest relaunching or reopening the app terminates and re-finds its process, which a slow
         // CI Simulator fails at ("Failed to terminate", "does not have a process ID"). The UI tests
         // post these Darwin notifications instead (UITestApp.swift in LinksUITests).
-        CFNotificationCenterAddObserver(CFNotificationCenterGetDarwinNotifyCenter(), nil, { _, _, _, _, _ in
-            exit(0)
-        }, "com.tpcomm.links.ui-test-quit" as CFString, nil, .deliverImmediately)
+        // The quit name is random per launch, so only the test that launched the app can quit it.
+        if let quit = ProcessInfo.processInfo.environment["LINKS_TEST_QUIT_NOTIFICATION"] {
+            CFNotificationCenterAddObserver(CFNotificationCenterGetDarwinNotifyCenter(), nil, { _, _, _, _, _ in
+                exit(0)
+            }, quit as CFString, nil, .deliverImmediately)
+        }
         if AppModel.isUITesting, let routes = Self.testOpenURLs {
             for name in routes.keys {
                 CFNotificationCenterAddObserver(CFNotificationCenterGetDarwinNotifyCenter(), nil, { _, _, name, _, _ in

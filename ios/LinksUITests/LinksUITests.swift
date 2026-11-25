@@ -954,6 +954,7 @@ final class LinksUITests: XCTestCase {
         ]
         let invites = [chatToken, personalToken, "invalid"].map { URL(string: "sharedlinks://invite/\($0)")! }
         app.prepareToOpen(invites)
+        app.prepareToQuit()
         app.launch()
         XCTAssert(app.buttons["signIn"].waitForExistence(timeout: 20), "no signed-out screen")
         XCTAssertFalse(app.descendants(matching: .any)["invited"].exists)
@@ -1517,6 +1518,7 @@ final class LinksUITests: XCTestCase {
         ]
         app.launchEnvironment.merge(environment) { _, value in value }
         app.prepareToOpen(urls)
+        app.prepareToQuit()
         app.launch()
         XCTAssert(app.tabBars.buttons["Queue"].waitForExistence(timeout: 20), "no inbox")
     }

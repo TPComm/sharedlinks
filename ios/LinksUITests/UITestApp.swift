@@ -9,8 +9,14 @@ extension XCUIApplication {
     /// Has Links exit on its own, so the next launch() has nothing to terminate.
     func quit() {
         guard state != .notRunning else { return }
-        postDarwinNotification("com.tpcomm.links.ui-test-quit")
+        guard let name = launchEnvironment["LINKS_TEST_QUIT_NOTIFICATION"] else { return terminate() }
+        postDarwinNotification(name)
         if !wait(for: .notRunning, timeout: 10) { terminate() }
+    }
+
+    /// Set before launch(), after any launchEnvironment reassignment: lets quit() reach this launch.
+    func prepareToQuit() {
+        launchEnvironment["LINKS_TEST_QUIT_NOTIFICATION"] = "com.tpcomm.links.ui-test-quit.\(UUID().uuidString)"
     }
 
     /// Set before launch(): the URLs openInApp(_:) can open in this launch.
