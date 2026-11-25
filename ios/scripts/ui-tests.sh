@@ -214,12 +214,20 @@ process_tree() {
   for child in $(pgrep -P "$1" || true); do process_tree "$child"; done
 }
 watch_for_stall() {
-  local pid=$1 log="$logs/xcodebuild.log" silent
+  local pid=$1 log="$logs/xcodebuild.log" silent pressure free tick
   while kill -0 "$pid" 2>/dev/null; do
+    tick=$(date +%s)
     # Not on the tee pipe, which would otherwise wait for the last sleep.
     sleep $(( stall_seconds < 30 ? stall_seconds : 30 )) >/dev/null 2>&1
     if command -v memory_pressure >/dev/null; then
-      echo "$(date -u +%T) $(memory_pressure -Q | tail -1) $(sysctl -n vm.swapusage)" >>"$logs/host-memory.log"
+      pressure=$(memory_pressure -Q | tail -1)
+      echo "$(date -u +%T) $pressure $(sysctl -n vm.swapusage)" >>"$logs/host-memory.log"
+      # CI's UI-test stalls have come with free memory falling from ~50% to ~25% and this loop
+      # running 10-25 s late, so name what is using the memory then.
+      free=$(sed -n 's/.*percentage: \([0-9]*\)%.*/\1/p' <<<"$pressure")
+      if (( ${free:-100} < 40 || $(date +%s) - tick >= 40 )); then
+        ps -axo pid,rss,%cpu,etime,comm | sort -k2 -nr | head -8 | sed 's/^/  /' >>"$logs/host-memory.log"
+      fi
     fi
     silent=$(( $(date +%s) - $(date -r "$log" +%s) ))
     if (( silent >= stall_seconds )); then
