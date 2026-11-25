@@ -13,6 +13,12 @@ struct LinksApp: App {
     @UIApplicationDelegateAdaptor private var delegate: AppDelegate
     @State private var model: AppModel
 
+    #if DEBUG
+    /// Darwin notification name -> URL to open when it's posted (LINKS_TEST_OPEN_URLS, JSON).
+    nonisolated private static let testOpenURLs: [String: String]? = ProcessInfo.processInfo.environment["LINKS_TEST_OPEN_URLS"]
+        .flatMap { try? JSONDecoder().decode([String: String].self, from: Data($0.utf8)) }
+    #endif
+
     init() {
         #if DEBUG
         if ProcessInfo.processInfo.environment["LINKS_UI_TESTS"] == "1" {
@@ -22,15 +28,20 @@ struct LinksApp: App {
         let model = AppModel()
         _model = State(initialValue: model)
         #if DEBUG
-        let env = ProcessInfo.processInfo.environment
-        if AppModel.isUITesting, let name = env["LINKS_TEST_OPEN_URL_NOTIFICATION"] {
-            CFNotificationCenterAddObserver(CFNotificationCenterGetDarwinNotifyCenter(), nil, { _, _, _, _, _ in
-                DispatchQueue.main.async {
-                    guard let address = ProcessInfo.processInfo.environment["LINKS_TEST_OPEN_URL"],
+        // XCTest relaunching or reopening the app terminates and re-finds its process, which a slow
+        // CI Simulator fails at ("Failed to terminate", "does not have a process ID"). The UI tests
+        // post these Darwin notifications instead (UITestApp.swift in LinksUITests).
+        CFNotificationCenterAddObserver(CFNotificationCenterGetDarwinNotifyCenter(), nil, { _, _, _, _, _ in
+            exit(0)
+        }, "com.tpcomm.links.ui-test-quit" as CFString, nil, .deliverImmediately)
+        if AppModel.isUITesting, let routes = Self.testOpenURLs {
+            for name in routes.keys {
+                CFNotificationCenterAddObserver(CFNotificationCenterGetDarwinNotifyCenter(), nil, { _, _, name, _, _ in
+                    guard let name = name?.rawValue as String?, let address = LinksApp.testOpenURLs?[name],
                           let url = URL(string: address) else { return }
-                    NotificationCenter.default.post(name: testOpenURL, object: url)
-                }
-            }, name as CFString, nil, .deliverImmediately)
+                    DispatchQueue.main.async { NotificationCenter.default.post(name: testOpenURL, object: url) }
+                }, name as CFString, nil, .deliverImmediately)
+            }
         }
         #endif
         // Lets App Intents (e.g. "New Link") act on the running app.

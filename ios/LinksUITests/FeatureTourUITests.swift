@@ -10,6 +10,11 @@ final class FeatureTourUITests: XCTestCase {
         server = try LinksServer.fromEnvironment()
     }
 
+    override func tearDown() async throws {
+        await MainActor.run { app.quit() }
+        try await super.tearDown()
+    }
+
     func testNewFeaturesShowOnceAndReplayFromTheProfile() {
         launch(reset: true)
         waitForNotificationsBeforeFeatureTour(
@@ -54,7 +59,7 @@ final class FeatureTourUITests: XCTestCase {
         app.buttons["featureTour.done"].tap()
         XCTAssert(app.tabBars.buttons["Queue"].waitForExistence(timeout: 20))
 
-        app.terminate()
+        app.quit()
         launch(reset: false)
         XCTAssert(app.tabBars.buttons["Queue"].waitForExistence(timeout: 20))
         XCTAssertFalse(app.staticTexts["Make Links Yours"].waitForExistence(timeout: 3))
@@ -80,7 +85,7 @@ final class FeatureTourUITests: XCTestCase {
         XCTAssert(waitForTitle("Make Links Yours"))
         app.buttons["featureTour.skip"].tap()
         XCTAssert(app.staticTexts["Make Links Yours"].waitForNonExistence(timeout: 20))
-        app.terminate()
+        app.quit()
         launch(reset: false)
         XCTAssert(app.tabBars.buttons["Queue"].waitForExistence(timeout: 20))
         XCTAssertFalse(app.staticTexts["Make Links Yours"].waitForExistence(timeout: 3))
