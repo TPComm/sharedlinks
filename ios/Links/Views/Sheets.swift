@@ -75,22 +75,28 @@ struct AddLinkSheet: View {
                         .disabled(sending)
                 }
                 ToolbarItem(placement: .confirmationAction) {
-                    Button("Send") {
-                        sending = true
-                        Task {
-                            do {
-                                try await model.send(text, note: note, groupID: groupID)
-                                // Not dismiss(): send() also switches to Sent, and a dismiss in that
-                                // same update can be dropped, leaving the sheet open.
-                                model.showAddSheet = false
-                            } catch {
-                                failure = error.localizedDescription
+                    if sending {
+                        ProgressView()
+                            .accessibilityLabel("Sending")
+                            .accessibilityIdentifier("addLink.sending")
+                    } else {
+                        Button("Send") {
+                            sending = true
+                            Task {
+                                do {
+                                    try await model.send(text, note: note, groupID: groupID)
+                                    // Not dismiss(): send() also switches to Sent, and a dismiss in that
+                                    // same update can be dropped, leaving the sheet open.
+                                    model.showAddSheet = false
+                                } catch {
+                                    failure = error.localizedDescription
+                                }
+                                sending = false
                             }
-                            sending = false
                         }
+                        .disabled(detected == nil)
+                        .accessibilityIdentifier("addLink.send")
                     }
-                    .disabled(detected == nil || sending)
-                    .accessibilityIdentifier("addLink.send")
                 }
             }
             .failureAlert($failure)

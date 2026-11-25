@@ -657,6 +657,7 @@ final class LinksUITests: XCTestCase {
         XCTAssert(alert.staticTexts["That doesn't look like a link."].exists)
         alert.buttons["OK"].tap()
         XCTAssert(alert.waitForNonExistence(timeout: 5))
+        XCTAssert(app.buttons["addLink.send"].exists, "Send didn't come back after the failed send")
 
         // The sheet stays, with what was typed, so it can be fixed and sent again.
         XCTAssert(text.waitForExistence(timeout: 2), "the New Link sheet closed")
