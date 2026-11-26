@@ -112,32 +112,28 @@ jobs:
           # Same Bun as server.yml and local development.
           bun-version: 1.4.4
 
-      - name: Boot UI test Simulator
-        run: |
-          started=$SECONDS
-          touch "$RUNNER_TEMP/links-ui-simulator-start"
-          udid=$(xcrun simctl create "Links UI Tests" 'iPhone 17')
-          echo "LINKS_UI_TEST_SIMULATOR_UDID=$udid" >> "$GITHUB_ENV"
-          echo "Created Simulator Links UI Tests ($udid)"
-          xcrun simctl boot "$udid"
-          xcrun simctl bootstatus "$udid" -b
-          echo "Simulator boot and bootstatus completed in $((SECONDS - started))s"
-
-      - name: Check Simulator runtime mount and dyld cache
+      - name: Boot and check UI test Simulator
         shell: bash
+        timeout-minutes: 10
+        env:
+          PRIMARY_SIMULATOR_RUNTIME: com.apple.CoreSimulator.SimRuntime.iOS-27-2
+          FALLBACK_SIMULATOR_RUNTIME: com.apple.CoreSimulator.SimRuntime.iOS-27-0
         run: |
           mkdir -p ios/diagnostics/simulator
-          {
-            xcrun simctl runtime list -v
-            mount | grep -Ei 'coresimulator|cryptex|simruntime' || true
-            df -h /
-            python3 - <<'PY'
+          touch "$RUNNER_TEMP/links-ui-simulator-start"
+
+          check_cache() {
+            python3 - "$1" <<'PY'
           import json
           import os
+          import re
+          import struct
           import subprocess
+          import sys
           from pathlib import Path
+          from time import monotonic
 
-          udid = os.environ["LINKS_UI_TEST_SIMULATOR_UDID"]
+          udid = sys.argv[1]
           simulators = json.loads(subprocess.check_output(["xcrun", "simctl", "list", "-j"]))
           runtime_id = next((identifier for identifier, devices in simulators["devices"].items()
                              if any(d["udid"] == udid and d["state"] == "Booted" for d in devices)), None)
@@ -151,16 +147,118 @@ jobs:
               print(f"LINKS_UI_TEST_RUNTIME_ROOT={root}", file=env)
           subprocess.run(["df", "-P", root], check=True)
           cache = root / "System/Library/Caches/com.apple.dyld/dyld_sim_shared_cache_arm64"
-          subcaches = sorted(p for p in cache.parent.glob(f"{cache.name}.*") if p.suffix[1:].isdigit())
-          for path in [cache, *subcaches]:
+          started = monotonic()
+          # dyld_cache_format.h: subCacheArrayOffset/Count at 0x188, with 56-byte entries
+          # (UUID, VM offset, file suffix) in the iOS 27 cache format.
+          entry = struct.Struct("<16sQ32s")
+          with cache.open("rb") as file:
+              header = file.read(0x190)
+              if not header.startswith(b"dyld_v1") or len(header) != 0x190:
+                  raise SystemExit(f"Invalid dyld cache header: {cache}")
+              mapping_offset, = struct.unpack_from("<I", header, 0x10)
+              offset, count = struct.unpack_from("<II", header, 0x188)
+              if mapping_offset <= 0x1c8 or (count and offset < mapping_offset):
+                  raise SystemExit(f"Invalid dyld cache subcache metadata: {cache}")
+              if count and offset + count * entry.size > os.fstat(file.fileno()).st_size:
+                  raise SystemExit(f"Incomplete dyld cache subcache table: {cache}")
+              file.seek(offset)
+              table = file.read(count * entry.size)
+              if len(table) != count * entry.size:
+                  raise SystemExit(f"Unreadable dyld cache subcache table: {cache}")
+          files = [(cache, None)]
+          for uuid, _, raw_suffix in entry.iter_unpack(table):
+              suffix = raw_suffix.split(b"\0", 1)[0].decode("ascii")
+              if not re.fullmatch(r"\.[a-zA-Z0-9._-]+", suffix):
+                  raise SystemExit(f"Invalid dyld subcache suffix: {suffix!r}")
+              files.append((cache.with_name(cache.name + suffix), uuid))
+          for path, _ in files:
+              if not path.is_file():
+                  raise SystemExit(f"Missing required dyld cache file: {path}")
+          buffer = bytearray(8 * 1024 * 1024)
+          for path, uuid in files:
               with path.open("rb") as file:
-                  if file.read(7) != b"dyld_v1":
+                  header = file.read(0x68)
+                  size = os.fstat(file.fileno()).st_size
+                  if not header.startswith(b"dyld_v1") or len(header) != 0x68:
                       raise SystemExit(f"Invalid dyld cache header: {path}")
-                  size = file.seek(-1, os.SEEK_END) + 1
-                  if not file.read(1):
-                      raise SystemExit(f"Unreadable end of dyld cache: {path}")
+                  if uuid is not None and header[0x58:0x68] != uuid:
+                      raise SystemExit(f"Wrong dyld subcache UUID: {path}")
+                  read = len(header)
+                  while chunk := file.readinto(buffer):
+                      read += chunk
+                  if read != size:
+                      raise SystemExit(f"Incomplete dyld cache read: {path}")
               print(f"Readable dyld cache: {path.name} ({size} bytes)")
+          print(f"Read {len(files)} dyld cache files in {monotonic() - started:.1f}s")
           PY
+          }
+
+          boot_and_check() {
+            local runtime=$1 started=$SECONDS pid previous_pid=""
+            udid=""
+            echo "Simulator preflight: $runtime"
+            udid=$(xcrun simctl create 'Links UI Tests (preflight)' 'iPhone 17' "$runtime") || return 1
+            echo "LINKS_UI_TEST_SIMULATOR_UDID=$udid" >> "$GITHUB_ENV"
+            xcrun simctl boot "$udid" || return 1
+            xcrun simctl bootstatus "$udid" -b || return 1
+            xcrun simctl runtime list -v || return 1
+            mount | grep -Ei 'coresimulator|cryptex|simruntime' || true
+            df -h / || return 1
+            check_cache "$udid" || return 1
+            xcrun simctl spawn "$udid" launchctl kickstart user/foreground/com.apple.InputUI || return 1
+            for _ in {1..10}; do
+              sleep 1
+              pid=$(xcrun simctl spawn "$udid" launchctl print user/foreground/com.apple.InputUI |
+                awk '$1=="state" && $2=="=" { state=$3 } $1=="pid" && $2=="=" { pid=$3 }
+                     END { if (state=="running" && pid>0) print pid }') || continue
+              if [[ -n "$pid" && "$pid" == "$previous_pid" ]]; then
+                xcrun simctl rename "$udid" 'Links UI Tests' || return 1
+                echo "Simulator preflight passed: $runtime, InputUI PID $pid, $((SECONDS - started))s"
+                return 0
+              fi
+              previous_pid=$pid
+            done
+            echo "InputUI did not stay running on $udid" >&2
+            return 1
+          }
+
+          discard_device() {
+            if [[ -n "$udid" ]]; then
+              echo "Discarding Simulator $udid after failed preflight"
+              xcrun simctl shutdown "$udid" || true
+              xcrun simctl delete "$udid" || true
+            fi
+          }
+
+          remount_runtime() {
+            local runtime=$1
+            # These services are dedicated to this hosted runner. Relaunch them before rescanning.
+            pkill -u "$(id -u)" -x com.apple.CoreSimulator.CoreSimulatorService || true
+            sudo -n pkill -x simdiskimaged || true
+            xcrun simctl runtime scan-and-mount || return 1
+            for _ in {1..15}; do
+              if xcrun simctl runtime list -j | python3 -c '
+          import json, sys
+          sys.exit(not any(r.get("runtimeIdentifier") == sys.argv[1] and r.get("state") == "Ready"
+                           for r in json.load(sys.stdin).values()))' "$runtime"; then
+                echo "Runtime is Ready after rescan: $runtime"
+                return 0
+              fi
+              sleep 2
+            done
+            return 1
+          }
+
+          {
+            if ! boot_and_check "$PRIMARY_SIMULATOR_RUNTIME"; then
+              discard_device
+              echo "Simulator preflight failed; restarting CoreSimulator and rescanning $PRIMARY_SIMULATOR_RUNTIME"
+              if ! { remount_runtime "$PRIMARY_SIMULATOR_RUNTIME" && boot_and_check "$PRIMARY_SIMULATOR_RUNTIME"; }; then
+                discard_device
+                echo "Simulator preflight recovery failed; falling back to $FALLBACK_SIMULATOR_RUNTIME"
+                boot_and_check "$FALLBACK_SIMULATOR_RUNTIME"
+              fi
+            fi
           } 2>&1 | tee ios/diagnostics/simulator/runtime-before.log
 
       # Starts the server from source with an empty database and drives the app in the "Links UI
