@@ -135,7 +135,7 @@ class XctestrunTests(unittest.TestCase):
 
 class ScriptTests(unittest.TestCase):
     def run_script(self, action, artifact=True, recovery=False, booted=True,
-                   launch_failures=0, expected_status=0, shard=None, long_process_list=False):
+                   launch_failures=0, expected_status=0, shard=None, stall=False, long_process_list=False):
         with tempfile.TemporaryDirectory(prefix="links script ") as directory:
             root = pathlib.Path(directory)
             products = root / "build/Build/Products"
@@ -150,7 +150,6 @@ import json, os, pathlib, plistlib, signal, sys, time
 root = pathlib.Path(os.environ["MOCK_ROOT"])
 command = pathlib.Path(sys.argv[0]).name
 args = sys.argv[1:]
-long_process_list = os.environ["MOCK_LONG_PROCESS_LIST"] == "1"
 if command == "bun":
     if "-e" in args:
         print("49123")
@@ -190,10 +189,9 @@ elif command == "xcodebuild":
     with log.open("a") as output:
         output.write(json.dumps(entry) + "\n")
     case = "-[LinksUITests.LinksUITests testSignedInLaunchShowsTheInbox]"
-    print(f"Test Case '{case}' started.")
-    if long_process_list:
-        sys.stdout.flush()
-        time.sleep(8)
+    print(f"Test Case '{case}' started.", flush=True)
+    if os.environ["MOCK_STALL"] == "1":
+        time.sleep(10)
     if os.environ["MOCK_RECOVERY"] == "2" and attempt == 0:
         bundle = root / "Test-Links.xcresult"
         bundle.mkdir()
@@ -210,7 +208,7 @@ elif command == "xcodebuild":
         print(f"Test Case '{case}' failed (94 seconds).")
         sys.exit(65)
     print(f"Test Case '{case}' passed (1 seconds).")
-elif command == "sleep" and long_process_list and args in (["1"], ["2"]):
+elif command == "sleep" and os.environ["MOCK_STALL"] == "1" and args in (["1"], ["2"]):
     time.sleep(int(args[0]))
 elif command == "memory_pressure":
     print("System-wide memory free percentage: 20%")
@@ -233,8 +231,10 @@ elif command == "sort":
                                MOCK_ROOT=str(root), MOCK_BOOTED=str(int(booted)),
                                MOCK_LAUNCH_FAILURES=str(launch_failures),
                                MOCK_RECOVERY="2" if recovery == "killed" else str(int(recovery)),
-                               MOCK_LONG_PROCESS_LIST=str(int(long_process_list)),
+                               MOCK_STALL=str(int(stall or long_process_list)),
                                LINKS_UI_TEST_DERIVED_DATA=str(root / "build"), LINKS_UI_TEST_ACTION=action)
+            if stall:
+                environment.update(LINKS_UI_TEST_LOGS="relative logs", LINKS_UI_TEST_STALL_SECONDS="1")
             if long_process_list:
                 for name in ("memory_pressure", "sysctl", "ps", "sort"):
                     (commands / name).symlink_to(mock)
@@ -246,7 +246,8 @@ elif command == "sort":
             else:
                 environment.update(LINKS_UI_TEST_SHARD=shard, LINKS_UI_TEST_FIRST_SHARD_OVERHEAD="100")
             result = subprocess.run(args,
-                                    env=environment, capture_output=True, text=True, timeout=30)
+                                    cwd=root if stall else None, env=environment,
+                                    capture_output=True, text=True, timeout=30)
             if long_process_list:
                 self.assertNotIn("sort:", result.stdout)
                 memory_log = (root / "logs/host-memory.log").read_text()
@@ -263,6 +264,11 @@ elif command == "sort":
 
     def test_watchdog_stops_silent_xcodebuild_with_a_long_process_list(self):
         _, _, result = self.run_script("test", long_process_list=True, expected_status=None)
+        self.assertRegex(result.stdout, r"error: no UI test output for \d+s; stopping xcodebuild")
+        self.assertNotEqual(result.returncode, 0)
+
+    def test_watchdog_stops_silent_xcodebuild_with_relative_logs(self):
+        _, _, result = self.run_script("test", stall=True, expected_status=None)
         self.assertRegex(result.stdout, r"error: no UI test output for \d+s; stopping xcodebuild")
         self.assertNotEqual(result.returncode, 0)
 
