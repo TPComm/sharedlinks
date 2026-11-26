@@ -167,7 +167,7 @@ jobs:
           import subprocess
           import sys
           from pathlib import Path
-          from time import monotonic, sleep
+          from time import monotonic
 
           mode, target, receipt_path = sys.argv[1:]
           receipt = Path(receipt_path)
@@ -202,14 +202,7 @@ jobs:
               sys.exit(0)
 
           started = monotonic()
-          while True:
-              try:
-                  mount = runtime_mount(target, booted=False)
-                  break
-              except FileNotFoundError:
-                  if monotonic() - started >= 30:
-                      raise
-                  sleep(1)
+          mount = runtime_mount(target, booted=False)
           runtime_id, build, root, _, _ = mount
           print(f"Simulator cache mount ready in {monotonic() - started:.1f}s: {runtime_id} ({build}) at {root}")
           root = Path(root)
@@ -261,50 +254,59 @@ jobs:
           PY
           }
 
-          boot_and_check() {
-            local runtime=$1 budget=$2 started=$SECONDS phase probe_deadline pid previous_pid=""
-            local cache_pid receipt boot_ok=0
-            local preflight_deadline=$((started + budget))
-            udid=""
-            echo "Simulator preflight: $runtime"
-            udid=$(simctl 30 create 'Links UI Tests (preflight)' 'iPhone 17' "$runtime") || return 1
-            echo "LINKS_UI_TEST_SIMULATOR_UDID=$udid" >> "$GITHUB_ENV"
-            receipt="$RUNNER_TEMP/links-ui-cache-$udid.json"
-            check_cache 120 read "$runtime" "$receipt" &
-            cache_pid=$!
-            if simctl 30 boot "$udid" && simctl 325 bootstatus "$udid" -b; then
-              boot_ok=1
-            fi
-            echo "Simulator create and boot phase: $((SECONDS - started))s (success=$boot_ok)"
-            phase=$SECONDS
-            wait "$cache_pid" || return 1
-            echo "Simulator cache read wait after boot: $((SECONDS - phase))s"
-            (( boot_ok )) || return 1
-            phase=$SECONDS
-            check_cache 30 verify "$udid" "$receipt" || return 1
-            echo "Simulator booted runtime verification: $((SECONDS - phase))s"
-            phase=$SECONDS
-            simctl 15 spawn "$udid" launchctl kickstart user/foreground/com.apple.InputUI || return 1
+          check_inputui() {
+            local device=$1 probe_deadline pid previous_pid=""
+            simctl 15 spawn "$device" launchctl kickstart user/foreground/com.apple.InputUI >&2 || return 1
             probe_deadline=$((SECONDS + 30))
             if (( preflight_deadline < probe_deadline )); then probe_deadline=$preflight_deadline; fi
             while (( SECONDS < probe_deadline )); do
               sleep 1
-              if ! pid=$(preflight_deadline=$probe_deadline simctl 10 spawn "$udid" launchctl print user/foreground/com.apple.InputUI |
+              if ! pid=$(preflight_deadline=$probe_deadline simctl 10 spawn "$device" launchctl print user/foreground/com.apple.InputUI |
                 awk '$1=="state" && $2=="=" { state=$3 } $1=="pid" && $2=="=" { pid=$3 }
                      END { if (state=="running" && pid>0) print pid }'); then
                 previous_pid=""
                 continue
               fi
               if [[ -n "$pid" && "$pid" == "$previous_pid" ]]; then
-                simctl 15 rename "$udid" 'Links UI Tests' || return 1
-                echo "Simulator InputUI readiness phase: $((SECONDS - phase))s"
-                echo "Simulator preflight passed: $runtime, InputUI PID $pid, $((SECONDS - started))s"
+                echo "$pid"
                 return 0
               fi
               previous_pid=$pid
             done
-            echo "InputUI did not stay running on $udid" >&2
+            echo "InputUI did not stay running on $device" >&2
             return 1
+          }
+
+          boot_and_check() {
+            local runtime=$1 budget=$2 started=$SECONDS phase receipt
+            local cache_pid inputui_pid cache_status=0 inputui_status=0 boot_ok=0
+            local preflight_deadline=$((started + budget))
+            udid=""
+            echo "Simulator preflight: $runtime"
+            udid=$(simctl 30 create 'Links UI Tests (preflight)' 'iPhone 17' "$runtime") || return 1
+            echo "LINKS_UI_TEST_SIMULATOR_UDID=$udid" >> "$GITHUB_ENV"
+            if simctl 30 boot "$udid" && simctl 325 bootstatus "$udid" -b; then
+              boot_ok=1
+            fi
+            echo "Simulator create and boot phase: $((SECONDS - started))s (success=$boot_ok)"
+            (( boot_ok )) || return 1
+
+            receipt="$RUNNER_TEMP/links-ui-cache-$udid.json"
+            # A serial cache read took 14–28s on CI. Leave headroom without competing with cold boot.
+            check_cache 60 read "$runtime" "$receipt" &
+            cache_pid=$!
+            phase=$SECONDS
+            inputui_pid=$(check_inputui "$udid") || inputui_status=$?
+            echo "Simulator InputUI readiness phase: $((SECONDS - phase))s (exit=$inputui_status)"
+            phase=$SECONDS
+            wait "$cache_pid" || cache_status=$?
+            echo "Simulator cache read wait after InputUI: $((SECONDS - phase))s (exit=$cache_status)"
+            (( inputui_status == 0 && cache_status == 0 )) || return 1
+            phase=$SECONDS
+            check_cache 30 verify "$udid" "$receipt" || return 1
+            echo "Simulator booted runtime verification: $((SECONDS - phase))s"
+            simctl 15 rename "$udid" 'Links UI Tests' || return 1
+            echo "Simulator preflight passed: $runtime, InputUI PID $inputui_pid, $((SECONDS - started))s"
           }
 
           discard_device() {
