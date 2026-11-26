@@ -125,6 +125,11 @@ struct RootView: View {
             delegate.openLinkID = nil
             model.handle(DeepLink.open(linkID: id).url)
         }
+        .onChange(of: delegate.openQueue, initial: true) { _, open in
+            guard open, model.isSignedIn else { return }
+            delegate.openQueue = false
+            model.openQueue()
+        }
         .onChange(of: delegate.refreshes) { Task { await model.refresh() } }
         .onChange(of: model.navigation) { _, navigation in
             savedNavigation = try? JSONEncoder().encode(navigation)

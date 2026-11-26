@@ -252,7 +252,13 @@ final class AppModel {
         guard isSignedIn, let me = try? await client.me(), session == sessionID else { return }
         setAccount(me.user)
         claimable = me.claimable
-        if edits == notificationEdits { setNotificationsFromServer(me.notifications) }
+        if edits == notificationEdits {
+            setNotificationsFromServer(me.notifications)
+            if var catchup = me.notifications?.catchup, catchup.timeZone != TimeZone.current.identifier {
+                catchup.timeZone = TimeZone.current.identifier
+                try? await setNotifications(catchup: .some(catchup))
+            }
+        }
     }
 
     private func setNotificationsFromServer(_ settings: NotificationSettings?) {
@@ -328,10 +334,11 @@ final class AppModel {
 
     /// Shows the change at once. Once the last tap's save is done, the switches show the server's
     /// copy, so a failed save is undone. Throws, like `rename`, for the profile to show.
-    func setNotifications(watched: Bool? = nil, reactions: Bool? = nil) async throws {
+    func setNotifications(watched: Bool? = nil, reactions: Bool? = nil, catchup: CatchUp?? = nil) async throws {
         guard var next = notifications else { return }
         if let watched { next.watched = watched }
         if let reactions { next.reactions = reactions }
+        if let catchup { next.catchup = catchup }
         notifications = next
         notificationEdits += 1
         let edits = notificationEdits
@@ -340,7 +347,7 @@ final class AppModel {
         let previous = notificationSave
         let save = Task {
             _ = await previous?.result
-            return try await client.setNotifications(watched: watched, reactions: reactions)
+            return try await client.setNotifications(watched: watched, reactions: reactions, catchup: catchup)
         }
         notificationSave = save
         do {
@@ -1086,6 +1093,13 @@ final class AppModel {
         case nil:
             break
         }
+    }
+
+    func openQueue() {
+        handle(DeepLink.inbox.url)
+        tab = .toWatch
+        chat = nil
+        paths[.toWatch] = []
     }
 
     /// The page of the first link that matches, refreshing once if this (backgrounded) app's inbox

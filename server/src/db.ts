@@ -56,6 +56,10 @@ export interface UserRow {
    * removed their photo; null to use `avatar`, the picture WorkOS has for them.
    */
   photo: string | null;
+  catchup_minute: number | null;
+  catchup_tz: string | null;
+  /** Local date claimed for delivery, or skipped:YYYY-MM-DD when no summary was attempted. */
+  catchup_sent_on: string | null;
 }
 
 export interface CommentRow {
@@ -211,6 +215,7 @@ export function openDatabase(dataDir: string, legacyAllowedEmails: string[] = []
   migrateToV19(db);
   migrateToV20(db);
   migrateToV21(db);
+  migrateToV22(db);
   db.transaction(() => {
     const update = db.query("UPDATE links SET share_token = ? WHERE id = ? AND share_token IS NULL");
     for (const row of db.query("SELECT id FROM links WHERE share_token IS NULL").all() as { id: number }[]) {
@@ -259,6 +264,18 @@ function migrateToV21(db: Database) {
       created_at REAL NOT NULL
     )`);
     db.run("PRAGMA user_version = 21");
+  })();
+}
+
+function migrateToV22(db: Database) {
+  const { user_version } = db.query("PRAGMA user_version").get() as { user_version: number };
+  if (user_version >= 22) return;
+  db.transaction(() => {
+    const have = (db.query("PRAGMA table_info(users)").all() as { name: string }[]).map((c) => c.name);
+    for (const [column, type] of [["catchup_minute", "INTEGER"], ["catchup_tz", "TEXT"], ["catchup_sent_on", "TEXT"]]) {
+      if (!have.includes(column!)) db.run(`ALTER TABLE users ADD COLUMN ${column} ${type}`);
+    }
+    db.run("PRAGMA user_version = 22");
   })();
 }
 

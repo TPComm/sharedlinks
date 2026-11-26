@@ -24,38 +24,42 @@ final class FeatureTourUITests: XCTestCase {
         XCTAssert(waitForTitle("Make Links Yours"))
         XCTAssert(app.buttons["featureTour.action.profilePhoto"].exists)
         let progress = app.descendants(matching: .any)["featureTour.progress"]
-        XCTAssertEqual(progress.label, "Page 1 of 8")
+        XCTAssertEqual(progress.label, "Page 1 of 9")
         capture("Profile photo action")
         app.buttons["featureTour.continue"].tap()
         XCTAssert(waitForTitle("Send Today's Links Together"))
         XCTAssert(app.buttons["featureTour.action.rollup"].exists)
-        XCTAssertEqual(progress.label, "Page 2 of 8")
+        XCTAssertEqual(progress.label, "Page 2 of 9")
         capture("Roll-up action")
         app.buttons["featureTour.continue"].tap()
         XCTAssert(waitForTitle("Links Wrapped"))
-        XCTAssertEqual(progress.label, "Page 3 of 8")
+        XCTAssertEqual(progress.label, "Page 3 of 9")
         capture("Wrapped page")
         app.buttons["featureTour.continue"].tap()
         XCTAssert(waitForTitle("See Who Shared It"))
         XCTAssertFalse(app.buttons["featureTour.action.sharedWithYou"].exists)
-        XCTAssertEqual(progress.label, "Page 4 of 8")
+        XCTAssertEqual(progress.label, "Page 4 of 9")
         capture("Shared with You")
         app.buttons["featureTour.continue"].tap()
         XCTAssert(waitForTitle("Nudge Friends About Links They Haven't Seen"))
-        XCTAssertEqual(progress.label, "Page 5 of 8")
+        XCTAssertEqual(progress.label, "Page 5 of 9")
         app.buttons["featureTour.continue"].tap()
         XCTAssert(waitForTitle("Swipe Through Your Queue"))
         XCTAssertFalse(app.buttons["featureTour.action.swipeQueue"].exists)
-        XCTAssertEqual(progress.label, "Page 6 of 8")
+        XCTAssertEqual(progress.label, "Page 6 of 9")
         app.buttons["featureTour.continue"].tap()
         XCTAssert(waitForTitle("Save Your Favorites"))
-        XCTAssertEqual(progress.label, "Page 7 of 8")
+        XCTAssertEqual(progress.label, "Page 7 of 9")
         capture("Favorites tour")
         XCTAssert(app.buttons["featureTour.action.favorites"].exists)
         app.buttons["featureTour.continue"].tap()
         XCTAssert(waitForTitle("Invite Friends to a Chat"))
         XCTAssert(app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "Friends already on Links who tap it join the chat.")).firstMatch.exists)
-        XCTAssertEqual(progress.label, "Page 8 of 8")
+        XCTAssertEqual(progress.label, "Page 8 of 9")
+        app.buttons["featureTour.continue"].tap()
+        XCTAssert(waitForTitle("Get a Daily Catch-Up"))
+        XCTAssertEqual(progress.label, "Page 9 of 9")
+        capture("Daily catch-up")
         app.buttons["featureTour.done"].tap()
         XCTAssert(app.tabBars.buttons["Queue"].waitForExistence(timeout: 20))
 
@@ -64,10 +68,7 @@ final class FeatureTourUITests: XCTestCase {
         XCTAssert(app.tabBars.buttons["Queue"].waitForExistence(timeout: 20))
         XCTAssertFalse(app.staticTexts["Make Links Yours"].waitForExistence(timeout: 3))
         app.buttons["account"].tap()
-        let replay = app.buttons["profile.whatsNew"]
-        for _ in 0..<6 where !(replay.exists && replay.isHittable) { app.swipeUp() }
-        XCTAssert(replay.isHittable)
-        replay.tap()
+        tapWhatsNew()
         waitForNotificationsBeforeFeatureTour(in: app)
         XCTAssert(waitForTitle("Make Links Yours"))
         for title in ["Send Today's Links Together", "Links Wrapped", "See Who Shared It",
@@ -97,6 +98,7 @@ final class FeatureTourUITests: XCTestCase {
         XCTAssertFalse(app.staticTexts["Swipe Through Your Queue"].exists)
         XCTAssertFalse(app.staticTexts["Save Your Favorites"].exists)
         XCTAssertFalse(app.staticTexts["Invite Friends to a Chat"].exists)
+        XCTAssertFalse(app.staticTexts["Get a Daily Catch-Up"].exists)
     }
 
     func testRecoversAutomaticallyWhenPresentationDoesNotAppear() {
@@ -183,6 +185,38 @@ final class FeatureTourUITests: XCTestCase {
             RunLoop.current.run(until: Date(timeIntervalSinceNow: 0.25))
         } while ContinuousClock.now < deadline
         XCTFail("automatic feature tour presentation was not dropped")
+    }
+
+    private func tapWhatsNew() {
+        let replay = app.buttons["profile.whatsNew"]
+        XCTAssert(app.navigationBars["Profile"].waitForExistence(timeout: 30))
+        let deadline = ContinuousClock.now + .seconds(120)
+        var scrollingDown = true
+        repeat {
+            let window = self.app.windows.firstMatch.frame
+            let list = self.app.collectionViews.containing(.button, identifier: "profile.whatsNew").firstMatch
+            var viewport = (list.exists ? list.frame.intersection(window) : window).insetBy(dx: 8, dy: 8)
+            let navigation = app.navigationBars["Profile"].frame
+            viewport = viewport.intersection(CGRect(x: window.minX, y: navigation.maxY,
+                                                    width: window.width, height: max(0, window.maxY - navigation.maxY)))
+            if replay.exists {
+                let frame = replay.frame
+                if !frame.isEmpty, !frame.isNull, !frame.isInfinite {
+                    if viewport.contains(frame) {
+                        app.coordinate(withNormalizedOffset: .zero)
+                            .withOffset(CGVector(dx: frame.midX, dy: frame.midY)).tap()
+                        return
+                    }
+                    scrollingDown = frame.midY > viewport.midY
+                }
+            }
+            let start = app.coordinate(withNormalizedOffset: .zero)
+                .withOffset(CGVector(dx: viewport.midX, dy: viewport.minY + viewport.height * (scrollingDown ? 0.7 : 0.3)))
+            let end = app.coordinate(withNormalizedOffset: .zero)
+                .withOffset(CGVector(dx: viewport.midX, dy: viewport.minY + viewport.height * (scrollingDown ? 0.3 : 0.7)))
+            start.press(forDuration: 0.1, thenDragTo: end)
+        } while ContinuousClock.now < deadline
+        XCTFail("What's New did not enter the Profile viewport within 120 seconds: \(app.debugDescription)")
     }
 
     private func waitForTitle(_ title: String) -> Bool {

@@ -9,6 +9,7 @@ import { readFileSync } from "node:fs";
 import http2 from "node:http2";
 import { type Accounts, publicUser } from "./accounts.ts";
 import type { ApnsEnv, Config } from "./config.ts";
+import { localClock } from "./catchup.ts";
 import { now, type UserRow } from "./db.ts";
 import { clip, clipText } from "./links.ts";
 
@@ -78,6 +79,7 @@ export class Pusher {
   private badgeDelayMs: number;
   private activityDelayMs: number;
   private retryDelayMs: number;
+  private catchupTimer?: Timer;
 
   constructor(
     private db: Database,
@@ -90,6 +92,10 @@ export class Pusher {
     this.badgeDelayMs = opts.badgeDelayMs ?? 2000;
     this.activityDelayMs = opts.activityDelayMs ?? 60_000;
     this.retryDelayMs = opts.retryDelayMs ?? 1000;
+    if (this.enabled && config.catchupIntervalMs > 0) {
+      this.catchupTimer = setInterval(() => this.track(this.catchUp(new Date())), config.catchupIntervalMs);
+      this.catchupTimer.unref();
+    }
   }
 
   // MARK: Events
@@ -127,9 +133,12 @@ export class Pusher {
       ...(named ? { chat: link.chat } : {}),
       ...(link.thumb_type ? { thumb: `/thumbs/${linkId}${link.thumb_v ? `/${link.thumb_v}` : ""}` } : {}),
     };
-    const muted = recipients.filter(({ user_id }) => this.isMuted(link.group_id, user_id));
+    const quiet = (user: string) => this.isMuted(link.group_id, user) ||
+      (this.config.catchupIntervalMs > 0 &&
+        (this.db.query("SELECT catchup_minute FROM users WHERE id = ?").get(user) as UserRow).catchup_minute !== null);
+    const muted = recipients.filter(({ user_id }) => quiet(user_id));
     this.badges(muted.map(({ user_id }) => user_id));
-    await Promise.all(recipients.filter(({ user_id }) => !this.isMuted(link.group_id, user_id)).map(({ user_id }) => this.toPerson(user_id, "alert", (badge) => this.fit({
+    await Promise.all(recipients.filter(({ user_id }) => !quiet(user_id)).map(({ user_id }) => this.toPerson(user_id, "alert", (badge) => this.fit({
       aps: {
         alert: { title, body: [lead, link.title, link.note] as const },
         badge, sound: "default", "thread-id": threadId(link.group_id, link.is_default), category: "NEW_LINK", "mutable-content": 1,
@@ -324,6 +333,37 @@ export class Pusher {
     ).get(person) as { n: number }).n;
   }
 
+  async catchUp(date: Date) {
+    if (!this.enabled) return;
+    const users = this.db.query("SELECT * FROM users WHERE catchup_minute IS NOT NULL AND member = 1").all() as UserRow[];
+    for (const user of users) {
+      const clock = localClock(date, user.catchup_tz!);
+      if (clock.minute < user.catchup_minute! || user.catchup_sent_on === clock.date || user.catchup_sent_on === `skipped:${clock.date}`) continue;
+      const claimed = this.db.run("UPDATE users SET catchup_sent_on = ? WHERE id = ? AND catchup_sent_on IS NOT ? AND catchup_minute = ? AND catchup_tz = ?",
+        [clock.date, user.id, clock.date, user.catchup_minute, user.catchup_tz]);
+      if (!claimed.changes) continue;
+      const links = this.db.query(`SELECT u.id, u.name FROM links l LEFT JOIN users u ON u.id = l.added_by
+        JOIN group_members m ON m.group_id = l.group_id AND m.user_id = ?1
+        WHERE l.added_by != ?1 AND NOT EXISTS (SELECT 1 FROM seen WHERE link_id = l.id AND person = ?1)
+        AND NOT EXISTS (SELECT 1 FROM reports WHERE reporter = ?1 AND link_id = l.id)
+        AND NOT EXISTS (SELECT 1 FROM blocks WHERE blocker = ?1 AND blocked = l.added_by)
+        AND NOT (m.muted = 1 AND (m.muted_until IS NULL OR m.muted_until > ?2))
+        ORDER BY l.added_at DESC, l.id DESC`).all(user.id, date.getTime() / 1000) as { id: string | null; name: string | null }[];
+      if (!links.length) {
+        this.db.run("UPDATE users SET catchup_sent_on = ? WHERE id = ? AND catchup_sent_on = ?", [`skipped:${clock.date}`, user.id, clock.date]);
+        continue;
+      }
+      const names = [...new Map(links.filter((l) => l.id !== null && l.name !== null).map((l) => [l.id, l.name])).values()];
+      const senders = names.length === 1 ? names[0] : names.length === 2 ? names.join(" and ")
+        : `${names[0]}, ${names[1]} and ${names.length - 2} ${names.length === 3 ? "other" : "others"}`;
+      await this.toPerson(user.id, "alert", (badge) => ({
+        aps: { alert: { title: "Daily Catch-Up", body: `${links.length} new ${links.length === 1 ? "link" : "links"}${names.length ? ` from ${senders}` : ""}` },
+          badge, sound: "default", "thread-id": "catchup" },
+        open: "queue",
+      }));
+    }
+  }
+
   /** Devices of live sessions (used within SESSION_DAYS) whose owner is still a member. */
   devices(person: string): Device[] {
     const rows = this.db.query(
@@ -506,6 +546,7 @@ export class Pusher {
   }
 
   close() {
+    if (this.catchupTimer) clearInterval(this.catchupTimer);
     for (const { timer, done } of this.badgeTimers.values()) { clearTimeout(timer); done(); }
     this.badgeTimers.clear();
     for (const { timer, done } of this.pendingActivity.values()) { clearTimeout(timer); done(); }

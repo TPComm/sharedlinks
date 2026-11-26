@@ -85,10 +85,13 @@ public struct APIClient: Sendable {
     }
 
     /// Changes only the settings given; nil leaves one as it is.
-    public func setNotifications(watched: Bool? = nil, reactions: Bool? = nil) async throws -> MeResponse {
-        var settings: [String: Bool] = [:]
+    public func setNotifications(watched: Bool? = nil, reactions: Bool? = nil, catchup: CatchUp?? = nil) async throws -> MeResponse {
+        var settings: [String: Any] = [:]
         if let watched { settings["watched"] = watched }
         if let reactions { settings["reactions"] = reactions }
+        if let catchup {
+            settings["catchup"] = catchup.map { ["time": $0.time, "timeZone": $0.timeZone] } as Any? ?? NSNull()
+        }
         return try await send("PATCH", "api/me", json: ["notifications": settings])
     }
 

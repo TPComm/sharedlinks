@@ -230,6 +230,19 @@ A build that doesn't come up healthy is rolled back automatically; the last good
 `links-server.prev`. Re-running `setup.sh` only changes the settings you pass. The OS and Caddy patch themselves; Bun's
 runtime is inside the binary, so run `bun upgrade && deploy/deploy.sh …` about once a month.
 
+Daily Catch-Up is off by default. `GET /api/me` includes `notifications.catchup`: `null` or
+`{"time":"08:00","timeZone":"Australia/Sydney"}`. PATCH the same shape inside `notifications`
+to enable/change it, or `catchup: null` to disable; omitted fields stay unchanged. Times are 24-hour
+HH:MM with an IANA time zone. Catch-up replaces individual new-link alerts, not comments or activity
+alerts. Once daily at or after that local time, it summarises unwatched links outside muted chats;
+an empty Queue stays silent. Enabling after today's time starts tomorrow, unless you choose a later
+time that is still ahead today. Skipped dates are recorded separately from delivery claims in the
+same bookkeeping field, so rescheduling cannot repeat a summary already attempted today, even after
+turning catch-up off and on. Delivery dates are stored
+before sending, so restarts cannot duplicate a day's summary (failed delivery is not retried that day).
+`CATCHUP_INTERVAL_MS` controls the server check interval (default 60000; 0 disables checks); checks
+only run when APNs is configured. The deployment default needs no additional VPS setting.
+
 **Push notifications** (new links, when someone watches or reacts to a link you sent, and the app badge while Links is closed). Without
 them the app still works, polling while it's open. To turn them on:
 
@@ -382,7 +395,7 @@ API endpoints except sign-in need `Authorization: Bearer <session token>`; pages
 | POST | `/api/auth/logout` | ends this session (and removes its device tokens) |
 | POST | `/api/devices` | `{token, env}`: this session's APNs device token (hex), `env` is `sandbox` or `production` → `{ok, push}` (`push`: whether the server sends any). Registering a token again moves it to this session |
 | DELETE | `/api/devices/:token` | forget one of your device tokens |
-| GET/PATCH/DELETE | `/api/me` | `{user, claimable, notifications}`; PATCH `{name}` and/or `{notifications: {watched?, reactions?}}` (booleans, both on to start: whether I get a push when someone watches or reacts to a link I sent; a watch and a reaction from one person within a minute go out as one); DELETE deletes the account, its sessions, watched marks and reactions, and the links it sent (with their notes and thumbnails, for everyone). Also the WorkOS user, given `WORKOS_API_KEY` |
+| GET/PATCH/DELETE | `/api/me` | `{user, claimable, notifications}`; PATCH `{name}` and/or `{notifications: {watched?, reactions?, catchup?}}` (catchup is null by default or {time: "HH:MM", timeZone: "IANA"}; watched/reactions are booleans, both on to start: whether I get a push when someone watches or reacts to a link I sent; a watch and a reaction from one person within a minute go out as one); DELETE deletes the account, its sessions, watched marks and reactions, and the links it sent (with their notes and thumbnails, for everyone). Also the WorkOS user, given `WORKOS_API_KEY` |
 | PUT/DELETE | `/api/me/photo` | PUT's body is my profile photo itself, a JPEG or PNG up to 2 MB and 4096px a side (the app sends a 512px JPEG); it replaces the WorkOS picture as my `avatar` everywhere, at a new `/photos/:token` address each time. DELETE goes back to initials. Both return what `GET /api/me` does |
 | GET | `/photos/:token` | A profile photo, no sign-in needed (`AsyncImage` sends none): the address is random and stops working once its photo is replaced or removed, or its account deleted |
 | POST | `/api/me/claim` | `{id}` of a legacy person in my `claimable` (one `links-server claim` approved for my account) |

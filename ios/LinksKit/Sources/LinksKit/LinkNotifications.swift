@@ -3,6 +3,11 @@ import Foundation
 /// What a new-link push carries for the Notification Service Extension and the app's actions
 /// (`Pusher.newLink` in server/src/push.ts).
 public struct LinkNotification: Equatable, Sendable {
+    public static func destination(userInfo: [AnyHashable: Any]) -> DeepLink? {
+        if userInfo["open"] as? String == "queue" { return .inbox }
+        return LinkNotification(userInfo: userInfo).map { .open(linkID: $0.linkID) }
+    }
+
     /// The category the server sets on new-link pushes, which the app registers its actions under.
     public static let category = "NEW_LINK"
     public static let markSeenAction = "MARK_SEEN"

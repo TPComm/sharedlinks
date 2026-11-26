@@ -32,6 +32,7 @@ export interface Config {
   appStoreId: string;
   /** Pause between re-fetches of old links' previews after an upgrade; 0 turns that off. */
   previewBackfillMs: number;
+  catchupIntervalMs: number;
   /** Push notifications (APNs). Without a key, push is off. */
   apnsTeamId: string;
   /** The app's bundle id (LINKS_BUNDLE_ID in ios/Config.xcconfig). */
@@ -67,6 +68,7 @@ export function configFromEnv(env: Record<string, string | undefined> = process.
     logRequests: true,
     supportEmail: env.SUPPORT_EMAIL?.trim() || DEFAULT_SUPPORT_EMAIL,
     previewBackfillMs: Number(env.PREVIEW_BACKFILL_MS ?? 5000),
+    catchupIntervalMs: Number(env.CATCHUP_INTERVAL_MS ?? 60_000),
     // Not lowercased: team IDs are upper case.
     appleAppIds: (env.APPLE_APP_IDS ?? "")
       .split(",")

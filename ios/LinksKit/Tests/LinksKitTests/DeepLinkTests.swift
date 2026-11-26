@@ -4,6 +4,10 @@ import Testing
 
 @Suite("Deep links")
 struct DeepLinkTests {
+    @Test func catchUpDestinationRoundTrips() throws {
+        let destination = try #require(LinkNotification.destination(userInfo: ["open": "queue"]))
+        #expect(DeepLink(url: destination.url) == .inbox)
+    }
     @Test(arguments: [DeepLink.open(linkID: 42), .open(linkID: 0), .open(linkID: Int.max), .add, .inbox,
                       .link(token: "AbC-_09"), .invite(token: "tok"), .group(id: "42")])
     func roundTrip(_ link: DeepLink) {

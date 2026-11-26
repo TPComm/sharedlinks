@@ -884,6 +884,24 @@ final class LinksUITests: XCTestCase {
         XCTAssert(app.buttons["Add Profile Photo"].waitForExistence(timeout: 10), "the profile still offers to change the photo")
     }
 
+    func testDailyCatchUpPersistsAcrossLaunches() throws {
+        try server.disableCatchUp(as: server.me)
+        let api = server!
+        addTeardownBlock { try? api.disableCatchUp(as: api.me) }
+        launch()
+        app.buttons["account"].tap()
+        scrolledTo(app.buttons["notify.catchup"]).tap()
+        app.buttons.matching(NSPredicate(format: "label == %@", "Daily Catch-Up")).firstMatch.tap()
+        XCTAssert(scrolledTo(app.datePickers["notify.catchupTime"]).waitForExistence(timeout: 10))
+        try api.eventually("catch-up enabled") {
+            try api.notifications(as: api.me)?.catchup?.time == "18:00" ? true : nil
+        }
+        app.terminate()
+        launch()
+        app.buttons["account"].tap()
+        XCTAssert(scrolledTo(app.datePickers["notify.catchupTime"]).waitForExistence(timeout: 10))
+    }
+
     func testNotificationTogglesSaveEachSetting() throws {
         let api = server!
         guard try api.notifications(as: api.me) != nil else {

@@ -179,6 +179,25 @@ enum Endpoint: String, CaseIterable, Sendable {
 
 @Suite("APIClient requests")
 struct APIClientRequestTests {
+    @Test func catchUpPatchCanSetClearOrOmit() async throws {
+        let server = StubServer(always: .json(Fixture.meWithNotifications()))
+        let client = server.client()
+        _ = try await client.setNotifications(catchup: .some(CatchUp(time: "18:00", timeZone: "Australia/Sydney")))
+        #expect(server.requests.last?.canonicalJSON == #"{"notifications":{"catchup":{"time":"18:00","timeZone":"Australia/Sydney"}}}"#)
+        _ = try await client.setNotifications(catchup: .some(nil))
+        #expect(server.requests.last?.canonicalJSON == #"{"notifications":{"catchup":null}}"#)
+        _ = try await client.setNotifications(watched: false)
+        #expect(server.requests.last?.canonicalJSON == #"{"notifications":{"watched":false}}"#)
+    }
+
+    @Test func catchUpDecodesWithOldAndNewSettings() throws {
+        let decoder = JSONDecoder()
+        let old = try decoder.decode(NotificationSettings.self, from: Data(#"{"watched":true,"reactions":true}"#.utf8))
+        #expect(old.catchup == nil)
+        let new = try decoder.decode(NotificationSettings.self, from: Data(#"{"watched":true,"reactions":true,"catchup":{"time":"18:00","timeZone":"UTC"}}"#.utf8))
+        #expect(new.catchup == CatchUp(time: "18:00", timeZone: "UTC"))
+    }
+
     @Test(arguments: Endpoint.allCases)
     func sendsWhatTheServerExpects(_ endpoint: Endpoint) async throws {
         let server = StubServer(always: endpoint.reply)

@@ -4,7 +4,7 @@ import SwiftUI
 
 /// Add a stable case in display order, its page content below, and a UI test assertion.
 enum FeatureTour: String, CaseIterable, Identifiable {
-    case profilePhoto, rollup, wrapped, sharedWithYou, nudge, swipeQueue, favorites, chatInviteLink
+    case profilePhoto, rollup, wrapped, sharedWithYou, nudge, swipeQueue, favorites, chatInviteLink, dailyCatchUp
 
     var id: String { rawValue }
 
@@ -52,6 +52,10 @@ enum FeatureTour: String, CaseIterable, Identifiable {
         case .chatInviteLink:
             Page(symbol: "link.badge.plus", title: "Invite Friends to a Chat",
                  body: "Open a chat's info and create an invite link. Friends already on Links who tap it join the chat. People new to Links still need a personal invite.",
+                 action: nil)
+        case .dailyCatchUp:
+            Page(symbol: "bell.badge", title: "Get a Daily Catch-Up",
+                 body: "Get one summary a day instead of a push for every new link. Turn on Daily Catch-Up in Profile → Notify Me and choose a time that suits you. It's off unless you choose it.",
                  action: nil)
         }
     }

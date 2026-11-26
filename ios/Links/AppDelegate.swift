@@ -11,6 +11,7 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
     @Published var deviceToken: String?
     /// The link a tapped notification is about, until RootView opens it.
     @Published var openLinkID: Int?
+    @Published var openQueue = false
     /// Bumped by each notification that arrives while the app is in front.
     @Published var refreshes = 0
 
@@ -63,12 +64,18 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
         didReceive response: UNNotificationResponse,
         withCompletionHandler completionHandler: @escaping () -> Void
     ) {
-        let id = LinkNotification(userInfo: response.notification.request.content.userInfo)?.linkID
+        let info = response.notification.request.content.userInfo
+        let id = LinkNotification(userInfo: info)?.linkID
+        let queue = LinkNotification.destination(userInfo: info) == .inbox
         let action = response.actionIdentifier
         let comment = (response as? UNTextInputNotificationResponse)?.userText
         nonisolated(unsafe) let completionHandler = completionHandler
         DispatchQueue.main.async {
             MainActor.assumeIsolated {
+                if queue {
+                    self.openQueue = true
+                    return completionHandler()
+                }
                 guard let id, action != UNNotificationDefaultActionIdentifier else {
                     if let id { self.openLinkID = id }
                     return completionHandler()
