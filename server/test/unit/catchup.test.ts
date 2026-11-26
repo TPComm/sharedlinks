@@ -247,3 +247,32 @@ test("catch-up claim from before midnight cannot overwrite a newer day's claim",
   await push.catchUp(new Date("2026-03-09T00:01:30Z"));
   expect(bodies).toHaveLength(1);
 });
+
+test("catch-up claim after midnight succeeds when the previous day's claim finishes first", async () => {
+  enable("Reader", "UTC", 0);
+  enable("Other", "UTC", 0);
+  add("Maya");
+  const olderSend = Promise.withResolvers<void>();
+  const newerSend = Promise.withResolvers<void>();
+  const send = spyOn(push, "send")
+    .mockImplementationOnce(() => olderSend.promise)
+    .mockImplementationOnce(() => newerSend.promise);
+  const older = push.catchUp(new Date("2026-03-08T23:59:30Z"));
+  const newer = push.catchUp(new Date("2026-03-09T00:00:30Z"));
+  const otherClaim = () => db.query("SELECT catchup_sent_on FROM users WHERE id = 'Other'").get();
+  try {
+    expect(send).toHaveBeenCalledTimes(2);
+    expect(send).toHaveBeenNthCalledWith(1, expect.objectContaining({ user_id: "Reader" }), "alert", expect.any(String));
+    expect(send).toHaveBeenNthCalledWith(2, expect.objectContaining({ user_id: "Reader" }), "alert", expect.any(String));
+    olderSend.resolve();
+    await older;
+    expect(otherClaim()).toEqual({ catchup_sent_on: "2026-03-08" });
+  } finally {
+    olderSend.resolve();
+    newerSend.resolve();
+    await Promise.all([older, newer]);
+  }
+  expect(otherClaim()).toEqual({ catchup_sent_on: "2026-03-09" });
+  expect(send).toHaveBeenNthCalledWith(3, expect.objectContaining({ user_id: "Other" }), "alert", expect.any(String));
+  expect(send).toHaveBeenNthCalledWith(4, expect.objectContaining({ user_id: "Other" }), "alert", expect.any(String));
+});
