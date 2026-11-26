@@ -26,6 +26,7 @@ export PATH="$HOME/.bun/bin:$PATH"
 tmp="$(mktemp -d "${TMPDIR:-/tmp}/links-ui-tests.XXXXXX")"
 logs="${LINKS_UI_TEST_LOGS:-$tmp}"
 mkdir -p "$logs"
+if [[ "$logs" != /* ]]; then logs="$PWD/$logs"; fi
 server_pid=""
 shutdown_udid=""
 xctestrun_copy=""
@@ -110,6 +111,10 @@ warm_up_once() {
     return 1
   fi
   echo "Simulator boot/bootstatus completed in $((SECONDS - phase))s"
+  # Right after boot PosterBoard prewarms ~40 lock screen wallpaper extensions (~5 GB), which
+  # starves a CI runner's Simulator mid-test. The tests never open the wallpaper gallery.
+  xcrun simctl spawn "$udid" launchctl disable user/foreground/com.apple.PosterBoard || true
+  xcrun simctl spawn "$udid" launchctl bootout user/foreground/com.apple.PosterBoard 2>/dev/null || true
   phase=$SECONDS
   if xcrun simctl install "$udid" "$app"; then
     echo "Simulator app install completed in $((SECONDS - phase))s"
