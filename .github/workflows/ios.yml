@@ -179,7 +179,6 @@ jobs:
           print(f"Simulator {udid}: {runtime_id} ({runtime['buildversion']}) at {root}", flush=True)
           with open(os.environ["GITHUB_ENV"], "a") as env:
               print(f"LINKS_UI_TEST_RUNTIME_ROOT={root}", file=env)
-          subprocess.run(["df", "-P", root], check=True)
           cache = root / "System/Library/Caches/com.apple.dyld/dyld_sim_shared_cache_arm64"
           started = monotonic()
           # dyld_cache_format.h: subCacheArrayOffset/Count at 0x188, with 56-byte entries
@@ -227,8 +226,16 @@ jobs:
           PY
           }
 
+          log_runtime_inventory() {
+            local preflight_deadline=$((SECONDS + 12))
+            simctl 6 runtime list -v || true
+            run_bounded 3 mount | grep -Ei 'coresimulator|cryptex|simruntime' || true
+            run_bounded 3 df -h / || true
+          }
+
           boot_and_check() {
             local runtime=$1 budget=$2 started=$SECONDS phase probe_deadline pid previous_pid=""
+            local inventory_seconds
             local preflight_deadline=$((started + budget))
             udid=""
             echo "Simulator preflight: $runtime"
@@ -238,10 +245,10 @@ jobs:
             simctl 325 bootstatus "$udid" -b || return 1
             echo "Simulator create and boot phase: $((SECONDS - started))s"
             phase=$SECONDS
-            simctl 150 runtime list -v || return 1
-            run_bounded 10 mount | grep -Ei 'coresimulator|cryptex|simruntime' || true
-            run_bounded 10 df -h / || return 1
-            echo "Simulator pre-test runtime inventory: $((SECONDS - phase))s"
+            log_runtime_inventory
+            inventory_seconds=$((SECONDS - phase))
+            preflight_deadline=$((preflight_deadline + inventory_seconds))
+            echo "Simulator pre-test runtime inventory: ${inventory_seconds}s"
             phase=$SECONDS
             check_cache "$udid" || return 1
             echo "Simulator cache validation phase: $((SECONDS - phase))s"
@@ -297,7 +304,7 @@ jobs:
           }
 
           {
-            # Three attempt budgets + 45s rescan + two 16s cleanups fit inside 20 minutes.
+            # Three attempt budgets + three 12s inventories + 45s rescan + two 16s cleanups fit inside 20 minutes.
             if ! boot_and_check "$PRIMARY_SIMULATOR_RUNTIME" 420; then
               discard_device
               echo "Simulator preflight failed; restarting CoreSimulator and rescanning $PRIMARY_SIMULATOR_RUNTIME"
