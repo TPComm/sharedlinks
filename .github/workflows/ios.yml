@@ -228,7 +228,7 @@ jobs:
           }
 
           boot_and_check() {
-            local runtime=$1 budget=$2 started=$SECONDS pid previous_pid=""
+            local runtime=$1 budget=$2 started=$SECONDS probe_deadline pid previous_pid=""
             local preflight_deadline=$((started + budget))
             udid=""
             echo "Simulator preflight: $runtime"
@@ -241,12 +241,16 @@ jobs:
             run_bounded 10 df -h / || return 1
             check_cache "$udid" || return 1
             simctl 15 spawn "$udid" launchctl kickstart user/foreground/com.apple.InputUI || return 1
-            for _ in {1..10}; do
-              (( SECONDS < preflight_deadline )) || return 1
+            probe_deadline=$((SECONDS + 30))
+            if (( preflight_deadline < probe_deadline )); then probe_deadline=$preflight_deadline; fi
+            while (( SECONDS < probe_deadline )); do
               sleep 1
-              pid=$(simctl 10 spawn "$udid" launchctl print user/foreground/com.apple.InputUI |
+              if ! pid=$(preflight_deadline=$probe_deadline simctl 10 spawn "$udid" launchctl print user/foreground/com.apple.InputUI |
                 awk '$1=="state" && $2=="=" { state=$3 } $1=="pid" && $2=="=" { pid=$3 }
-                     END { if (state=="running" && pid>0) print pid }') || return 1
+                     END { if (state=="running" && pid>0) print pid }'); then
+                previous_pid=""
+                continue
+              fi
               if [[ -n "$pid" && "$pid" == "$previous_pid" ]]; then
                 simctl 15 rename "$udid" 'Links UI Tests' || return 1
                 echo "Simulator preflight passed: $runtime, InputUI PID $pid, $((SECONDS - started))s"
@@ -273,8 +277,7 @@ jobs:
             run_bounded 5 sudo -n pkill -x simdiskimaged || true
             simctl 25 runtime scan-and-mount || return 1
             while (( SECONDS < preflight_deadline )); do
-              runtimes=$(simctl 10 runtime list -j) || return 1
-              if python3 -c '
+              if runtimes=$(simctl 10 runtime list -j) && python3 -c '
           import json, sys
           sys.exit(not any(r.get("runtimeIdentifier") == sys.argv[1] and r.get("state") == "Ready"
                            for r in json.load(sys.stdin).values()))' "$runtime" <<< "$runtimes"; then
