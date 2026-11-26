@@ -6,7 +6,7 @@ import { Accounts, AuthError, INVITE_TOKEN_RE, MAX_GROUP_MEMBERS, MAX_PHOTO_BYTE
 import type { Config } from "./config.ts";
 import { defaultGroup, deleteEmptyGroups, deleteLink, ensureDirectChatsFor, LEGACY, now, openDatabase, sharesGroupWithDirectPeer, type CommentRow, type GroupRow, type LinkRow, type UserRow } from "./db.ts";
 import { BadRequest, canonical, clipText, extractUrl } from "./links.ts";
-import { landingPage } from "./landing.ts";
+import { changelogPage, landingPage } from "./landing.ts";
 import { REPORT_REASONS } from "./moderation.ts";
 import { fetchMetadata, PREVIEW_VERSION } from "./previews.ts";
 import { Pusher, type PushOptions } from "./push.ts";
@@ -667,6 +667,7 @@ export function createApp(config: Config, opts: AppOptions = {}) {
     : {};
   const routes = {
     "/": new Response(landingPage(config), { headers: { "Content-Type": "text/html; charset=utf-8" } }),
+    "/changelog": new Response(changelogPage(), { headers: { "Content-Type": "text/html; charset=utf-8" } }),
     "/healthz": new Response("ok\n"),
     // What's deployed: the nightly check compares `commit` with origin/main.
     "/version": Response.json({ commit: BUILD_COMMIT }),
