@@ -135,7 +135,7 @@ class XctestrunTests(unittest.TestCase):
 
 class ScriptTests(unittest.TestCase):
     def run_script(self, action, artifact=True, recovery=False, booted=True,
-                   launch_failures=0, expected_status=0, shard=None, stall=False):
+                   launch_failures=0, expected_status=0, shard=None, stall=False, long_process_list=False):
         with tempfile.TemporaryDirectory(prefix="links script ") as directory:
             root = pathlib.Path(directory)
             products = root / "build/Build/Products"
@@ -208,8 +208,21 @@ elif command == "xcodebuild":
         print(f"Test Case '{case}' failed (94 seconds).")
         sys.exit(65)
     print(f"Test Case '{case}' passed (1 seconds).")
-elif command == "sleep" and os.environ["MOCK_STALL"] == "1" and args == ["1"]:
-    time.sleep(1)
+elif command == "sleep" and os.environ["MOCK_STALL"] == "1" and args in (["1"], ["2"]):
+    time.sleep(int(args[0]))
+elif command == "memory_pressure":
+    print("System-wide memory free percentage: 20%")
+elif command == "sysctl":
+    print("total = 0.00M  used = 0.00M  free = 0.00M")
+elif command == "ps":
+    if args[-1] == "pid,rss,%cpu,etime,comm":
+        for i in range(5000):
+            print(f"{20000 + i} {i} 0.0 01:23 /Applications/" + "x" * 255)
+    else:
+        print("20000 100 0.0 /Applications/Links")
+elif command == "sort":
+    # Keep Python's ignored SIGPIPE so sort reports the broken pipe as on CI.
+    os.execv("/usr/bin/sort", ["sort", *args])
 ''')
             mock.chmod(0o755)
             for name in ("bun", "curl", "xcrun", "xcodebuild", "sleep"):
@@ -218,10 +231,14 @@ elif command == "sleep" and os.environ["MOCK_STALL"] == "1" and args == ["1"]:
                                MOCK_ROOT=str(root), MOCK_BOOTED=str(int(booted)),
                                MOCK_LAUNCH_FAILURES=str(launch_failures),
                                MOCK_RECOVERY="2" if recovery == "killed" else str(int(recovery)),
-                               MOCK_STALL=str(int(stall)),
+                               MOCK_STALL=str(int(stall or long_process_list)),
                                LINKS_UI_TEST_DERIVED_DATA=str(root / "build"), LINKS_UI_TEST_ACTION=action)
             if stall:
                 environment.update(LINKS_UI_TEST_LOGS="relative logs", LINKS_UI_TEST_STALL_SECONDS="1")
+            if long_process_list:
+                for name in ("memory_pressure", "sysctl", "ps", "sort"):
+                    (commands / name).symlink_to(mock)
+                environment.update(LINKS_UI_TEST_LOGS=str(root / "logs"), LINKS_UI_TEST_STALL_SECONDS="2")
             environment.pop("LINKS_UI_TEST_SHARD", None)
             args = ["bash", str(SCRIPTS / "ui-tests.sh")]
             if shard is None:
@@ -231,6 +248,12 @@ elif command == "sleep" and os.environ["MOCK_STALL"] == "1" and args == ["1"]:
             result = subprocess.run(args,
                                     cwd=root if stall else None, env=environment,
                                     capture_output=True, text=True, timeout=30)
+            if long_process_list:
+                self.assertNotIn("sort:", result.stdout)
+                memory_log = (root / "logs/host-memory.log").read_text()
+                self.assertIn("System-wide memory free percentage: 20%", memory_log)
+                self.assertEqual([line.split()[1] for line in memory_log.splitlines() if line.startswith("  ")][:8],
+                                 [str(i) for i in range(4999, 4991, -1)])
             if expected_status is not None:
                 self.assertEqual(result.returncode, expected_status, result.stdout + result.stderr)
             log = root / "xcodebuild.jsonl"
@@ -238,6 +261,11 @@ elif command == "sleep" and os.environ["MOCK_STALL"] == "1" and args == ["1"]:
             simctl = [json.loads(line) for line in (root / "simctl.jsonl").read_text().splitlines()]
             self.assertEqual(list(products.glob(".links-ui-tests-*.xctestrun")), [])
             return invocations, simctl, result
+
+    def test_watchdog_stops_silent_xcodebuild_with_a_long_process_list(self):
+        _, _, result = self.run_script("test", long_process_list=True, expected_status=None)
+        self.assertRegex(result.stdout, r"error: no UI test output for \d+s; stopping xcodebuild")
+        self.assertNotEqual(result.returncode, 0)
 
     def test_watchdog_stops_silent_xcodebuild_with_relative_logs(self):
         _, _, result = self.run_script("test", stall=True, expected_status=None)
