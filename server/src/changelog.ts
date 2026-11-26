@@ -2,6 +2,9 @@ export const changelog: { date: string; changes: { title: string; detail: string
   {
     date: "2026-11-26",
     changes: [
+      { title: "Activity feed", detail: "Tap the bell in your inbox to see comments, reactions and who’s seen your links, all in one place." },
+      { title: "Links Wrapped fix", detail: "Most Reacted now ignores every skin tone of the thumbs-down emoji, just like the standard thumbs-down." },
+      { title: "Custom reactions", detail: "Tap + next to the quick reactions on a link to pick an emoji from your keyboard." },
       { title: "Daily Catch-Up", detail: "Want fewer notifications? Choose a time in Profile → Notify Me to get one daily summary instead of a push for each new link." },
     ],
   },
