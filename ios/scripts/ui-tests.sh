@@ -233,7 +233,7 @@ watch_for_stall() {
       # running 10-25 s late, so name what is using the memory then.
       free=$(sed -n 's/.*percentage: \([0-9]*\)%.*/\1/p' <<<"$pressure")
       if (( ${free:-100} < 40 || $(date +%s) - tick >= 40 )); then
-        ps -axo pid,rss,%cpu,etime,comm | sort -k2 -nr | head -8 | sed 's/^/  /' >>"$logs/host-memory.log"
+        ps -axo pid,rss,%cpu,etime,comm | sort -k2 -nr | sed -n '1,8s/^/  /p' >>"$logs/host-memory.log"
       fi
     fi
     silent=$(( $(date +%s) - $(date -r "$log" +%s) ))
