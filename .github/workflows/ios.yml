@@ -114,7 +114,7 @@ jobs:
 
       - name: Boot and check UI test Simulator
         shell: bash
-        timeout-minutes: 10
+        timeout-minutes: 20
         env:
           PRIMARY_SIMULATOR_RUNTIME: com.apple.CoreSimulator.SimRuntime.iOS-27-2
           FALLBACK_SIMULATOR_RUNTIME: com.apple.CoreSimulator.SimRuntime.iOS-27-0
@@ -122,8 +122,42 @@ jobs:
           mkdir -p ios/diagnostics/simulator
           touch "$RUNNER_TEMP/links-ui-simulator-start"
 
+          run_bounded() {
+            local limit=$1 remaining
+            shift
+            if [[ -n ${preflight_deadline:-} ]]; then
+              remaining=$((preflight_deadline - SECONDS))
+              if (( remaining <= 0 )); then
+                echo "Simulator preflight budget exhausted before $*" >&2
+                return 124
+              fi
+              if (( remaining < limit )); then limit=$remaining; fi
+            fi
+            python3 -c '
+          import os, signal, subprocess, sys
+
+          limit, *command = sys.argv[1:]
+          process = subprocess.Popen(command, start_new_session=True)
+          try:
+              sys.exit(process.wait(timeout=int(limit)))
+          except subprocess.TimeoutExpired:
+              try:
+                  os.killpg(process.pid, signal.SIGKILL)
+              except ProcessLookupError:
+                  pass
+              process.wait()
+              print(f"Timed out after {limit}s:", " ".join(command), file=sys.stderr)
+              sys.exit(124)' "$limit" "$@"
+          }
+
+          simctl() {
+            local limit=$1
+            shift
+            run_bounded "$limit" xcrun simctl "$@"
+          }
+
           check_cache() {
-            python3 - "$1" <<'PY'
+            run_bounded 120 python3 - "$1" <<'PY'
           import json
           import os
           import re
@@ -134,7 +168,7 @@ jobs:
           from time import monotonic
 
           udid = sys.argv[1]
-          simulators = json.loads(subprocess.check_output(["xcrun", "simctl", "list", "-j"]))
+          simulators = json.loads(subprocess.check_output(["xcrun", "simctl", "list", "-j"], timeout=60))
           runtime_id = next((identifier for identifier, devices in simulators["devices"].items()
                              if any(d["udid"] == udid and d["state"] == "Booted" for d in devices)), None)
           runtime = next((r for r in simulators["runtimes"] if r["identifier"] == runtime_id
@@ -194,25 +228,27 @@ jobs:
           }
 
           boot_and_check() {
-            local runtime=$1 started=$SECONDS pid previous_pid=""
+            local runtime=$1 budget=$2 started=$SECONDS pid previous_pid=""
+            local preflight_deadline=$((started + budget))
             udid=""
             echo "Simulator preflight: $runtime"
-            udid=$(xcrun simctl create 'Links UI Tests (preflight)' 'iPhone 17' "$runtime") || return 1
+            udid=$(simctl 30 create 'Links UI Tests (preflight)' 'iPhone 17' "$runtime") || return 1
             echo "LINKS_UI_TEST_SIMULATOR_UDID=$udid" >> "$GITHUB_ENV"
-            xcrun simctl boot "$udid" || return 1
-            xcrun simctl bootstatus "$udid" -b || return 1
-            xcrun simctl runtime list -v || return 1
-            mount | grep -Ei 'coresimulator|cryptex|simruntime' || true
-            df -h / || return 1
+            simctl 30 boot "$udid" || return 1
+            simctl 325 bootstatus "$udid" -b || return 1
+            simctl 150 runtime list -v || return 1
+            run_bounded 10 mount | grep -Ei 'coresimulator|cryptex|simruntime' || true
+            run_bounded 10 df -h / || return 1
             check_cache "$udid" || return 1
-            xcrun simctl spawn "$udid" launchctl kickstart user/foreground/com.apple.InputUI || return 1
+            simctl 15 spawn "$udid" launchctl kickstart user/foreground/com.apple.InputUI || return 1
             for _ in {1..10}; do
+              (( SECONDS < preflight_deadline )) || return 1
               sleep 1
-              pid=$(xcrun simctl spawn "$udid" launchctl print user/foreground/com.apple.InputUI |
+              pid=$(simctl 10 spawn "$udid" launchctl print user/foreground/com.apple.InputUI |
                 awk '$1=="state" && $2=="=" { state=$3 } $1=="pid" && $2=="=" { pid=$3 }
-                     END { if (state=="running" && pid>0) print pid }') || continue
+                     END { if (state=="running" && pid>0) print pid }') || return 1
               if [[ -n "$pid" && "$pid" == "$previous_pid" ]]; then
-                xcrun simctl rename "$udid" 'Links UI Tests' || return 1
+                simctl 15 rename "$udid" 'Links UI Tests' || return 1
                 echo "Simulator preflight passed: $runtime, InputUI PID $pid, $((SECONDS - started))s"
                 return 0
               fi
@@ -225,22 +261,23 @@ jobs:
           discard_device() {
             if [[ -n "$udid" ]]; then
               echo "Discarding Simulator $udid after failed preflight"
-              xcrun simctl shutdown "$udid" || true
-              xcrun simctl delete "$udid" || true
+              simctl 8 shutdown "$udid" || true
+              simctl 8 delete "$udid" || true
             fi
           }
 
           remount_runtime() {
-            local runtime=$1
+            local runtime=$1 runtimes preflight_deadline=$((SECONDS + 45))
             # These services are dedicated to this hosted runner. Relaunch them before rescanning.
-            pkill -u "$(id -u)" -x com.apple.CoreSimulator.CoreSimulatorService || true
-            sudo -n pkill -x simdiskimaged || true
-            xcrun simctl runtime scan-and-mount || return 1
-            for _ in {1..15}; do
-              if xcrun simctl runtime list -j | python3 -c '
+            run_bounded 5 pkill -u "$(id -u)" -x com.apple.CoreSimulator.CoreSimulatorService || true
+            run_bounded 5 sudo -n pkill -x simdiskimaged || true
+            simctl 25 runtime scan-and-mount || return 1
+            while (( SECONDS < preflight_deadline )); do
+              runtimes=$(simctl 10 runtime list -j) || return 1
+              if python3 -c '
           import json, sys
           sys.exit(not any(r.get("runtimeIdentifier") == sys.argv[1] and r.get("state") == "Ready"
-                           for r in json.load(sys.stdin).values()))' "$runtime"; then
+                           for r in json.load(sys.stdin).values()))' "$runtime" <<< "$runtimes"; then
                 echo "Runtime is Ready after rescan: $runtime"
                 return 0
               fi
@@ -250,13 +287,14 @@ jobs:
           }
 
           {
-            if ! boot_and_check "$PRIMARY_SIMULATOR_RUNTIME"; then
+            # Three attempt budgets + 45s rescan + two 16s cleanups fit inside 20 minutes.
+            if ! boot_and_check "$PRIMARY_SIMULATOR_RUNTIME" 420; then
               discard_device
               echo "Simulator preflight failed; restarting CoreSimulator and rescanning $PRIMARY_SIMULATOR_RUNTIME"
-              if ! { remount_runtime "$PRIMARY_SIMULATOR_RUNTIME" && boot_and_check "$PRIMARY_SIMULATOR_RUNTIME"; }; then
+              if ! { remount_runtime "$PRIMARY_SIMULATOR_RUNTIME" && boot_and_check "$PRIMARY_SIMULATOR_RUNTIME" 320; }; then
                 discard_device
                 echo "Simulator preflight recovery failed; falling back to $FALLBACK_SIMULATOR_RUNTIME"
-                boot_and_check "$FALLBACK_SIMULATOR_RUNTIME"
+                boot_and_check "$FALLBACK_SIMULATOR_RUNTIME" 320
               fi
             fi
           } 2>&1 | tee ios/diagnostics/simulator/runtime-before.log
