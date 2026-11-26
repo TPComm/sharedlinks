@@ -1198,12 +1198,18 @@ describe("wrapped", () => {
     await add(amy, secret, 6, 150);
     await call(`/api/links/${a}/seen`, { token: viewer, body: { seen: true } });
     await call(`/api/links/${a}/react`, { token: viewer, body: { emoji: "❤️" } });
-    await call(`/api/links/${z}/react`, { token: viewer, body: { emoji: "😮" } });
+    const custom = await call(`/api/links/${z}/react`, { method: "PUT", token: viewer, body: { emoji: "👩🏽‍💻" } });
+    expect(custom.status).toBe(200);
     await call(`/api/links/${own}/react`, { token: amy, body: { emoji: "👎" } });
     const get = async (extra = "") => (await call(`/api/wrapped?start=100&end=200${extra}`, { token: viewer })).data;
     expect(await get()).toMatchObject({ received: 3, sent: 1, watched: 1,
       top_sender: { id: amyId, name: "Amy", count: 2 }, top_platform: { platform: "youtube", count: 2 },
       most_reacted: { id: z, sender_name: "Zoe", reactions: 1 } });
+    for (const emoji of ["👎🏻", "👎🏼", "👎🏽", "👎🏾", "👎🏿"]) {
+      const dislike = await call(`/api/links/${own}/react`, { method: "PUT", token: amy, body: { emoji } });
+      expect(dislike.status).toBe(200);
+      expect((await get()).most_reacted).toMatchObject({ id: z, reactions: 1 });
+    }
     const star = await call(`/api/links/${z}/favorite`, { method: "PUT", token: viewer });
     expect(star.status).toBe(200);
     expect(star.data.link.favorited_at).toBeNumber();
