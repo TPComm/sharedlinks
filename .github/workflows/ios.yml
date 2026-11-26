@@ -112,209 +112,54 @@ jobs:
           # Same Bun as server.yml and local development.
           bun-version: 1.4.4
 
-      - name: Boot and check UI test Simulator
-        shell: bash
-        timeout-minutes: 20
-        env:
-          PRIMARY_SIMULATOR_RUNTIME: com.apple.CoreSimulator.SimRuntime.iOS-27-2
-          FALLBACK_SIMULATOR_RUNTIME: com.apple.CoreSimulator.SimRuntime.iOS-27-0
+      - name: Boot UI test Simulator
         run: |
-          mkdir -p ios/diagnostics/simulator
+          started=$SECONDS
           touch "$RUNNER_TEMP/links-ui-simulator-start"
+          udid=$(xcrun simctl create "Links UI Tests" 'iPhone 17')
+          echo "Created Simulator Links UI Tests ($udid)"
+          echo "LINKS_UI_TEST_SIMULATOR_UDID=$udid" >> "$GITHUB_ENV"
+          xcrun simctl boot "$udid"
+          xcrun simctl bootstatus "$udid" -b
+          echo "Simulator boot and bootstatus completed in $((SECONDS - started))s"
 
-          run_bounded() {
-            local limit=$1 remaining
-            shift
-            if [[ -n ${preflight_deadline:-} ]]; then
-              remaining=$((preflight_deadline - SECONDS))
-              if (( remaining <= 0 )); then
-                echo "Simulator preflight budget exhausted before $*" >&2
-                return 124
-              fi
-              if (( remaining < limit )); then limit=$remaining; fi
-            fi
-            python3 -c '
-          import os, signal, subprocess, sys
-
-          limit, *command = sys.argv[1:]
-          process = subprocess.Popen(command, start_new_session=True)
-          try:
-              sys.exit(process.wait(timeout=int(limit)))
-          except subprocess.TimeoutExpired:
-              try:
-                  os.killpg(process.pid, signal.SIGKILL)
-              except ProcessLookupError:
-                  pass
-              process.wait()
-              print(f"Timed out after {limit}s:", " ".join(command), file=sys.stderr)
-              sys.exit(124)' "$limit" "$@"
-          }
-
-          simctl() {
-            local limit=$1
-            shift
-            run_bounded "$limit" xcrun simctl "$@"
-          }
-
-          check_cache() {
-            run_bounded 120 python3 - "$1" <<'PY'
+      - name: Check for InputUI crashes before tests
+        run: |
+          python3 - <<'PY'
           import json
           import os
-          import re
-          import struct
-          import subprocess
           import sys
           from pathlib import Path
-          from time import monotonic
 
-          udid = sys.argv[1]
-          simulators = json.loads(subprocess.check_output(["xcrun", "simctl", "list", "-j"], timeout=60))
-          runtime_id = next((identifier for identifier, devices in simulators["devices"].items()
-                             if any(d["udid"] == udid and d["state"] == "Booted" for d in devices)), None)
-          runtime = next((r for r in simulators["runtimes"] if r["identifier"] == runtime_id
-                          and r["isAvailable"]), None)
-          if runtime is None:
-              raise SystemExit(f"No available runtime for booted Simulator {udid}")
-          root = Path(runtime["runtimeRoot"])
-          print(f"Simulator {udid}: {runtime_id} ({runtime['buildversion']}) at {root}", flush=True)
-          with open(os.environ["GITHUB_ENV"], "a") as env:
-              print(f"LINKS_UI_TEST_RUNTIME_ROOT={root}", file=env)
-          cache = root / "System/Library/Caches/com.apple.dyld/dyld_sim_shared_cache_arm64"
-          started = monotonic()
-          # dyld_cache_format.h: subCacheArrayOffset/Count at 0x188, with 56-byte entries
-          # (UUID, VM offset, file suffix) in the iOS 27 cache format.
-          entry = struct.Struct("<16sQ32s")
-          with cache.open("rb") as file:
-              header = file.read(0x190)
-              if not header.startswith(b"dyld_v1") or len(header) != 0x190:
-                  raise SystemExit(f"Invalid dyld cache header: {cache}")
-              mapping_offset, = struct.unpack_from("<I", header, 0x10)
-              offset, count = struct.unpack_from("<II", header, 0x188)
-              if mapping_offset <= 0x1c8 or (count and offset < mapping_offset):
-                  raise SystemExit(f"Invalid dyld cache subcache metadata: {cache}")
-              if count and offset + count * entry.size > os.fstat(file.fileno()).st_size:
-                  raise SystemExit(f"Incomplete dyld cache subcache table: {cache}")
-              file.seek(offset)
-              table = file.read(count * entry.size)
-              if len(table) != count * entry.size:
-                  raise SystemExit(f"Unreadable dyld cache subcache table: {cache}")
-          files = [(cache, None)]
-          for uuid, _, raw_suffix in entry.iter_unpack(table):
-              suffix = raw_suffix.split(b"\0", 1)[0].decode("ascii")
-              if not re.fullmatch(r"\.[a-zA-Z0-9._-]+", suffix):
-                  raise SystemExit(f"Invalid dyld subcache suffix: {suffix!r}")
-              files.append((cache.with_name(cache.name + suffix), uuid))
-          for path, _ in files:
-              if not path.is_file():
-                  raise SystemExit(f"Missing required dyld cache file: {path}")
-          buffer = bytearray(8 * 1024 * 1024)
-          for path, uuid in files:
-              with path.open("rb") as file:
-                  header = file.read(0x68)
-                  size = os.fstat(file.fileno()).st_size
-                  if not header.startswith(b"dyld_v1") or len(header) != 0x68:
-                      raise SystemExit(f"Invalid dyld cache header: {path}")
-                  if uuid is not None and header[0x58:0x68] != uuid:
-                      raise SystemExit(f"Wrong dyld subcache UUID: {path}")
-                  read = len(header)
-                  while chunk := file.readinto(buffer):
-                      read += chunk
-                  if read != size:
-                      raise SystemExit(f"Incomplete dyld cache read: {path}")
-              print(f"Readable dyld cache: {path.name} ({size} bytes)")
-          print(f"Read {len(files)} dyld cache files in {monotonic() - started:.1f}s")
+          udid = os.environ["LINKS_UI_TEST_SIMULATOR_UDID"]
+          coalition = f"com.apple.CoreSimulator.SimDevice.{udid}"
+          start = (Path(os.environ["RUNNER_TEMP"]) / "links-ui-simulator-start").stat().st_mtime_ns
+          excerpt = None
+          for report in sorted((Path.home() / "Library/Logs/DiagnosticReports").glob("InputUI-*.ips")):
+              try:
+                  if report.stat().st_mtime_ns <= start:
+                      continue
+                  with report.open() as file:
+                      file.readline()
+                      crash = json.load(file)
+              except (OSError, ValueError) as error:
+                  print(f"Could not read {report.name}: {error}", file=sys.stderr)
+                  continue
+              if crash.get("coalitionName") != coalition:
+                  continue
+              reason = crash.get("termination", {})
+              if excerpt is None or reason.get("namespace") == "DYLD":
+                  excerpt = (report.name, reason)
+              if reason.get("namespace") == "DYLD":
+                  break
+          if excerpt is not None:
+              name, reason = excerpt
+              print(f"InputUI crashed before UI tests on Simulator {udid}: {name}", file=sys.stderr)
+              print(f"{reason.get('namespace', '')}: {reason.get('indicator', '')}", file=sys.stderr)
+              for line in reason.get("reasons", [])[:1]:
+                  print(line, file=sys.stderr)
+              sys.exit(1)
           PY
-          }
-
-          log_runtime_inventory() {
-            local preflight_deadline=$((SECONDS + 12))
-            simctl 6 runtime list -v || true
-            run_bounded 3 mount | grep -Ei 'coresimulator|cryptex|simruntime' || true
-            run_bounded 3 df -h / || true
-          }
-
-          boot_and_check() {
-            local runtime=$1 budget=$2 started=$SECONDS phase probe_deadline pid previous_pid=""
-            local inventory_seconds
-            local preflight_deadline=$((started + budget))
-            udid=""
-            echo "Simulator preflight: $runtime"
-            udid=$(simctl 30 create 'Links UI Tests (preflight)' 'iPhone 17' "$runtime") || return 1
-            echo "LINKS_UI_TEST_SIMULATOR_UDID=$udid" >> "$GITHUB_ENV"
-            simctl 30 boot "$udid" || return 1
-            simctl 325 bootstatus "$udid" -b || return 1
-            echo "Simulator create and boot phase: $((SECONDS - started))s"
-            phase=$SECONDS
-            log_runtime_inventory
-            inventory_seconds=$((SECONDS - phase))
-            preflight_deadline=$((preflight_deadline + inventory_seconds))
-            echo "Simulator pre-test runtime inventory: ${inventory_seconds}s"
-            phase=$SECONDS
-            check_cache "$udid" || return 1
-            echo "Simulator cache validation phase: $((SECONDS - phase))s"
-            phase=$SECONDS
-            simctl 15 spawn "$udid" launchctl kickstart user/foreground/com.apple.InputUI || return 1
-            probe_deadline=$((SECONDS + 30))
-            if (( preflight_deadline < probe_deadline )); then probe_deadline=$preflight_deadline; fi
-            while (( SECONDS < probe_deadline )); do
-              sleep 1
-              if ! pid=$(preflight_deadline=$probe_deadline simctl 10 spawn "$udid" launchctl print user/foreground/com.apple.InputUI |
-                awk '$1=="state" && $2=="=" { state=$3 } $1=="pid" && $2=="=" { pid=$3 }
-                     END { if (state=="running" && pid>0) print pid }'); then
-                previous_pid=""
-                continue
-              fi
-              if [[ -n "$pid" && "$pid" == "$previous_pid" ]]; then
-                simctl 15 rename "$udid" 'Links UI Tests' || return 1
-                echo "Simulator InputUI readiness phase: $((SECONDS - phase))s"
-                echo "Simulator preflight passed: $runtime, InputUI PID $pid, $((SECONDS - started))s"
-                return 0
-              fi
-              previous_pid=$pid
-            done
-            echo "InputUI did not stay running on $udid" >&2
-            return 1
-          }
-
-          discard_device() {
-            if [[ -n "$udid" ]]; then
-              echo "Discarding Simulator $udid after failed preflight"
-              simctl 8 shutdown "$udid" || true
-              simctl 8 delete "$udid" || true
-            fi
-          }
-
-          remount_runtime() {
-            local runtime=$1 runtimes preflight_deadline=$((SECONDS + 45))
-            # These services are dedicated to this hosted runner. Relaunch them before rescanning.
-            run_bounded 5 pkill -u "$(id -u)" -x com.apple.CoreSimulator.CoreSimulatorService || true
-            run_bounded 5 sudo -n pkill -x simdiskimaged || true
-            simctl 25 runtime scan-and-mount || return 1
-            while (( SECONDS < preflight_deadline )); do
-              if runtimes=$(simctl 10 runtime list -j) && python3 -c '
-          import json, sys
-          sys.exit(not any(r.get("runtimeIdentifier") == sys.argv[1] and r.get("state") == "Ready"
-                           for r in json.load(sys.stdin).values()))' "$runtime" <<< "$runtimes"; then
-                echo "Runtime is Ready after rescan: $runtime"
-                return 0
-              fi
-              sleep 2
-            done
-            return 1
-          }
-
-          {
-            # Three attempt budgets + three 12s inventories + 45s rescan + two 16s cleanups fit inside 20 minutes.
-            if ! boot_and_check "$PRIMARY_SIMULATOR_RUNTIME" 420; then
-              discard_device
-              echo "Simulator preflight failed; restarting CoreSimulator and rescanning $PRIMARY_SIMULATOR_RUNTIME"
-              if ! { remount_runtime "$PRIMARY_SIMULATOR_RUNTIME" && boot_and_check "$PRIMARY_SIMULATOR_RUNTIME" 320; }; then
-                discard_device
-                echo "Simulator preflight recovery failed; falling back to $FALLBACK_SIMULATOR_RUNTIME"
-                boot_and_check "$FALLBACK_SIMULATOR_RUNTIME" 320
-              fi
-            fi
-          } 2>&1 | tee ios/diagnostics/simulator/runtime-before.log
 
       # Starts the server from source with an empty database and drives the app in the "Links UI
       # Tests" Simulator through this slice of the tests. A runner crash can mean another boot,
@@ -337,7 +182,7 @@ jobs:
           {
             xcrun simctl runtime list -v || true
             mount | grep -Ei 'coresimulator|cryptex|simruntime' || true
-            df -h / "${LINKS_UI_TEST_RUNTIME_ROOT:-/}" || true
+            df -h / || true
           } 2>&1 | tee "$diagnostics/runtime-after.log"
           echo "Simulator post-test runtime inventory: $((SECONDS - phase))s"
 
@@ -354,11 +199,8 @@ jobs:
           coalition = f"com.apple.CoreSimulator.SimDevice.{udid}"
           start = (Path(os.environ["RUNNER_TEMP"]) / "links-ui-simulator-start").stat().st_mtime_ns
           output = Path(sys.argv[1]) / "system-crashes"
-          root = os.environ.get("LINKS_UI_TEST_RUNTIME_ROOT")
           system_paths = ("/Volumes/", "/Library/Developer/", "/System/", "/usr/",
                           "/private/var/run/com.apple.security.cryptexd/")
-          if root:
-              system_paths += (f"{root}/",)
           keyboard = other = 0
           for report in sorted((Path.home() / "Library/Logs/DiagnosticReports").glob("*.ips")):
               if report.stat().st_mtime_ns <= start:
