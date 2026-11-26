@@ -460,7 +460,7 @@ describe("v22: daily catch-up", () => {
         }
         db.close();
         const upgraded = openDatabase(tmp.dir);
-        expect(pragma(upgraded, "user_version")).toBe(22);
+        expect(pragma(upgraded, "user_version")).toBe(23);
         expect(upgraded.query("SELECT catchup_minute, catchup_tz, catchup_sent_on FROM users WHERE id = 'a'").get())
           .toEqual({ catchup_minute: null, catchup_tz: null, catchup_sent_on: null });
         expect(upgraded.query("SELECT is_direct FROM groups WHERE id = 2").get()).toEqual({ is_direct: 1 });
