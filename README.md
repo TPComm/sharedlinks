@@ -428,6 +428,7 @@ API endpoints except sign-in need `Authorization: Bearer <session token>`; pages
 | GET | `/l/:token` | public link page (optional trailing slash) with only the title, thumbnail and original URL; rich previews and a universal link into the app. Unknown or deleted tokens return 404 |
 | GET | `/l/:token/image` | public cached thumbnail, accessible only with the link's unguessable token; 404 without a thumbnail or after deletion |
 | GET | `/g/:id` | public "Open this in the Links app" page; universal link into the app |
+| GET | `/changelog` | public changelog of recent Links features and improvements; entries live in `server/src/changelog.ts` |
 | GET | `/privacy` | public privacy policy page, with the same address, for the App Store Privacy Policy URL |
 | GET | `/support` | public page with the support address (`SUPPORT_EMAIL`, default `support@tpcomm.co`), for the App Store Support URL |
 | GET | `/thumbs/:id` | the cached thumbnail |

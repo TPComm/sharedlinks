@@ -454,6 +454,26 @@ describe("browser landing page", () => {
     expect(res.data).not.toContain("apple-itunes-app");
     expect(res.data).not.toContain("<script");
   });
+
+  test("shows a short feature list and links to the public changelog", async () => {
+    const home = await call("/");
+    expect(home.data).toContain('aria-labelledby="features-title"');
+    expect(home.data).toContain("Keep private favorites");
+    expect(home.data).toContain("Catch up from a widget");
+    const href = home.data.match(/href="(\/changelog)"/)?.[1];
+    expect(href).toBe("/changelog");
+
+    const page = await call(href!);
+    expect(page.status).toBe(200);
+    expect(page.headers.get("content-type")).toBe("text/html; charset=utf-8");
+    expect(page.data).toContain("<h1>Changelog</h1>");
+    expect(page.data).toContain('href="/" aria-label="Links home"');
+    expect(page.data).toContain('href="/changelog" aria-current="page"');
+    expect(page.data).toContain("Daily Catch-Up");
+    const dates = [...page.data.matchAll(/<time datetime="(\d{4}-\d{2}-\d{2})"/g)].map((match) => match[1]);
+    expect(dates.length).toBeGreaterThan(1);
+    expect(dates).toEqual([...dates].sort().reverse());
+  });
 });
 
 describe("invites", () => {

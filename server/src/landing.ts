@@ -1,31 +1,21 @@
 import type { Config } from "./config.ts";
+import { changelog } from "./changelog.ts";
 
 const escapeHtml = (s: string) => s.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
 
-/** Public, static introduction. Keep it self-contained so the compiled server needs no web assets. */
-export function landingPage(config: Pick<Config, "appScheme" | "appStoreId" | "publicUrl">): string {
-  const appUrl = `${config.appScheme}://inbox`;
-  const store = config.appStoreId
-    ? `<a class="store-link" href="https://apps.apple.com/app/id${escapeHtml(encodeURIComponent(config.appStoreId))}">Get Links for iPhone <span aria-hidden="true">↗</span></a>`
-    : "";
-  const banner = config.appStoreId
-    ? `<meta name="apple-itunes-app" content="app-id=${escapeHtml(config.appStoreId)}, app-argument=${escapeHtml(appUrl)}">`
-    : "";
-  const arrow = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="M5 12h14m-6-6 6 6-6 6"/></svg>';
+function sitePage({ title, description, metadata = "", current, content }: {
+  title: string; description: string; metadata?: string; current: "home" | "changelog"; content: string;
+}): string {
   return `<!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Links — good finds, kept together.</title>
-<meta name="description" content="A little shared inbox for the links you send each other. Save articles, videos, recipes and more, and catch up in your own time.">
+<title>${escapeHtml(title)}</title>
+<meta name="description" content="${escapeHtml(description)}">
 <meta name="theme-color" content="#f6f7f2">
-<meta property="og:title" content="Links — good finds, kept together.">
-<meta property="og:description" content="A little shared inbox for the links you send each other. For your people, not your followers.">
-<meta property="og:type" content="website">
-<meta property="og:image" content="${escapeHtml(config.publicUrl)}/icon.png">
 <link rel="icon" type="image/png" href="/icon.png">
-${banner}
+${metadata}
 <style>
   :root{color-scheme:light;--paper:#f6f7f2;--ink:#202c27;--muted:#58655c;--green:#2d6246;--line:#dce2d7}
   *{box-sizing:border-box}
@@ -39,7 +29,7 @@ ${banner}
   .brand img{display:block;width:37px;height:37px}
   nav{display:flex;align-items:center;gap:30px;font-size:14px;font-weight:500}
   nav a{text-decoration:none}
-  nav a:hover,footer a:hover{color:var(--green);text-decoration:underline}
+  nav a:hover,nav a[aria-current],footer a:hover{color:var(--green);text-decoration:underline}
   .hero{display:grid;grid-template-columns:1.12fr 1fr;align-items:center;gap:68px;padding-top:66px;padding-bottom:80px}
   .eyebrow{display:flex;align-items:center;gap:9px;color:var(--green);font-size:11px;font-weight:700;letter-spacing:1.8px;text-transform:uppercase}
   .dot{width:7px;height:7px;border-radius:50%;background:#538663}
@@ -68,6 +58,13 @@ ${banner}
   .number{display:block;font:italic 18px Georgia,serif;color:#6b866e;margin-bottom:12px}
   h3{font-size:16px;letter-spacing:-.3px;font-weight:650;margin:0 0 6px}
   .features p{font-size:13px;line-height:1.8;color:var(--muted);margin:0}
+  .feature-list{list-style:none;margin:0;padding:0}
+  .changelog{max-width:680px;padding-top:44px;padding-bottom:48px}
+  .changelog .intro{max-width:none}
+  .change{padding:24px 0;border-top:1px solid var(--line)}
+  .change h2{font-size:18px;margin:0 0 10px}
+  .change ul{padding-left:20px;margin:0;color:var(--muted)}
+  .change li+li{margin-top:7px}
   footer{display:flex;justify-content:space-between;align-items:center;gap:20px;border-top:1px solid var(--line);padding:23px 0 28px;font-size:11px;color:var(--muted)}
   footer p{margin:0}
   footer div{display:flex;gap:22px}
@@ -75,7 +72,7 @@ ${banner}
   .skip{position:absolute;top:-100px;left:20px;background:white;padding:10px;z-index:2}
   .skip:focus{top:10px}
   @media(max-width:800px){.wrap{padding:0 25px}.hero{gap:35px;padding-top:44px;padding-bottom:60px}h1{font-size:49px;letter-spacing:-2.8px}.intro{font-size:16px}.features{gap:24px}}
-  @media(max-width:600px){header{padding-top:20px}nav{gap:21px;font-size:12px}.hero{grid-template-columns:1fr;gap:45px;padding-top:35px;padding-bottom:55px}h1{font-size:54px;max-width:360px}.intro{max-width:350px}.preview{max-width:326px}.features{grid-template-columns:1fr;gap:25px}.number{margin-bottom:5px}.features p{max-width:360px;font-size:14px}footer{align-items:flex-start}.how{padding-bottom:32px}}
+  @media(max-width:600px){header{padding-top:20px;flex-wrap:wrap;gap:12px}nav{gap:12px;font-size:12px}.hero{grid-template-columns:1fr;gap:45px;padding-top:35px;padding-bottom:55px}h1{font-size:54px;max-width:360px}.intro{max-width:350px}.preview{max-width:326px}.features{grid-template-columns:1fr;gap:25px}.number{margin-bottom:5px}.features p{max-width:360px;font-size:14px}footer{align-items:flex-start}.how{padding-bottom:32px}}
   @media(prefers-reduced-motion:reduce){html{scroll-behavior:auto}.button{transition:none}}
 </style>
 </head>
@@ -84,9 +81,36 @@ ${banner}
 <div class="wrap">
   <header>
     <a class="brand" href="/" aria-label="Links home"><img src="/icon.png" width="37" height="37" alt="">Links</a>
-    <nav aria-label="Main navigation"><a href="#how-it-works">How it works</a><a href="/support">Support <span aria-hidden="true">↗</span></a></nav>
+    <nav aria-label="Main navigation"><a href="${current === "home" ? "" : "/"}#how-it-works">How it works</a><a href="/changelog"${current === "changelog" ? ' aria-current="page"' : ""}>Changelog</a><a href="/support">Support <span aria-hidden="true">↗</span></a></nav>
   </header>
-  <main id="main">
+  <main id="main">${content}</main>
+  <footer><p>For your people. Not your followers.</p><div><a href="/privacy">Privacy</a><a href="/support">Support</a></div></footer>
+</div>
+</body>
+</html>`;
+}
+
+/** Public, static introduction. Keep it self-contained so the compiled server needs no web assets. */
+export function landingPage(config: Pick<Config, "appScheme" | "appStoreId" | "publicUrl">): string {
+  const appUrl = `${config.appScheme}://inbox`;
+  const store = config.appStoreId
+    ? `<a class="store-link" href="https://apps.apple.com/app/id${escapeHtml(encodeURIComponent(config.appStoreId))}">Get Links for iPhone <span aria-hidden="true">↗</span></a>`
+    : "";
+  const banner = config.appStoreId
+    ? `<meta name="apple-itunes-app" content="app-id=${escapeHtml(config.appStoreId)}, app-argument=${escapeHtml(appUrl)}">`
+    : "";
+  const arrow = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="M5 12h14m-6-6 6 6-6 6"/></svg>';
+  const title = "Links — good finds, kept together.";
+  return sitePage({
+    title,
+    description: "A little shared inbox for the links you send each other. Save articles, videos, recipes and more, and catch up in your own time.",
+    metadata: `<meta property="og:title" content="${title}">
+<meta property="og:description" content="A little shared inbox for the links you send each other. For your people, not your followers.">
+<meta property="og:type" content="website">
+<meta property="og:image" content="${escapeHtml(config.publicUrl)}/icon.png">
+${banner}`,
+    current: "home",
+    content: `
     <section class="hero" aria-labelledby="headline">
       <div>
         <div class="eyebrow"><span class="dot" aria-hidden="true"></span>A little less lost in the chat</div>
@@ -112,9 +136,32 @@ ${banner}
         <div><span class="number" aria-hidden="true">03 /</span><h3>Stay in the loop.</h3><p>Catch up in your own time. React, leave a comment, and see when your friends have seen what you sent.</p></div>
       </div>
     </section>
-  </main>
-  <footer><p>For your people. Not your followers.</p><div><a href="/privacy">Privacy</a><a href="/support">Support</a></div></footer>
-</div>
-</body>
-</html>`;
+    <section class="how" id="features" aria-labelledby="features-title">
+      <h2 class="section-label" id="features-title">More things to do with Links</h2>
+      <ul class="features feature-list" role="list">
+        <li><h3>Keep private favorites</h3><p>Star the links you want to come back to. Only you can see what you save.</p></li>
+        <li><h3>Share with your people</h3><p>Keep finds between you and a friend in a private chat, or share them with the whole group.</p></li>
+        <li><h3>Catch up from a widget</h3><p>See your Queue or Sent receipts at a glance, and mark links seen without opening the app.</p></li>
+      </ul>
+    </section>`,
+  });
+}
+
+export function changelogPage(): string {
+  const dateLabel = new Intl.DateTimeFormat("en", { dateStyle: "long", timeZone: "UTC" });
+  const entries = changelog.map(({ date, changes }) => `
+      <section class="change">
+        <h2><time datetime="${escapeHtml(date)}">${dateLabel.format(new Date(date))}</time></h2>
+        <ul>${changes.map(({ title, detail }) => `<li><strong>${escapeHtml(title)}:</strong> ${escapeHtml(detail)}</li>`).join("")}</ul>
+      </section>`).join("");
+  return sitePage({
+    title: "Changelog — Links",
+    description: "New features and improvements in Links.",
+    current: "changelog",
+    content: `
+    <div class="changelog">
+      <h1>Changelog</h1>
+      <p class="intro">New features and improvements in Links.</p>${entries}
+    </div>`,
+  });
 }
