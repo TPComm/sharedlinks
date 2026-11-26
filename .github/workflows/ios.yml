@@ -115,8 +115,10 @@ jobs:
       - name: Boot UI test Simulator
         run: |
           started=$SECONDS
+          touch "$RUNNER_TEMP/links-ui-simulator-start"
           udid=$(xcrun simctl create "Links UI Tests" 'iPhone 17')
           echo "Created Simulator Links UI Tests ($udid)"
+          echo "LINKS_UI_TEST_SIMULATOR_UDID=$udid" >> "$GITHUB_ENV"
           xcrun simctl boot "$udid"
           xcrun simctl bootstatus "$udid" -b
           echo "Simulator boot and bootstatus completed in $((SECONDS - started))s"
@@ -130,7 +132,121 @@ jobs:
           LINKS_UI_TEST_ACTION: test-without-building
           LINKS_UI_TEST_SHARD: ${{ matrix.shard }}/${{ strategy.job-total }}
           LINKS_UI_TEST_LOGS: ${{ github.workspace }}/ios/diagnostics/ui-test-logs
-        run: ios/scripts/ui-tests.sh
+        run: |
+          # Keep the test tree in its own process group so a crash can stop the whole slice.
+          set -m
+          ios/scripts/ui-tests.sh &
+          test_pid=$!
+          python3 - "$test_pid" <<'PY' &
+          import json
+          import os
+          import signal
+          import sys
+          from pathlib import Path
+          from time import sleep
+
+          udid = os.environ["LINKS_UI_TEST_SIMULATOR_UDID"]
+          coalition = f"com.apple.CoreSimulator.SimDevice.{udid}"
+          start = (Path(os.environ["RUNNER_TEMP"]) / "links-ui-simulator-start").stat().st_mtime_ns
+          reports = Path.home() / "Library/Logs/DiagnosticReports"
+          seen = set()
+          while True:
+              excerpt = None
+              for report in reports.glob("InputUI-*.ips"):
+                  if report in seen:
+                      continue
+                  try:
+                      if report.stat().st_mtime_ns <= start:
+                          seen.add(report)
+                          continue
+                      with report.open() as file:
+                          file.readline()
+                          crash = json.load(file)
+                  except (OSError, ValueError):
+                      continue
+                  seen.add(report)
+                  if crash.get("coalitionName") != coalition:
+                      continue
+                  reason = crash.get("termination", {})
+                  if excerpt is None or reason.get("namespace") == "DYLD":
+                      excerpt = (report.name, reason)
+                  if reason.get("namespace") == "DYLD":
+                      break
+              if excerpt is not None:
+                  name, reason = excerpt
+                  print(f"InputUI crashed on Simulator {udid}; stopping UI tests: {name}", file=sys.stderr)
+                  print(f"{reason.get('namespace', '')}: {reason.get('indicator', '')}", file=sys.stderr)
+                  for line in reason.get("reasons", [])[:1]:
+                      print(line, file=sys.stderr)
+                  try:
+                      os.killpg(int(sys.argv[1]), signal.SIGTERM)
+                  except ProcessLookupError:
+                      pass
+                  break
+              sleep(2)
+          PY
+          watcher_pid=$!
+          trap 'kill "$watcher_pid" 2>/dev/null || true' EXIT
+          trap 'kill -TERM -- "-$test_pid" 2>/dev/null || true; exit 130' INT TERM
+          wait "$test_pid"
+
+      - name: Check Simulator system crash reports
+        if: ${{ !cancelled() && env.LINKS_UI_TEST_SIMULATOR_UDID != '' }}
+        shell: bash
+        run: |
+          diagnostics=ios/diagnostics/simulator
+          mkdir -p "$diagnostics"
+          phase=$SECONDS
+          {
+            xcrun simctl runtime list -v || true
+            mount | grep -Ei 'coresimulator|cryptex|simruntime' || true
+            df -h / || true
+          } 2>&1 | tee "$diagnostics/runtime-after.log"
+          echo "Simulator post-test runtime inventory: $((SECONDS - phase))s"
+
+          phase=$SECONDS
+          audit_status=0
+          python3 - "$diagnostics" <<'PY' | tee "$diagnostics/system-crashes.log" || audit_status=$?
+          import json
+          import os
+          import shutil
+          import sys
+          from pathlib import Path
+
+          udid = os.environ["LINKS_UI_TEST_SIMULATOR_UDID"]
+          coalition = f"com.apple.CoreSimulator.SimDevice.{udid}"
+          start = (Path(os.environ["RUNNER_TEMP"]) / "links-ui-simulator-start").stat().st_mtime_ns
+          output = Path(sys.argv[1]) / "system-crashes"
+          system_paths = ("/Volumes/", "/Library/Developer/", "/System/", "/usr/",
+                          "/private/var/run/com.apple.security.cryptexd/")
+          keyboard = other = 0
+          for report in sorted((Path.home() / "Library/Logs/DiagnosticReports").glob("*.ips")):
+              if report.stat().st_mtime_ns <= start:
+                  continue
+              try:
+                  with report.open() as file:
+                      header = json.loads(file.readline())
+                      crash = json.load(file)
+              except (OSError, ValueError) as error:
+                  print(f"Could not read {report.name}: {error}")
+                  continue
+              if crash.get("coalitionName") != coalition:
+                  continue
+              input_ui = (crash.get("procName") == "InputUI"
+                          or header.get("bundleID") == "com.apple.InputUI")
+              if not input_ui and not crash.get("procPath", "").startswith(system_paths):
+                  continue
+              output.mkdir(exist_ok=True)
+              shutil.copy2(report, output / report.name)
+              reason = crash.get("termination", {})
+              print(f"{report.name}: {reason.get('namespace', '')} {reason.get('indicator', '')}".rstrip())
+              keyboard += input_ui
+              other += not input_ui
+          print(f"Simulator {udid}: {keyboard} InputUI and {other} other system-process crash reports")
+          sys.exit(1 if keyboard else 0)
+          PY
+          echo "Simulator crash audit phase: $((SECONDS - phase))s"
+          exit "$audit_status"
 
       - name: Collect UI test diagnostics
         if: failure()
@@ -149,6 +265,13 @@ jobs:
           path: |
             ios/build/Logs/Test/*.xcresult
             ios/diagnostics/
+
+      - name: Upload Simulator diagnostics on success
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-ui-test-diagnostics-${{ matrix.shard }}
+          retention-days: 5
+          path: ios/diagnostics/simulator/
 
   check:
     # The name main's ruleset requires: rename it there too if it changes.
