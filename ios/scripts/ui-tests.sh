@@ -111,10 +111,12 @@ warm_up_once() {
     return 1
   fi
   echo "Simulator boot/bootstatus completed in $((SECONDS - phase))s"
-  # Right after boot PosterBoard prewarms ~40 lock screen wallpaper extensions (~5 GB), which
-  # starves a CI runner's Simulator mid-test. The tests never open the wallpaper gallery.
-  xcrun simctl spawn "$udid" launchctl disable user/foreground/com.apple.PosterBoard || true
-  xcrun simctl spawn "$udid" launchctl bootout user/foreground/com.apple.PosterBoard 2>/dev/null || true
+  # Wallpaper prewarming starves CI runners. Disabling PosterBoard persists across boots,
+  # so do it only on GitHub Actions' disposable Simulators.
+  if [[ "${GITHUB_ACTIONS:-}" == true ]]; then
+    xcrun simctl spawn "$udid" launchctl disable user/foreground/com.apple.PosterBoard || true
+    xcrun simctl spawn "$udid" launchctl bootout user/foreground/com.apple.PosterBoard 2>/dev/null || true
+  fi
   phase=$SECONDS
   if xcrun simctl install "$udid" "$app"; then
     echo "Simulator app install completed in $((SECONDS - phase))s"
