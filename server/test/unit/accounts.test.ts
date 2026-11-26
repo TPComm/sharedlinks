@@ -162,7 +162,7 @@ describe("claimLegacy", () => {
         (1, 3, 'https://a.com/3', 'web', 'user_A', 1);
       INSERT INTO group_members (group_id, user_id, joined_at) VALUES (1, 'user_A', 1), (1, 'user_B', 1);
       INSERT INTO seen VALUES (1, 'legacy:Sam', 5), (2, 'legacy:Sam', 6), (2, 'user_A', 7), (2, 'legacy:Alex', 8);
-      INSERT INTO reactions VALUES (1, 'legacy:Sam', '🔥'), (3, 'legacy:Sam', '😂'), (3, 'user_A', '❤️'), (1, 'legacy:Alex', '😮');
+      INSERT INTO reactions (link_id, person, emoji) VALUES (1, 'legacy:Sam', '🔥'), (3, 'legacy:Sam', '😂'), (3, 'user_A', '❤️'), (1, 'legacy:Alex', '😮');
     `);
     return accounts();
   }
@@ -183,7 +183,7 @@ describe("claimLegacy", () => {
       { link_id: 2, person: "legacy:Alex", seen_at: 8 },
       { link_id: 2, person: "user_A", seen_at: 7 },
     ]);
-    expect(rows("SELECT * FROM reactions ORDER BY link_id, person")).toEqual([
+    expect(rows("SELECT link_id, person, emoji FROM reactions ORDER BY link_id, person")).toEqual([
       { link_id: 1, person: "legacy:Alex", emoji: "😮" },
       { link_id: 1, person: "user_A", emoji: "🔥" },
       { link_id: 3, person: "user_A", emoji: "❤️" },
@@ -358,7 +358,7 @@ describe("deleteUser", () => {
         (1, 1, 'https://a.com/1', 'web', 'image/png', 'user_A', 1), (1, 2, 'https://a.com/2', 'web', NULL, 'user_A', 1),
         (1, 3, 'https://a.com/3', 'web', 'image/png', 'user_B', 1);
       INSERT INTO seen VALUES (1, 'user_B', 5), (3, 'user_A', 6), (3, 'user_B', 7);
-      INSERT INTO reactions VALUES (1, 'user_B', '🔥'), (3, 'user_A', '😂'), (3, 'user_B', '❤️');
+      INSERT INTO reactions (link_id, person, emoji) VALUES (1, 'user_B', '🔥'), (3, 'user_A', '😂'), (3, 'user_B', '❤️');
     `);
     for (const id of [1, 3]) writeFileSync(thumb(id), "png");
     const a = accounts({ workosApi: `http://127.0.0.1:${deletes.port}`, dataDir: tmp.dir, ...over });

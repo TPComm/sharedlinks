@@ -214,6 +214,19 @@ public struct APIClient: Sendable {
 
     // MARK: Comments
 
+    public func activity(before: Date? = nil, limit: Int = 50, cursor: String? = nil) async throws -> ActivityPage {
+        var request = request("GET", "api/activity")
+        var components = URLComponents(url: request.url!, resolvingAgainstBaseURL: false)!
+        var items = [URLQueryItem(name: "limit", value: String(limit))]
+        if let before { items.append(URLQueryItem(name: "before", value: String(before.timeIntervalSince1970))) }
+        if let cursor { items.append(URLQueryItem(name: "cursor", value: cursor)) }
+        components.queryItems = items
+        request.url = components.url
+        let (data, response) = try await perform(request)
+        try check(response, data)
+        return try Self.decoder.decode(ActivityPage.self, from: data)
+    }
+
     public func comments(_ linkID: Int) async throws -> [LinkComment] {
         struct Envelope: Decodable { let comments: [LinkComment] }
         let result: Envelope = try await send("GET", "api/links/\(linkID)/comments")

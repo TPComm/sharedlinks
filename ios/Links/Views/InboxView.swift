@@ -86,6 +86,9 @@ struct LinkListScreen: View {
                 .navigationDestination(for: Int.self) { LinkDetailView(linkID: $0) }
                 .toolbar {
                     ToolbarItem(placement: .topBarLeading) { ProfileButton() }
+                    ToolbarItem(placement: .topBarTrailing) {
+                        ActivityButton()
+                    }
                     if filter == .toWatch, !model.inbox.links(for: .toWatch, in: model.chat).isEmpty {
                         ToolbarItem(placement: .topBarTrailing) {
                             Button {
@@ -113,6 +116,27 @@ struct LinkListScreen: View {
                     }
                 }
         }
+    }
+}
+
+private struct ActivityButton: View {
+    @Environment(AppModel.self) private var model
+    @State private var showActivity = false
+
+    var body: some View {
+        Button { showActivity = true } label: {
+            Image(systemName: "bell")
+                .overlay(alignment: .topTrailing) {
+                    if model.unreadCommentLinkCount > 0 {
+                        Circle().fill(.red).frame(width: 7, height: 7)
+                            .offset(x: 3, y: -3)
+                    }
+                }
+        }
+        .accessibilityLabel("Activity")
+        .accessibilityValue("\(model.unreadCommentLinkCount) unread")
+        .accessibilityIdentifier("activity.open")
+        .sheet(isPresented: $showActivity) { ActivityScreen() }
     }
 }
 

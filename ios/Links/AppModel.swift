@@ -93,6 +93,7 @@ final class AppModel {
     /// Like localEdits, for the notification settings.
     private var notificationEdits = 0
     private var commentReads = CommentReadState.load()
+    private var activityReads = ActivityReadState.load()
 
     var isSignedIn: Bool { token != nil }
     var client: APIClient { APIClient(token: token) }
@@ -613,6 +614,28 @@ final class AppModel {
 
     func hasUnreadComments(_ link: SharedLink) -> Bool {
         commentReads.hasUnread(link, person: inbox.me, server: client.baseURL)
+    }
+
+    var unreadCommentLinkCount: Int {
+        inbox.links.filter { link in
+            hasUnreadComments(link) && link.lastComment.map {
+                activityReads.isNew($0.at, person: inbox.me, server: client.baseURL)
+            } == true
+        }.count
+    }
+
+    func hasUnreadComment(_ item: ActivityItem) -> Bool {
+        activityReads.hasUnread(item, threadReads: commentReads, person: inbox.me, server: client.baseURL)
+    }
+
+    func markActivityRead(_ item: ActivityItem) {
+        activityReads.markRead(item, person: inbox.me, server: client.baseURL)
+        activityReads.save()
+    }
+
+    func markActivityViewed(through date: Date) {
+        activityReads.markViewed(through: date, person: inbox.me, server: client.baseURL)
+        activityReads.save()
     }
 
     func markCommentsRead(_ linkID: Int, comments: [LinkComment]) {

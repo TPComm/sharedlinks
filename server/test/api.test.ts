@@ -644,7 +644,7 @@ describe("links", () => {
     const db = new Database(join(dataDir, "links.db"), { readonly: true });
     const { sql } = db.query("SELECT sql FROM sqlite_master WHERE name = 'links'").get() as { sql: string };
     expect(sql).toContain("AUTOINCREMENT");
-    expect((db.query("PRAGMA user_version").get() as any).user_version).toBe(22);
+    expect((db.query("PRAGMA user_version").get() as any).user_version).toBe(23);
     db.close();
     const { data } = await call("/api/state", { token });
     expect(data.links.map((l: any) => l.url)).toContain("https://de.wikipedia.org/wiki/M%C3%BCnchen");
@@ -2234,6 +2234,121 @@ test("previews older than PREVIEW_VERSION are backfilled one at a time", async (
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
+});
+
+describe("activity feed", () => {
+  test("lists others' visible activity, paginates, and hides blocked, reported and departed chats", async () => {
+    const ann = mint("ann@activity.test", "Activity Ann");
+    const bo = mint("bo@activity.test", "Activity Bo");
+    const me = (await call("/api/state", { token: ann })).data.me;
+    const person = (await call("/api/state", { token: bo })).data.me;
+    const feed = async (query = "") => (await call(`/api/activity${query}`, { token: ann })).data;
+    expect(await feed()).toEqual({ items: [], has_more: false, next: null });
+    expect((await call("/api/activity")).status).toBe(401);
+    for (const query of ["?limit=0", "?limit=101", "?limit=1.5", "?before=NaN", "?before=", "?cursor=invalid", `?cursor=${Buffer.from('[30,"invalid",1,"p"]').toString("base64url")}`]) {
+      expect((await call(`/api/activity${query}`, { token: ann })).status).toBe(400);
+    }
+    const group = (await call("/api/groups", { token: ann, body: { members: [person] } })).data.group;
+    const link = (await call("/api/links", { token: ann, body: { url: `${origin}/plain?activity=1`, group_id: group.id } })).data.link;
+    const comment = (await call(`/api/links/${link.id}/comments`, { token: bo, body: { body: "x".repeat(140) } })).data.comment;
+    await call(`/api/links/${link.id}/react`, { token: bo, body: { emoji: "😂" } });
+    await call(`/api/links/${link.id}/comments`, { token: ann, body: { body: "Own reply" } });
+    await call(`/api/links/${link.id}/react`, { token: ann, body: { emoji: "😂" } });
+    const db = openDatabase(dataDir);
+    try {
+      db.run("UPDATE comments SET created_at = 30 WHERE id = ?", [comment.id]);
+      db.run("UPDATE reactions SET reacted_at = 20 WHERE link_id = ? AND person = ?", [link.id, person]);
+      db.run("UPDATE seen SET seen_at = 10 WHERE link_id = ? AND person = ?", [link.id, person]);
+      await call(`/api/links/${link.id}/react`, { token: bo, body: { emoji: "😂" } });
+      expect(db.query("SELECT reacted_at FROM reactions WHERE link_id = ? AND person = ?").get(link.id, person)).toEqual({ reacted_at: 20 });
+      const items = [
+        { kind: "comment", link_id: link.id, person, at: 30, comment_id: comment.id, snippet: "x".repeat(120) },
+        { kind: "reaction", link_id: link.id, person, at: 20, emoji: "😂" },
+        { kind: "seen", link_id: link.id, person, at: 10 },
+      ];
+      expect(await feed()).toEqual({ items, has_more: false, next: null });
+      const firstPage = await feed("?limit=2");
+      expect(firstPage).toEqual({ items: items.slice(0, 2), has_more: true, next: expect.any(String) });
+      expect(await feed(`?cursor=${firstPage.next}&limit=2`)).toEqual({ items: items.slice(2), has_more: false, next: null });
+      expect(await feed("?before=20&limit=2")).toEqual({ items: items.slice(2), has_more: false, next: null });
+      expect(await feed("?before=10")).toEqual({ items: [], has_more: false, next: null });
+      await call(`/api/links/${link.id}/react`, { token: bo, body: { emoji: "❤️" } });
+      expect((await feed()).items[0]).toMatchObject({ kind: "reaction", emoji: "❤️" });
+      const custom = await call(`/api/links/${link.id}/react`, { token: bo, method: "PUT", body: { emoji: "🧑🏽‍🚀" } });
+      expect(custom.status).toBe(200);
+      const customActivity = (await feed()).items[0];
+      expect(customActivity.at).toBeGreaterThan(30);
+      expect(customActivity).toMatchObject({ kind: "reaction", link_id: link.id, person, emoji: "🧑🏽‍🚀" });
+      await call(`/api/links/${link.id}/react`, { token: bo, body: { emoji: "🧑🏽‍🚀" } });
+      expect((await feed()).items[0]).toEqual(customActivity);
+      expect((await call(`/api/links/${link.id}/react`, { token: bo, body: { emoji: "not an emoji" } })).status).toBe(400);
+      expect((await feed()).items[0]).toEqual(customActivity);
+      await call(`/api/links/${link.id}/react`, { token: bo, body: { emoji: null } });
+      expect((await feed()).items.map((i: any) => i.kind)).toEqual(["comment", "seen"]);
+      db.run("UPDATE reactions SET reacted_at = NULL WHERE link_id = ?", [link.id]);
+      expect((await feed()).items.map((i: any) => i.kind)).toEqual(["comment", "seen"]);
+      await call("/api/blocks", { token: ann, body: { user_id: person } });
+      expect(await feed()).toEqual({ items: [], has_more: false, next: null });
+      await call(`/api/blocks/${person}`, { token: ann, method: "DELETE" });
+      await call("/api/reports", { token: ann, body: { comment_id: comment.id, reason: "spam" } });
+      expect((await feed()).items.map((i: any) => i.kind)).toEqual(["seen"]);
+      const incoming = (await call("/api/links", { token: bo, body: { url: `${origin}/plain?activity=2`, group_id: group.id } })).data.link;
+      const reply = (await call(`/api/links/${incoming.id}/comments`, { token: bo, body: { body: "Incoming" } })).data.comment;
+      await call(`/api/links/${incoming.id}/react`, { token: bo, body: { emoji: "😂" } });
+      expect((await feed()).items.filter((i: any) => i.link_id === incoming.id)).toEqual([
+        { kind: "comment", link_id: incoming.id, person, at: reply.created_at, comment_id: reply.id, snippet: "Incoming" },
+      ]);
+      await call("/api/blocks", { token: ann, body: { user_id: person } });
+      expect(await feed()).toEqual({ items: [], has_more: false, next: null });
+      await call(`/api/blocks/${person}`, { token: ann, method: "DELETE" });
+      await call("/api/reports", { token: ann, body: { link_id: incoming.id, reason: "spam" } });
+      expect((await feed()).items.every((i: any) => i.link_id !== incoming.id)).toBe(true);
+      await call(`/api/groups/${group.id}`, { token: ann, method: "DELETE" });
+      expect(await feed()).toEqual({ items: [], has_more: false, next: null });
+      expect(me).not.toBe(person);
+    } finally {
+      db.close();
+    }
+  });
+
+  test("cursor pagination preserves every tie by kind, descending id and person", async () => {
+    const ann = mint("ann@activity-ties.test", "Ann");
+    const bo = mint("bo@activity-ties.test", "Bo");
+    const cy = mint("cy@activity-ties.test", "Cy");
+    const person = (await call("/api/state", { token: bo })).data.me;
+    const other = (await call("/api/state", { token: cy })).data.me;
+    const group = (await call("/api/groups", { token: ann, body: { members: [person, other] } })).data.group;
+    const ids: number[] = [];
+    for (let i = 0; i < 2; i++) {
+      const link = (await call("/api/links", { token: ann, body: { url: `${origin}/plain?activity-ties=${i}`, group_id: group.id } })).data.link;
+      ids.push(link.id);
+      for (const token of [bo, cy]) {
+        await call(`/api/links/${link.id}/comments`, { token, body: { body: "Tied reply" } });
+        await call(`/api/links/${link.id}/react`, { token, body: { emoji: "😂" } });
+      }
+    }
+    const db = openDatabase(dataDir);
+    try {
+      for (const id of ids) {
+        db.run("UPDATE comments SET created_at = 30 WHERE link_id = ?", [id]);
+        db.run("UPDATE reactions SET reacted_at = 30 WHERE link_id = ?", [id]);
+        db.run("UPDATE seen SET seen_at = 30 WHERE link_id = ?", [id]);
+      }
+    } finally { db.close(); }
+    const full = (await call("/api/activity", { token: ann })).data;
+    expect(full.items).toHaveLength(12);
+    const collected = [];
+    let cursor: string | null = null;
+    do {
+      const page: { items: unknown[]; has_more: boolean; next: string | null } =
+        (await call(`/api/activity?limit=1${cursor ? `&cursor=${cursor}` : ""}`, { token: ann })).data;
+      collected.push(...page.items);
+      expect(page.has_more).toBe(page.next !== null);
+      cursor = page.next;
+    } while (cursor && collected.length <= 12);
+    expect(collected).toEqual(full.items);
+    expect(cursor).toBeNull();
+  });
 });
 
 describe("comment threads", () => {

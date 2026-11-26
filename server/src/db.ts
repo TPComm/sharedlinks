@@ -216,6 +216,7 @@ export function openDatabase(dataDir: string, legacyAllowedEmails: string[] = []
   migrateToV20(db);
   migrateToV21(db);
   migrateToV22(db);
+  migrateToV23(db);
   db.transaction(() => {
     const update = db.query("UPDATE links SET share_token = ? WHERE id = ? AND share_token IS NULL");
     for (const row of db.query("SELECT id FROM links WHERE share_token IS NULL").all() as { id: number }[]) {
@@ -276,6 +277,16 @@ function migrateToV22(db: Database) {
       if (!have.includes(column!)) db.run(`ALTER TABLE users ADD COLUMN ${column} ${type}`);
     }
     db.run("PRAGMA user_version = 22");
+  })();
+}
+
+function migrateToV23(db: Database) {
+  const { user_version } = db.query("PRAGMA user_version").get() as { user_version: number };
+  if (user_version >= 23) return;
+  db.transaction(() => {
+    const have = (db.query("PRAGMA table_info(reactions)").all() as { name: string }[]).map((c) => c.name);
+    if (!have.includes("reacted_at")) db.run("ALTER TABLE reactions ADD COLUMN reacted_at REAL");
+    db.run("PRAGMA user_version = 23");
   })();
 }
 

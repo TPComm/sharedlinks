@@ -2,6 +2,18 @@ import LinksKit
 import SharedWithYou
 import SwiftUI
 
+enum LinkDetailDestination: Hashable {
+    case comment(Int?), seen, reactions
+
+    var scrollID: String {
+        switch self {
+        case .comment(let id): id.map { "comment.\($0)" } ?? "comments"
+        case .seen: "seen"
+        case .reactions: "reactions"
+        }
+    }
+}
+
 /// A link's own page, pushed when its row is tapped or its widget row opens the app: the preview,
 /// who sent it and why, the button that opens it in TikTok (or wherever), reactions, and who has
 /// seen it. Opening it from here marks it watched; the page stays underneath, with Mark as Not
@@ -9,10 +21,11 @@ import SwiftUI
 struct LinkDetailView: View {
     @Environment(AppModel.self) private var model
     let linkID: Int
+    var destination: LinkDetailDestination?
 
     var body: some View {
         if let link = model.inbox.links.first(where: { $0.id == linkID }) {
-            LinkPage(link: link)
+            LinkPage(link: link, destination: destination)
         } else {
             // Someone deleted it while this page was open (or while the app was away), or I
             // reported it or blocked its sender on another device.
@@ -28,6 +41,9 @@ private struct LinkPage: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.scenePhase) private var scenePhase
     let link: SharedLink
+    var destination: LinkDetailDestination?
+    @State private var contentHeight: CGFloat = 0
+    @State private var landed = false
     @State private var thread = LinkThread()
     @State private var highlight: SWHighlight?
 
@@ -48,28 +64,61 @@ private struct LinkPage: View {
     private var seenAt: Date? { link.seen[inbox.me] }
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 24) {
-                preview
-                about
-                if let highlight { SharedAttributionView(highlight: highlight) }
-                actions
-                reactions
-                receipts
-                CommentThreadView(thread: thread, linkID: link.id)
+        ScrollViewReader { proxy in
+            ScrollView {
+                VStack(alignment: .leading, spacing: 24) {
+                    preview
+                    about
+                    if let highlight { SharedAttributionView(highlight: highlight) }
+                    actions
+                    reactions.id("reactions")
+                    receipts.id("seen")
+                    CommentThreadView(thread: thread, linkID: link.id)
+                        .id("comments")
+                }
+                .padding(.horizontal, 20)
+                .padding(.vertical, 16)
+                .frame(maxWidth: 600)
+                .frame(maxWidth: .infinity)
+                .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { contentHeight = $0 }
             }
-            .padding(.horizontal, 20)
-            .padding(.vertical, 16)
-            .frame(maxWidth: 600)
-            .frame(maxWidth: .infinity)
+            .accessibilityIdentifier("linkPage.\(link.id)")
+            .navigationTitle(link.platform.noun)
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar { toolbar }
+            .safeAreaInset(edge: .bottom) { CommentComposer(thread: thread, linkID: link.id) }
+            .scrollDismissesKeyboard(.interactively)
+            .task {
+                await thread.load(link.id, model: model)
+            }
+            .task(id: "\(thread.loaded)-\(contentHeight)") {
+                guard let destination, thread.loaded, contentHeight > 0, !landed else { return }
+                await Task.yield()
+                guard !Task.isCancelled else { return }
+                let target: String
+                if case .comment(let id) = destination, let id,
+                   !thread.comments.contains(where: { $0.id == id }) {
+                    target = "comments"
+                } else {
+                    target = destination.scrollID
+                }
+                proxy.scrollTo(target, anchor: .center)
+                landed = true
+            }
+            .onChange(of: model.inboxRefresh) { _, _ in
+                Task { await thread.load(link.id, model: model) }
+            }
+            .refreshable {
+                await model.refresh()
+                await thread.load(link.id, model: model)
+            }
+            .onChange(of: scenePhase) { _, phase in
+                if phase == .active { Task { await thread.load(link.id, model: model) } }
+            }
+            .animation(.default, value: seenAt)
+            .sensoryFeedback(.success, trigger: seenAt) { old, new in old == nil && new != nil }
+            .sensoryFeedback(.selection, trigger: picks)
         }
-        .accessibilityIdentifier("linkPage.\(link.id)")
-        .navigationTitle(link.platform.noun)
-        .navigationBarTitleDisplayMode(.inline)
-        .toolbar { toolbar }
-        .safeAreaInset(edge: .bottom) { CommentComposer(thread: thread, linkID: link.id) }
-        .scrollDismissesKeyboard(.interactively)
-        .task { await thread.load(link.id, model: model) }
         .task(id: HighlightLookup(url: link.shareURL, revision: model.sharedHighlights.revision)) {
             highlight = nil
             guard let url = link.shareURL else { return }
@@ -77,19 +126,6 @@ private struct LinkPage: View {
             guard !Task.isCancelled else { return }
             highlight = found
         }
-        .onChange(of: model.inboxRefresh) { _, _ in
-            Task { await thread.load(link.id, model: model) }
-        }
-        .refreshable {
-            await model.refresh()
-            await thread.load(link.id, model: model)
-        }
-        .onChange(of: scenePhase) { _, phase in
-            if phase == .active { Task { await thread.load(link.id, model: model) } }
-        }
-        .animation(.default, value: seenAt)
-        .sensoryFeedback(.success, trigger: seenAt) { old, new in old == nil && new != nil }
-        .sensoryFeedback(.selection, trigger: picks)
         .linkDeleteConfirmation(link, isPresented: $confirmingDelete) {
             let link = link
             leave { await model.delete(link) }
