@@ -339,8 +339,8 @@ export class Pusher {
     for (const user of users) {
       const clock = localClock(date, user.catchup_tz!);
       if (clock.minute < user.catchup_minute! || user.catchup_sent_on === clock.date || user.catchup_sent_on === `skipped:${clock.date}`) continue;
-      const claimed = this.db.run("UPDATE users SET catchup_sent_on = ? WHERE id = ? AND catchup_sent_on IS NOT ? AND catchup_minute = ? AND catchup_tz = ?",
-        [clock.date, user.id, clock.date, user.catchup_minute, user.catchup_tz]);
+      const claimed = this.db.run("UPDATE users SET catchup_sent_on = ? WHERE id = ? AND catchup_sent_on IS ? AND catchup_minute = ? AND catchup_tz = ?",
+        [clock.date, user.id, user.catchup_sent_on, user.catchup_minute, user.catchup_tz]);
       if (!claimed.changes) continue;
       const links = this.db.query(`SELECT u.id, u.name FROM links l LEFT JOIN users u ON u.id = l.added_by
         JOIN group_members m ON m.group_id = l.group_id AND m.user_id = ?1
