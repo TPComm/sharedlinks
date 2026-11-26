@@ -295,20 +295,33 @@ elif command == "sort":
             remaining -= selected
         self.assertFalse(remaining)
 
+    def assertPosterBoardStoppedAfterEveryBoot(self, commands):
+        simctl = [args[1:] for args in commands if args[0] == "simctl"]
+        boots = [i for i, args in enumerate(simctl) if args[0] == "bootstatus"]
+        self.assertTrue(boots)
+        for start in boots:
+            end = next((i for i in range(start + 1, len(simctl)) if simctl[i][0] in ("boot", "shutdown")),
+                       len(simctl))
+            stops = [args[2:] for args in simctl[start:end] if args[0] == "spawn"]
+            self.assertIn(["launchctl", "disable", "user/foreground/com.apple.PosterBoard"], stops)
+            self.assertIn(["launchctl", "bootout", "user/foreground/com.apple.PosterBoard"], stops)
+
     def test_healthy_warm_up_does_not_reset(self):
         invocations, commands, result = self.run_script("test-without-building")
         self.assertEqual(len(invocations), 1)
         self.assertIn("Simulator warm-up reset=no", result.stdout)
         self.assertFalse(any(args[:2] == ["simctl", "erase"] for args in commands))
         self.assertEqual(sum(args[:2] == ["simctl", "launch"] for args in commands), 1)
+        self.assertPosterBoardStoppedAfterEveryBoot(commands)
 
     def test_warm_up_recovers_after_one_reset(self):
         invocations, commands, result = self.run_script("test-without-building", launch_failures=6)
         self.assertEqual(len(invocations), 1)
         operations = [args[1] for args in commands if args[0] == "simctl"]
         reset = operations.index("erase")
-        self.assertEqual(operations[reset - 1:reset + 5],
-                         ["shutdown", "erase", "list", "boot", "bootstatus", "install"])
+        self.assertEqual(operations[reset - 1:reset + 7],
+                         ["shutdown", "erase", "list", "boot", "bootstatus", "spawn", "spawn", "install"])
+        self.assertPosterBoardStoppedAfterEveryBoot(commands)
         self.assertEqual(operations.count("erase"), 1)
         self.assertEqual(operations.count("install"), 2)
         self.assertEqual(operations.count("launch"), 7)
@@ -368,6 +381,7 @@ elif command == "sort":
         for key in ("LINKS_SPARE_TOKEN", "LINKS_DELETABLE_TOKEN"):
             self.assertNotEqual(old[key], new[key])
         self.assertIn("simulator crash interrupted UI tests", result.stderr)
+        self.assertPosterBoardStoppedAfterEveryBoot(commands)
 
     def test_without_xctestrun_falls_back_to_project_and_boots(self):
         invocations, simctl, _ = self.run_script("test-without-building", artifact=False, booted=False)
