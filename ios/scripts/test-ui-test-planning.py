@@ -135,7 +135,7 @@ class XctestrunTests(unittest.TestCase):
 
 class ScriptTests(unittest.TestCase):
     def run_script(self, action, artifact=True, recovery=False, booted=True,
-                   launch_failures=0, expected_status=0, shard=None):
+                   launch_failures=0, expected_status=0, shard=None, stall=False):
         with tempfile.TemporaryDirectory(prefix="links script ") as directory:
             root = pathlib.Path(directory)
             products = root / "build/Build/Products"
@@ -146,7 +146,7 @@ class ScriptTests(unittest.TestCase):
             commands.mkdir()
             mock = commands / "mock"
             mock.write_text("#!/usr/bin/env python3\n" + r'''
-import json, os, pathlib, plistlib, signal, sys
+import json, os, pathlib, plistlib, signal, sys, time
 root = pathlib.Path(os.environ["MOCK_ROOT"])
 command = pathlib.Path(sys.argv[0]).name
 args = sys.argv[1:]
@@ -189,7 +189,9 @@ elif command == "xcodebuild":
     with log.open("a") as output:
         output.write(json.dumps(entry) + "\n")
     case = "-[LinksUITests.LinksUITests testSignedInLaunchShowsTheInbox]"
-    print(f"Test Case '{case}' started.")
+    print(f"Test Case '{case}' started.", flush=True)
+    if os.environ["MOCK_STALL"] == "1":
+        time.sleep(10)
     if os.environ["MOCK_RECOVERY"] == "2" and attempt == 0:
         bundle = root / "Test-Links.xcresult"
         bundle.mkdir()
@@ -206,6 +208,8 @@ elif command == "xcodebuild":
         print(f"Test Case '{case}' failed (94 seconds).")
         sys.exit(65)
     print(f"Test Case '{case}' passed (1 seconds).")
+elif command == "sleep" and os.environ["MOCK_STALL"] == "1" and args == ["1"]:
+    time.sleep(1)
 ''')
             mock.chmod(0o755)
             for name in ("bun", "curl", "xcrun", "xcodebuild", "sleep"):
@@ -214,7 +218,10 @@ elif command == "xcodebuild":
                                MOCK_ROOT=str(root), MOCK_BOOTED=str(int(booted)),
                                MOCK_LAUNCH_FAILURES=str(launch_failures),
                                MOCK_RECOVERY="2" if recovery == "killed" else str(int(recovery)),
+                               MOCK_STALL=str(int(stall)),
                                LINKS_UI_TEST_DERIVED_DATA=str(root / "build"), LINKS_UI_TEST_ACTION=action)
+            if stall:
+                environment.update(LINKS_UI_TEST_LOGS="relative logs", LINKS_UI_TEST_STALL_SECONDS="1")
             environment.pop("LINKS_UI_TEST_SHARD", None)
             args = ["bash", str(SCRIPTS / "ui-tests.sh")]
             if shard is None:
@@ -222,13 +229,20 @@ elif command == "xcodebuild":
             else:
                 environment.update(LINKS_UI_TEST_SHARD=shard, LINKS_UI_TEST_FIRST_SHARD_OVERHEAD="100")
             result = subprocess.run(args,
-                                    env=environment, capture_output=True, text=True, timeout=30)
-            self.assertEqual(result.returncode, expected_status, result.stdout + result.stderr)
+                                    cwd=root if stall else None, env=environment,
+                                    capture_output=True, text=True, timeout=30)
+            if expected_status is not None:
+                self.assertEqual(result.returncode, expected_status, result.stdout + result.stderr)
             log = root / "xcodebuild.jsonl"
             invocations = [json.loads(line) for line in log.read_text().splitlines()] if log.exists() else []
             simctl = [json.loads(line) for line in (root / "simctl.jsonl").read_text().splitlines()]
             self.assertEqual(list(products.glob(".links-ui-tests-*.xctestrun")), [])
             return invocations, simctl, result
+
+    def test_watchdog_stops_silent_xcodebuild_with_relative_logs(self):
+        _, _, result = self.run_script("test", stall=True, expected_status=None)
+        self.assertRegex(result.stdout, r"error: no UI test output for \d+s; stopping xcodebuild")
+        self.assertNotEqual(result.returncode, 0)
 
     def test_three_slices_select_each_case_once_and_leave_unscanned_cases_to_the_last(self):
         tests = set(SHARDS.scan(SCRIPTS.parent / "LinksUITests"))

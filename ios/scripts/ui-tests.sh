@@ -26,6 +26,7 @@ export PATH="$HOME/.bun/bin:$PATH"
 tmp="$(mktemp -d "${TMPDIR:-/tmp}/links-ui-tests.XXXXXX")"
 logs="${LINKS_UI_TEST_LOGS:-$tmp}"
 mkdir -p "$logs"
+if [[ "$logs" != /* ]]; then logs="$PWD/$logs"; fi
 server_pid=""
 shutdown_udid=""
 xctestrun_copy=""
