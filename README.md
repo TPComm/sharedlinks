@@ -36,6 +36,9 @@ who hasn't seen it, or **Nudge Everyone**; each person can be nudged once per da
 even if iOS closed the app meanwhile. Long-press **Open in TikTok** still goes straight there and
 marks it seen in one go.
 
+Tap **+** after the quick reactions to react with an emoji from your keyboard. Tap your current
+reaction again to remove it.
+
 **Profile → Links Wrapped** shows monthly and yearly highlights: your top sender, seen rate,
 top platform and most-reacted link, with an opt-in shareable card. It covers only links you can
 see in your current chats; dates use your local calendar and reactions/seen marks reflect now.
@@ -411,7 +414,7 @@ API endpoints except sign-in need `Authorization: Bearer <session token>`; pages
 | POST | `/api/links/:id/seen` | `{seen: true/false}` |
 | POST | `/api/links/:id/nudge` | Sender only: `{people?: [userId, …]}`; omitted or empty means all eligible unwatched chat members. Excludes unclaimed legacy people and people the sender blocked. Records nudges at most once per person per link per 24 hours → `{nudged: [userId, …], link}`. A recipient's block of the sender or report of the link stops delivery without changing the response or cooldown; muted chats and missing devices also prevent delivery. 429 if only the cooldown prevents a nudge, otherwise 400 when nobody is eligible. Only the sender's link JSON includes `nudged: {personId: UnixSeconds, …}` (all recorded times) |
 | PUT / DELETE | `/api/links/:id/favorite` | Star / unstar a visible link, both idempotent → `{link}`. In link responses (including `/api/state`), `favorited_at` is present only for links the caller starred, in Unix seconds. |
-| POST | `/api/links/:id/react` | `{emoji}` (`null` removes) |
+| POST / PUT | `/api/links/:id/react` | `{emoji}`: one standard Unicode emoji sequence (up to 64 UTF-8 bytes); `null` removes. Invalid values return 400 without changing the reaction. Use `PUT` for custom emoji so older servers reject the request instead of clearing the reaction |
 | POST | `/api/links/:id/refresh` | `{}` → `{link}`; fetch the preview again immediately, unless already pending |
 | PATCH / DELETE | `/api/links/:id` | `{note}` (sender only) / –; 403 if the sender blocked you |
 | GET/POST | `/api/links/:id/comments` | Chat members only. GET → `{comments}` oldest first (ties by id); POST `{body}` (nonempty text, trimmed and clipped to 1000 Unicode characters) → 201 `{comment}`, and marks the link seen for the commenter. Comments are `{id, link_id, person, body, created_at, edited_at}`; blocked authors and reported comments are hidden for the reader |

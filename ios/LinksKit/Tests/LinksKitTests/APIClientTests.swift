@@ -4,7 +4,7 @@ import Testing
 
 /// Every call the app makes, and the request server/src/app.ts expects for it.
 enum Endpoint: String, CaseIterable, Sendable {
-    case exchange, signOut, me, rename, claim, deleteAccount, state, add, seen, unseen, react, unreact, note, delete, thumbnail
+    case exchange, signOut, me, rename, claim, deleteAccount, state, add, seen, unseen, react, customReact, unreact, note, delete, thumbnail
     case reportLink, reportPerson, block, unblock
     case exchangeWithInvite, invites, createInvite, createEmailInvite, createChatInvite, revokeInvite, acceptInvite
     case addToGroup, createGroup, renameGroup, addMembers, leaveGroup
@@ -17,7 +17,7 @@ enum Endpoint: String, CaseIterable, Sendable {
         switch self {
         case .me, .state, .thumbnail, .invites, .chatLink: "GET"
         case .turnOffChatLink: "DELETE"
-        case .setPhoto: "PUT"
+        case .setPhoto, .customReact: "PUT"
         case .rename, .note, .renameGroup, .muteWatched, .muteReactions, .notifyBoth: "PATCH"
         case .delete, .deleteAccount, .unblock, .revokeInvite, .leaveGroup, .removePhoto: "DELETE"
         default: "POST"
@@ -38,7 +38,7 @@ enum Endpoint: String, CaseIterable, Sendable {
         case .addMembers: "/api/groups/5/members"
         case .seen, .unseen: "/api/links/7/seen"
         case .nudge, .nudgeEveryone, .nudgeEmpty: "/api/links/7/nudge"
-        case .react, .unreact: "/api/links/7/react"
+        case .react, .customReact, .unreact: "/api/links/7/react"
         case .note, .delete: "/api/links/7"
         case .thumbnail: "/thumbs/7"
         case .reportLink, .reportPerson: "/api/reports"
@@ -79,6 +79,7 @@ enum Endpoint: String, CaseIterable, Sendable {
         case .nudgeEmpty: #"{"people":[]}"#
         case .unseen: #"{"seen":false}"#
         case .react: #"{"emoji":"🔥"}"#
+        case .customReact: #"{"emoji":"👩🏽‍💻"}"#
         case .unreact: #"{"emoji":null}"#
         case .note: #"{"note":"new note"}"#
         case .reportLink: #"{"link_id":7,"reason":"offensive"}"#
@@ -108,7 +109,7 @@ enum Endpoint: String, CaseIterable, Sendable {
         case .muteWatched, .muteReactions, .notifyBoth: .json(Fixture.meWithNotifications())
         case .state: .json(#"{"me": "user_01SAM", "users": [\#(Fixture.sam)], "links": [\#(Fixture.link())]}"#)
         case .add, .addToGroup: .json(#"{"link": \#(Fixture.link()), "duplicate": false}"#, status: 201)
-        case .seen, .unseen, .react, .unreact, .note, .nudge, .nudgeEveryone, .nudgeEmpty: .json(#"{"link": \#(Fixture.link())}"#)
+        case .seen, .unseen, .react, .customReact, .unreact, .note, .nudge, .nudgeEveryone, .nudgeEmpty: .json(#"{"link": \#(Fixture.link())}"#)
         case .thumbnail: .http(status: 200, body: Data([0xFF, 0xD8, 0xFF]), contentType: "image/jpeg")
         case .reportLink, .reportPerson: .json(#"{"ok": true}"#, status: 201)
         case .block: .json(#"{"blocked": ["user_01SAM"]}"#)
@@ -136,6 +137,7 @@ enum Endpoint: String, CaseIterable, Sendable {
         case .nudgeEmpty: _ = try await client.nudge(7, people: [])
         case .unseen: _ = try await client.setSeen(7, false)
         case .react: _ = try await client.react(7, "🔥")
+        case .customReact: _ = try await client.react(7, "👩🏽‍💻")
         case .unreact: _ = try await client.react(7, nil)
         case .note: _ = try await client.setNote(7, "new note")
         case .delete: try await client.delete(7)
@@ -262,6 +264,15 @@ struct APIClientResponseTests {
         await #expect(throws: APIError.server("Try again.")) {
             try await server.client(token: nil).inviteIsOpen("inv_tok")
         }
+    }
+
+    @Test func customReactionIsNeverRetriedAsAPostOnOlderServers() async {
+        let server = StubServer { request in
+            // The old POST handler accepts the request but removes the reaction.
+            request.method == "POST" ? Endpoint.unreact.reply : .json(#"{"error":"Not found"}"#, status: 404)
+        }
+        await #expect(throws: APIError.server("Not found")) { try await server.client().react(7, "👩🏽‍💻") }
+        #expect(server.requests.map(\.method) == ["PUT"])
     }
 
     @Test func exchangeReturnsTheSessionAndUser() async throws {

@@ -15,7 +15,9 @@ import iconPath from "../../assets/icon/previews/B/default-256.png" with { type:
 import appPreviewPath from "../../assets/landing/inbox.png" with { type: "file" };
 import { BUILD_COMMIT } from "./version.ts";
 
-export const EMOJIS = new Set(["❤️", "😂", "🔥", "😮", "😭", "👎"]);
+// The Unicode RGI set matches whole emoji sequences, not individual emoji code points.
+const REACTION_EMOJI = /^\p{RGI_Emoji}$/v;
+const MAX_REACTION_BYTES = 64;
 
 class NotFound extends Error {}
 /** 413, which Bun itself sent before PUT /api/me/photo raised its body limit. */
@@ -661,6 +663,26 @@ export function createApp(config: Config, opts: AppOptions = {}) {
   const pub = { public: true };
   type WithId = Request & { params: { id: string } };
 
+  const react = route<WithId>(async (req, me) => {
+    const id = linkId(req, me);
+    const emoji = (await readJson(req)).emoji;
+    const changed = asUser(me, () => {
+      stillSees(id, me);
+      if (emoji === null) {
+        db.run("DELETE FROM reactions WHERE link_id = ? AND person = ?", [id, me]);
+        return false;
+      }
+      if (typeof emoji !== "string" || Buffer.byteLength(emoji) > MAX_REACTION_BYTES || !REACTION_EMOJI.test(emoji)) {
+        throw new BadRequest("Choose a single emoji.");
+      }
+      const before = db.query("SELECT emoji FROM reactions WHERE link_id = ? AND person = ?").get(id, me) as { emoji: string } | null;
+      db.run("INSERT OR REPLACE INTO reactions (link_id, person, emoji) VALUES (?, ?, ?)", [id, me, emoji]);
+      return before?.emoji !== emoji;
+    });
+    if (changed) push.activity(id, me, "reacted");
+    return json({ link: getLink(id, me) });
+  });
+
   // Absent when unset, so the fallback 404s it.
   const appSiteRoute: Record<string, Response> = config.appleAppIds.length
     ? { "/.well-known/apple-app-site-association": Response.json(appSiteAssociation(config.appleAppIds)) }
@@ -1186,22 +1208,8 @@ export function createApp(config: Config, opts: AppOptions = {}) {
       }),
     },
     "/api/links/:id/react": {
-      POST: route<WithId>(async (req, me) => {
-        const id = linkId(req, me);
-        const emoji = (await readJson(req)).emoji;
-        const changed = asUser(me, () => {
-          stillSees(id, me);
-          if (typeof emoji === "string" && EMOJIS.has(emoji)) {
-            const before = db.query("SELECT emoji FROM reactions WHERE link_id = ? AND person = ?").get(id, me) as { emoji: string } | null;
-            db.run("INSERT OR REPLACE INTO reactions (link_id, person, emoji) VALUES (?, ?, ?)", [id, me, emoji]);
-            return before?.emoji !== emoji;
-          }
-          db.run("DELETE FROM reactions WHERE link_id = ? AND person = ?", [id, me]);
-          return false;
-        });
-        if (changed) push.activity(id, me, "reacted");
-        return json({ link: getLink(id, me) });
-      }),
+      POST: react,
+      PUT: react,
     },
 
     // Public like /l/:token/image: only people shown the photo's random address can load it, and

@@ -333,8 +333,8 @@ struct InboxDecodingTests {
         #expect(InboxState.empty.otherPeople.isEmpty)
     }
 
-    @Test func reactionsMatchTheServer() {
-        // server/src/app.ts EMOJIS; anything else clears the reaction.
-        #expect(reactionEmojis == ["❤️", "😂", "🔥", "😮", "😭", "👎"])
+    @Test func customReactionsDecodeWithoutASpecialCase() throws {
+        let link = try Fixture.decode(SharedLink.self, Fixture.link(reactions: #"{"friend":"👩🏽‍💻"}"#))
+        #expect(link.reactions == ["friend": "👩🏽‍💻"])
     }
 }

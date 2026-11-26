@@ -22,7 +22,7 @@ private func tasteInbox(_ links: [SharedLink]) -> InboxState {
         #expect(inbox.tasteMatches(in: 1).count == 1)
     }
     for reactions in [["me": "❤️"], ["friend": "❤️"], ["me": "😮", "friend": "❤️"],
-                      ["me": "❤️", "friend": "👎"], ["me": "❤️", "third": "🔥"]] {
+                      ["me": "❤️", "friend": "👎"], ["me": "❤️", "friend": "🫶"], ["me": "❤️", "third": "🔥"]] {
         inbox.links[0].reactions = reactions
         #expect(inbox.tasteMatches(in: 1).isEmpty)
     }

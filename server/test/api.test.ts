@@ -801,7 +801,7 @@ describe("links", () => {
     expect(Object.keys(r.data.link.seen)).toEqual(["legacy:Alex"]);
     r = await call("/api/links/1/react", { token, body: { emoji: "😂" } });
     expect(r.data.link.reactions[friendId]).toBe("😂");
-    r = await call("/api/links/1/react", { token, body: { emoji: "💩" } }); // not allowed -> removes
+    r = await call("/api/links/1/react", { token, body: { emoji: null } });
     expect(r.data.link.reactions[friendId]).toBeUndefined();
     // Notes are the sender's: link 1 is Sam's (still unclaimed).
     r = await call("/api/links/1", { method: "PATCH", token, body: { note: "mine now" } });
@@ -816,6 +816,23 @@ describe("links", () => {
       method: "PATCH", body: "{", headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
     });
     expect(invalid.status).toBe(400);
+  });
+
+  test("reactions accept one emoji and invalid input does not clear the current reaction", async () => {
+    const path = "/api/links/1/react";
+    for (const emoji of ["💩", "👍🏽", "👩🏽‍💻", "🏳️‍🌈", "🇳🇿", "1️⃣", "❤️"]) {
+      const r = await call(path, { method: emoji === "❤️" ? "POST" : "PUT", token, body: { emoji } });
+      expect(r.status).toBe(200);
+      expect(r.data.link.reactions[friendId]).toBe(emoji);
+    }
+    for (const emoji of ["", "hello", "1", "🔥text", "🔥😂", "🔥\n", "🔥\u0301", "👩‍🔥", "🇦🇦",
+      "🔥" + "\u0301".repeat(64), false, undefined]) {
+      const r = await call(path, { token, body: { emoji } });
+      expect(r.status).toBe(400);
+    }
+    const state = (await call("/api/state", { token })).data;
+    expect(state.links.find(({ id }: { id: number }) => id === 1).reactions[friendId]).toBe("❤️");
+    await call(path, { token, body: { emoji: null } });
   });
 
   test("notification settings: both on to start; PATCH /api/me changes either, alone or with a name", async () => {
