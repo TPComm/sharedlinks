@@ -157,9 +157,7 @@ jobs:
           }
 
           check_cache() {
-            local limit=$1
-            shift
-            run_bounded "$limit" python3 -u - "$@" <<'PY'
+            run_bounded 120 python3 - "$1" <<'PY'
           import json
           import os
           import re
@@ -169,43 +167,19 @@ jobs:
           from pathlib import Path
           from time import monotonic
 
-          mode, target, receipt_path = sys.argv[1:]
-          receipt = Path(receipt_path)
-
-          def runtime_mount(target, booted):
-              command = ["xcrun", "simctl", "list", "-j"]
-              if not booted:
-                  command.append("runtimes")
-              simulators = json.loads(subprocess.check_output(command))
-              runtime_id = target
-              if booted:
-                  runtime_id = next((identifier for identifier, devices in simulators["devices"].items()
-                                     if any(d["udid"] == target and d["state"] == "Booted"
-                                            for d in devices)), None)
-              for runtime in simulators["runtimes"]:
-                  if runtime["identifier"] == runtime_id and runtime["isAvailable"]:
-                      root = Path(runtime["runtimeRoot"]).resolve(strict=True)
-                      stat = root.stat()
-                      return [runtime_id, runtime["buildversion"], str(root), stat.st_dev, stat.st_ino]
-              raise FileNotFoundError(f"No available runtime for {target}")
-
-          if mode == "verify":
-              actual = runtime_mount(target, booted=True)
-              expected = json.loads(receipt.read_text())
-              if actual != expected:
-                  raise SystemExit(f"Runtime build or mount changed after cache read: {expected} -> {actual}")
-              runtime_id, build, root, _, _ = actual
-              print(f"Simulator {target}: verified {runtime_id} ({build}) at {root}")
-              with open(os.environ["GITHUB_ENV"], "a") as env:
-                  print(f"LINKS_UI_TEST_RUNTIME_ROOT={root}", file=env)
-              subprocess.run(["df", "-P", root], check=True)
-              sys.exit(0)
-
-          started = monotonic()
-          mount = runtime_mount(target, booted=False)
-          runtime_id, build, root, _, _ = mount
-          print(f"Simulator cache mount ready in {monotonic() - started:.1f}s: {runtime_id} ({build}) at {root}")
-          root = Path(root)
+          udid = sys.argv[1]
+          simulators = json.loads(subprocess.check_output(["xcrun", "simctl", "list", "-j"], timeout=60))
+          runtime_id = next((identifier for identifier, devices in simulators["devices"].items()
+                             if any(d["udid"] == udid and d["state"] == "Booted" for d in devices)), None)
+          runtime = next((r for r in simulators["runtimes"] if r["identifier"] == runtime_id
+                          and r["isAvailable"]), None)
+          if runtime is None:
+              raise SystemExit(f"No available runtime for booted Simulator {udid}")
+          root = Path(runtime["runtimeRoot"])
+          print(f"Simulator {udid}: {runtime_id} ({runtime['buildversion']}) at {root}", flush=True)
+          with open(os.environ["GITHUB_ENV"], "a") as env:
+              print(f"LINKS_UI_TEST_RUNTIME_ROOT={root}", file=env)
+          subprocess.run(["df", "-P", root], check=True)
           cache = root / "System/Library/Caches/com.apple.dyld/dyld_sim_shared_cache_arm64"
           started = monotonic()
           # dyld_cache_format.h: subCacheArrayOffset/Count at 0x188, with 56-byte entries
@@ -250,63 +224,49 @@ jobs:
                       raise SystemExit(f"Incomplete dyld cache read: {path}")
               print(f"Readable dyld cache: {path.name} ({size} bytes)")
           print(f"Read {len(files)} dyld cache files in {monotonic() - started:.1f}s")
-          receipt.write_text(json.dumps(mount))
           PY
           }
 
-          check_inputui() {
-            local device=$1 probe_deadline pid previous_pid=""
-            simctl 15 spawn "$device" launchctl kickstart user/foreground/com.apple.InputUI >&2 || return 1
+          boot_and_check() {
+            local runtime=$1 budget=$2 started=$SECONDS phase probe_deadline pid previous_pid=""
+            local preflight_deadline=$((started + budget))
+            udid=""
+            echo "Simulator preflight: $runtime"
+            udid=$(simctl 30 create 'Links UI Tests (preflight)' 'iPhone 17' "$runtime") || return 1
+            echo "LINKS_UI_TEST_SIMULATOR_UDID=$udid" >> "$GITHUB_ENV"
+            simctl 30 boot "$udid" || return 1
+            simctl 325 bootstatus "$udid" -b || return 1
+            echo "Simulator create and boot phase: $((SECONDS - started))s"
+            phase=$SECONDS
+            simctl 150 runtime list -v || return 1
+            run_bounded 10 mount | grep -Ei 'coresimulator|cryptex|simruntime' || true
+            run_bounded 10 df -h / || return 1
+            echo "Simulator pre-test runtime inventory: $((SECONDS - phase))s"
+            phase=$SECONDS
+            check_cache "$udid" || return 1
+            echo "Simulator cache validation phase: $((SECONDS - phase))s"
+            phase=$SECONDS
+            simctl 15 spawn "$udid" launchctl kickstart user/foreground/com.apple.InputUI || return 1
             probe_deadline=$((SECONDS + 30))
             if (( preflight_deadline < probe_deadline )); then probe_deadline=$preflight_deadline; fi
             while (( SECONDS < probe_deadline )); do
               sleep 1
-              if ! pid=$(preflight_deadline=$probe_deadline simctl 10 spawn "$device" launchctl print user/foreground/com.apple.InputUI |
+              if ! pid=$(preflight_deadline=$probe_deadline simctl 10 spawn "$udid" launchctl print user/foreground/com.apple.InputUI |
                 awk '$1=="state" && $2=="=" { state=$3 } $1=="pid" && $2=="=" { pid=$3 }
                      END { if (state=="running" && pid>0) print pid }'); then
                 previous_pid=""
                 continue
               fi
               if [[ -n "$pid" && "$pid" == "$previous_pid" ]]; then
-                echo "$pid"
+                simctl 15 rename "$udid" 'Links UI Tests' || return 1
+                echo "Simulator InputUI readiness phase: $((SECONDS - phase))s"
+                echo "Simulator preflight passed: $runtime, InputUI PID $pid, $((SECONDS - started))s"
                 return 0
               fi
               previous_pid=$pid
             done
-            echo "InputUI did not stay running on $device" >&2
+            echo "InputUI did not stay running on $udid" >&2
             return 1
-          }
-
-          boot_and_check() {
-            local runtime=$1 budget=$2 started=$SECONDS phase receipt
-            local cache_pid inputui_pid cache_status=0 inputui_status=0 boot_ok=0
-            local preflight_deadline=$((started + budget))
-            udid=""
-            echo "Simulator preflight: $runtime"
-            udid=$(simctl 30 create 'Links UI Tests (preflight)' 'iPhone 17' "$runtime") || return 1
-            echo "LINKS_UI_TEST_SIMULATOR_UDID=$udid" >> "$GITHUB_ENV"
-            if simctl 30 boot "$udid" && simctl 325 bootstatus "$udid" -b; then
-              boot_ok=1
-            fi
-            echo "Simulator create and boot phase: $((SECONDS - started))s (success=$boot_ok)"
-            (( boot_ok )) || return 1
-
-            receipt="$RUNNER_TEMP/links-ui-cache-$udid.json"
-            # A serial cache read took 14–28s on CI. Leave headroom without competing with cold boot.
-            check_cache 60 read "$runtime" "$receipt" &
-            cache_pid=$!
-            phase=$SECONDS
-            inputui_pid=$(check_inputui "$udid") || inputui_status=$?
-            echo "Simulator InputUI readiness phase: $((SECONDS - phase))s (exit=$inputui_status)"
-            phase=$SECONDS
-            wait "$cache_pid" || cache_status=$?
-            echo "Simulator cache read wait after InputUI: $((SECONDS - phase))s (exit=$cache_status)"
-            (( inputui_status == 0 && cache_status == 0 )) || return 1
-            phase=$SECONDS
-            check_cache 30 verify "$udid" "$receipt" || return 1
-            echo "Simulator booted runtime verification: $((SECONDS - phase))s"
-            simctl 15 rename "$udid" 'Links UI Tests' || return 1
-            echo "Simulator preflight passed: $runtime, InputUI PID $inputui_pid, $((SECONDS - started))s"
           }
 
           discard_device() {
@@ -336,33 +296,17 @@ jobs:
             return 1
           }
 
-          log_runtime_inventory() {
-            local started=$SECONDS
-            simctl 150 runtime list -v || true
-            run_bounded 10 mount | grep -Ei 'coresimulator|cryptex|simruntime' || true
-            run_bounded 10 df -h / || true
-            echo "Simulator pre-test runtime inventory: $((SECONDS - started))s"
-          }
-
           {
-            log_runtime_inventory > ios/diagnostics/simulator/runtime-inventory-before.log 2>&1 &
-            inventory_pid=$!
             # Three attempt budgets + 45s rescan + two 16s cleanups fit inside 20 minutes.
-            preflight_status=0
             if ! boot_and_check "$PRIMARY_SIMULATOR_RUNTIME" 420; then
               discard_device
               echo "Simulator preflight failed; restarting CoreSimulator and rescanning $PRIMARY_SIMULATOR_RUNTIME"
               if ! { remount_runtime "$PRIMARY_SIMULATOR_RUNTIME" && boot_and_check "$PRIMARY_SIMULATOR_RUNTIME" 320; }; then
                 discard_device
                 echo "Simulator preflight recovery failed; falling back to $FALLBACK_SIMULATOR_RUNTIME"
-                boot_and_check "$FALLBACK_SIMULATOR_RUNTIME" 320 || preflight_status=$?
+                boot_and_check "$FALLBACK_SIMULATOR_RUNTIME" 320
               fi
             fi
-            phase=$SECONDS
-            wait "$inventory_pid" || true
-            echo "Simulator runtime inventory wait after preflight: $((SECONDS - phase))s"
-            tail -n 1 ios/diagnostics/simulator/runtime-inventory-before.log
-            exit "$preflight_status"
           } 2>&1 | tee ios/diagnostics/simulator/runtime-before.log
 
       # Starts the server from source with an empty database and drives the app in the "Links UI
