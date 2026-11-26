@@ -123,44 +123,6 @@ jobs:
           xcrun simctl bootstatus "$udid" -b
           echo "Simulator boot and bootstatus completed in $((SECONDS - started))s"
 
-      - name: Check for InputUI crashes before tests
-        run: |
-          python3 - <<'PY'
-          import json
-          import os
-          import sys
-          from pathlib import Path
-
-          udid = os.environ["LINKS_UI_TEST_SIMULATOR_UDID"]
-          coalition = f"com.apple.CoreSimulator.SimDevice.{udid}"
-          start = (Path(os.environ["RUNNER_TEMP"]) / "links-ui-simulator-start").stat().st_mtime_ns
-          excerpt = None
-          for report in sorted((Path.home() / "Library/Logs/DiagnosticReports").glob("InputUI-*.ips")):
-              try:
-                  if report.stat().st_mtime_ns <= start:
-                      continue
-                  with report.open() as file:
-                      file.readline()
-                      crash = json.load(file)
-              except (OSError, ValueError) as error:
-                  print(f"Could not read {report.name}: {error}", file=sys.stderr)
-                  continue
-              if crash.get("coalitionName") != coalition:
-                  continue
-              reason = crash.get("termination", {})
-              if excerpt is None or reason.get("namespace") == "DYLD":
-                  excerpt = (report.name, reason)
-              if reason.get("namespace") == "DYLD":
-                  break
-          if excerpt is not None:
-              name, reason = excerpt
-              print(f"InputUI crashed before UI tests on Simulator {udid}: {name}", file=sys.stderr)
-              print(f"{reason.get('namespace', '')}: {reason.get('indicator', '')}", file=sys.stderr)
-              for line in reason.get("reasons", [])[:1]:
-                  print(line, file=sys.stderr)
-              sys.exit(1)
-          PY
-
       # Starts the server from source with an empty database and drives the app in the "Links UI
       # Tests" Simulator through this slice of the tests. A runner crash can mean another boot,
       # so leave room for recovery rather than kill a passing run.
@@ -170,7 +132,63 @@ jobs:
           LINKS_UI_TEST_ACTION: test-without-building
           LINKS_UI_TEST_SHARD: ${{ matrix.shard }}/${{ strategy.job-total }}
           LINKS_UI_TEST_LOGS: ${{ github.workspace }}/ios/diagnostics/ui-test-logs
-        run: ios/scripts/ui-tests.sh
+        run: |
+          # Keep the test tree in its own process group so a crash can stop the whole slice.
+          set -m
+          ios/scripts/ui-tests.sh &
+          test_pid=$!
+          python3 - "$test_pid" <<'PY' &
+          import json
+          import os
+          import signal
+          import sys
+          from pathlib import Path
+          from time import sleep
+
+          udid = os.environ["LINKS_UI_TEST_SIMULATOR_UDID"]
+          coalition = f"com.apple.CoreSimulator.SimDevice.{udid}"
+          start = (Path(os.environ["RUNNER_TEMP"]) / "links-ui-simulator-start").stat().st_mtime_ns
+          reports = Path.home() / "Library/Logs/DiagnosticReports"
+          seen = set()
+          while True:
+              excerpt = None
+              for report in reports.glob("InputUI-*.ips"):
+                  if report in seen:
+                      continue
+                  try:
+                      if report.stat().st_mtime_ns <= start:
+                          seen.add(report)
+                          continue
+                      with report.open() as file:
+                          file.readline()
+                          crash = json.load(file)
+                  except (OSError, ValueError):
+                      continue
+                  seen.add(report)
+                  if crash.get("coalitionName") != coalition:
+                      continue
+                  reason = crash.get("termination", {})
+                  if excerpt is None or reason.get("namespace") == "DYLD":
+                      excerpt = (report.name, reason)
+                  if reason.get("namespace") == "DYLD":
+                      break
+              if excerpt is not None:
+                  name, reason = excerpt
+                  print(f"InputUI crashed on Simulator {udid}; stopping UI tests: {name}", file=sys.stderr)
+                  print(f"{reason.get('namespace', '')}: {reason.get('indicator', '')}", file=sys.stderr)
+                  for line in reason.get("reasons", [])[:1]:
+                      print(line, file=sys.stderr)
+                  try:
+                      os.killpg(int(sys.argv[1]), signal.SIGTERM)
+                  except ProcessLookupError:
+                      pass
+                  break
+              sleep(2)
+          PY
+          watcher_pid=$!
+          trap 'kill "$watcher_pid" 2>/dev/null || true' EXIT
+          trap 'kill -TERM -- "-$test_pid" 2>/dev/null || true; exit 130' INT TERM
+          wait "$test_pid"
 
       - name: Check Simulator system crash reports
         if: ${{ !cancelled() && env.LINKS_UI_TEST_SIMULATOR_UDID != '' }}
