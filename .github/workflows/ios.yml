@@ -212,6 +212,7 @@ jobs:
           import shutil
           import sys
           from pathlib import Path
+          from time import monotonic, sleep
 
           udid = os.environ["LINKS_UI_TEST_SIMULATOR_UDID"]
           coalition = f"com.apple.CoreSimulator.SimDevice.{udid}"
@@ -219,29 +220,45 @@ jobs:
           output = Path(sys.argv[1]) / "system-crashes"
           system_paths = ("/Volumes/", "/Library/Developer/", "/System/", "/usr/",
                           "/private/var/run/com.apple.security.cryptexd/")
+          reports = Path.home() / "Library/Logs/DiagnosticReports"
+          deadline = monotonic() + 36
+          seen = set()
+          unreadable = {}
           keyboard = other = 0
-          for report in sorted((Path.home() / "Library/Logs/DiagnosticReports").glob("*.ips")):
-              if report.stat().st_mtime_ns <= start:
-                  continue
-              try:
-                  with report.open() as file:
-                      header = json.loads(file.readline())
-                      crash = json.load(file)
-              except (OSError, ValueError) as error:
-                  print(f"Could not read {report.name}: {error}")
-                  continue
-              if crash.get("coalitionName") != coalition:
-                  continue
-              input_ui = (crash.get("procName") == "InputUI"
-                          or header.get("bundleID") == "com.apple.InputUI")
-              if not input_ui and not crash.get("procPath", "").startswith(system_paths):
-                  continue
-              output.mkdir(exist_ok=True)
-              shutil.copy2(report, output / report.name)
-              reason = crash.get("termination", {})
-              print(f"{report.name}: {reason.get('namespace', '')} {reason.get('indicator', '')}".rstrip())
-              keyboard += input_ui
-              other += not input_ui
+          while True:
+              for report in sorted(reports.glob("*.ips")):
+                  if report in seen:
+                      continue
+                  try:
+                      if report.stat().st_mtime_ns <= start:
+                          seen.add(report)
+                          continue
+                      with report.open() as file:
+                          header = json.loads(file.readline())
+                          crash = json.load(file)
+                  except (OSError, ValueError) as error:
+                      unreadable[report] = str(error)
+                      continue
+                  seen.add(report)
+                  unreadable.pop(report, None)
+                  if crash.get("coalitionName") != coalition:
+                      continue
+                  input_ui = (crash.get("procName") == "InputUI"
+                              or header.get("bundleID") == "com.apple.InputUI")
+                  if not input_ui and not crash.get("procPath", "").startswith(system_paths):
+                      continue
+                  output.mkdir(exist_ok=True)
+                  shutil.copy2(report, output / report.name)
+                  reason = crash.get("termination", {})
+                  print(f"{report.name}: {reason.get('namespace', '')} {reason.get('indicator', '')}".rstrip())
+                  keyboard += input_ui
+                  other += not input_ui
+              remaining = deadline - monotonic()
+              if keyboard or remaining <= 0:
+                  break
+              sleep(min(2, remaining))
+          for report, error in unreadable.items():
+              print(f"Could not read {report.name}: {error}")
           print(f"Simulator {udid}: {keyboard} InputUI and {other} other system-process crash reports")
           sys.exit(1 if keyboard else 0)
           PY

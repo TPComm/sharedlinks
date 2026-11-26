@@ -3,10 +3,13 @@ import json
 import os
 import pathlib
 import plistlib
+import re
 import subprocess
 import sys
 import tempfile
+import textwrap
 import unittest
+from unittest import mock
 
 
 sys.dont_write_bytecode = True
@@ -131,6 +134,44 @@ class XctestrunTests(unittest.TestCase):
             self.assertEqual(target["TestingEnvironmentVariables"]["LINKS_DEV_TOKEN"], "fixture")
             self.assertNotIn("UNRELATED", target["EnvironmentVariables"])
             self.assertEqual(plistlib.loads(source.read_bytes()), {"LinksUITests": {}})
+
+
+class SimulatorCrashAuditTests(unittest.TestCase):
+    def test_audit_fails_when_input_ui_report_arrives_after_first_scan(self):
+        workflow = (SCRIPTS.parents[1] / ".github/workflows/ios.yml").read_text()
+        audit = re.search(r"python3 - \"\$diagnostics\" <<'PY'[^\n]*\n(.*?)^ +PY$", workflow, re.M | re.S)
+        code = compile(textwrap.dedent(audit.group(1)), "Simulator crash audit", "exec")
+        udid = "AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE"
+        with tempfile.TemporaryDirectory() as directory:
+            root = pathlib.Path(directory)
+            marker = root / "links-ui-simulator-start"
+            marker.touch()
+            os.utime(marker, (0, 0))
+            reports = root / "Library/Logs/DiagnosticReports"
+            reports.mkdir(parents=True)
+            report = reports / "InputUI-late.ips"
+            diagnostics = root / "diagnostics"
+            diagnostics.mkdir()
+            payload = json.dumps({"bundleID": "com.apple.InputUI"}) + "\n" + json.dumps({
+                "procName": "InputUI", "coalitionName": f"com.apple.CoreSimulator.SimDevice.{udid}",
+            })
+            elapsed = []
+
+            def publish_report(seconds):
+                elapsed.append(seconds)
+                report.write_text(payload)
+
+            with mock.patch.dict(os.environ, HOME=directory, RUNNER_TEMP=directory,
+                                 LINKS_UI_TEST_SIMULATOR_UDID=udid), \
+                    mock.patch.object(sys, "argv", ["-", str(diagnostics)]), \
+                    mock.patch("time.monotonic", side_effect=lambda: sum(elapsed)), \
+                    mock.patch("time.sleep", side_effect=publish_report), \
+                    mock.patch("builtins.print"), self.assertRaises(SystemExit) as result:
+                exec(code, {})
+
+            self.assertEqual(result.exception.code, 1)
+            self.assertEqual(elapsed, [2])
+            self.assertEqual((diagnostics / "system-crashes" / report.name).read_text(), payload)
 
 
 class ScriptTests(unittest.TestCase):
