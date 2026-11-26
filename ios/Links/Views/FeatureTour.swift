@@ -6,7 +6,6 @@ import SwiftUI
 enum FeatureTour: String, CaseIterable, Identifiable {
     case profilePhoto, rollup, wrapped, sharedWithYou, nudge, swipeQueue, customReactions, favorites, chatInviteLink, dailyCatchUp, activity
 
-
     var id: String { rawValue }
 
     struct Page {

@@ -495,7 +495,7 @@ final class LinksUITests: XCTestCase {
     func testActivityShowsReactionsAndOpensComments() throws {
         let link = try seed(by: server.me, note: String(repeating: "Activity link with a long sender note. ", count: 18))
         let comment = try server.addComment(link.id, body: "Activity reply", as: server.friend)
-        try server.react(link.id, emoji: "😂", as: server.friend)
+        try server.react(link.id, emoji: "🧑🏽‍🚀", as: server.friend)
         launch()
         let activity = app.buttons["activity.open"]
         XCTAssert(activity.waitForExistence(timeout: 10))
@@ -520,7 +520,12 @@ final class LinksUITests: XCTestCase {
         XCTAssert(unreadRow.label.contains("Unread comment"))
         let reaction = scrolledTo(app.buttons["activity.reaction.\(link.id)"])
         XCTAssert(reaction.waitForExistence(timeout: 10))
-        XCTAssert(reaction.label.contains("reacted 😂"))
+        XCTAssert(reaction.label.contains("reacted 🧑🏽‍🚀"))
+        reaction.tap()
+        let reactionsHeading = app.staticTexts["Reactions"]
+        XCTAssert(reactionsHeading.waitForExistence(timeout: 10))
+        XCTAssert(reactionsHeading.isHittable)
+        app.navigationBars.buttons.element(boundBy: 0).tap()
         let seen = scrolledTo(app.buttons["activity.seen.\(link.id)"])
         XCTAssert(seen.waitForExistence(timeout: 10))
         XCTAssert(seen.label.contains("saw your link"))

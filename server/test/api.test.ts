@@ -2268,6 +2268,17 @@ describe("activity feed", () => {
       expect(await feed("?before=10")).toEqual({ items: [], has_more: false, next: null });
       await call(`/api/links/${link.id}/react`, { token: bo, body: { emoji: "❤️" } });
       expect((await feed()).items[0]).toMatchObject({ kind: "reaction", emoji: "❤️" });
+      const custom = await call(`/api/links/${link.id}/react`, { token: bo, method: "PUT", body: { emoji: "🧑🏽‍🚀" } });
+      expect(custom.status).toBe(200);
+      const customActivity = (await feed()).items[0];
+      expect(customActivity.at).toBeGreaterThan(30);
+      expect(customActivity).toMatchObject({ kind: "reaction", link_id: link.id, person, emoji: "🧑🏽‍🚀" });
+      await call(`/api/links/${link.id}/react`, { token: bo, body: { emoji: "🧑🏽‍🚀" } });
+      expect((await feed()).items[0]).toEqual(customActivity);
+      expect((await call(`/api/links/${link.id}/react`, { token: bo, body: { emoji: "not an emoji" } })).status).toBe(400);
+      expect((await feed()).items[0]).toEqual(customActivity);
+      await call(`/api/links/${link.id}/react`, { token: bo, body: { emoji: null } });
+      expect((await feed()).items.map((i: any) => i.kind)).toEqual(["comment", "seen"]);
       db.run("UPDATE reactions SET reacted_at = NULL WHERE link_id = ?", [link.id]);
       expect((await feed()).items.map((i: any) => i.kind)).toEqual(["comment", "seen"]);
       await call("/api/blocks", { token: ann, body: { user_id: person } });

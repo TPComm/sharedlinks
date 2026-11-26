@@ -50,22 +50,18 @@ final class FeatureTourUITests: XCTestCase {
         app.buttons["featureTour.continue"].tap()
         XCTAssert(waitForTitle("React With Any Emoji"))
         XCTAssertEqual(progress.label, "Page 7 of 11")
-
         app.buttons["featureTour.continue"].tap()
         XCTAssert(waitForTitle("Save Your Favorites"))
         XCTAssertEqual(progress.label, "Page 8 of 11")
-
         capture("Favorites tour")
         XCTAssert(app.buttons["featureTour.action.favorites"].exists)
         app.buttons["featureTour.continue"].tap()
         XCTAssert(waitForTitle("Invite Friends to a Chat"))
         XCTAssert(app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "Friends already on Links who tap it join the chat.")).firstMatch.exists)
         XCTAssertEqual(progress.label, "Page 9 of 11")
-
         app.buttons["featureTour.continue"].tap()
         XCTAssert(waitForTitle("Get a Daily Catch-Up"))
         XCTAssertEqual(progress.label, "Page 10 of 11")
-
         capture("Daily catch-up")
         app.buttons["featureTour.continue"].tap()
         XCTAssert(waitForTitle("Catch Up in Activity"))
@@ -101,7 +97,7 @@ final class FeatureTourUITests: XCTestCase {
         launch(reset: true)
         waitForNotificationsBeforeFeatureTour(in: app)
         XCTAssert(waitForTitle("Make Links Yours"))
-        for _ in 0..<6 { app.buttons["featureTour.continue"].tap() }
+        for _ in 0..<7 { app.buttons["featureTour.continue"].tap() }
         XCTAssert(waitForTitle("Save Your Favorites"))
         app.buttons["featureTour.action.favorites"].tap()
         XCTAssert(app.navigationBars["Favorites"].waitForExistence(timeout: 20))
