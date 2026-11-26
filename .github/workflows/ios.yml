@@ -115,11 +115,53 @@ jobs:
       - name: Boot UI test Simulator
         run: |
           started=$SECONDS
+          touch "$RUNNER_TEMP/links-ui-simulator-start"
           udid=$(xcrun simctl create "Links UI Tests" 'iPhone 17')
+          echo "LINKS_UI_TEST_SIMULATOR_UDID=$udid" >> "$GITHUB_ENV"
           echo "Created Simulator Links UI Tests ($udid)"
           xcrun simctl boot "$udid"
           xcrun simctl bootstatus "$udid" -b
           echo "Simulator boot and bootstatus completed in $((SECONDS - started))s"
+
+      - name: Check Simulator runtime mount and dyld cache
+        shell: bash
+        run: |
+          mkdir -p ios/diagnostics/simulator
+          {
+            xcrun simctl runtime list -v
+            mount | grep -Ei 'coresimulator|cryptex|simruntime' || true
+            df -h /
+            python3 - <<'PY'
+          import json
+          import os
+          import subprocess
+          from pathlib import Path
+
+          udid = os.environ["LINKS_UI_TEST_SIMULATOR_UDID"]
+          simulators = json.loads(subprocess.check_output(["xcrun", "simctl", "list", "-j"]))
+          runtime_id = next((identifier for identifier, devices in simulators["devices"].items()
+                             if any(d["udid"] == udid and d["state"] == "Booted" for d in devices)), None)
+          runtime = next((r for r in simulators["runtimes"] if r["identifier"] == runtime_id
+                          and r["isAvailable"]), None)
+          if runtime is None:
+              raise SystemExit(f"No available runtime for booted Simulator {udid}")
+          root = Path(runtime["runtimeRoot"])
+          print(f"Simulator {udid}: {runtime_id} ({runtime['buildversion']}) at {root}", flush=True)
+          with open(os.environ["GITHUB_ENV"], "a") as env:
+              print(f"LINKS_UI_TEST_RUNTIME_ROOT={root}", file=env)
+          subprocess.run(["df", "-P", root], check=True)
+          cache = root / "System/Library/Caches/com.apple.dyld/dyld_sim_shared_cache_arm64"
+          subcaches = sorted(p for p in cache.parent.glob(f"{cache.name}.*") if p.suffix[1:].isdigit())
+          for path in [cache, *subcaches]:
+              with path.open("rb") as file:
+                  if file.read(7) != b"dyld_v1":
+                      raise SystemExit(f"Invalid dyld cache header: {path}")
+                  size = file.seek(-1, os.SEEK_END) + 1
+                  if not file.read(1):
+                      raise SystemExit(f"Unreadable end of dyld cache: {path}")
+              print(f"Readable dyld cache: {path.name} ({size} bytes)")
+          PY
+          } 2>&1 | tee ios/diagnostics/simulator/runtime-before.log
 
       # Starts the server from source with an empty database and drives the app in the "Links UI
       # Tests" Simulator through this slice of the tests. A runner crash can mean another boot,
@@ -131,6 +173,61 @@ jobs:
           LINKS_UI_TEST_SHARD: ${{ matrix.shard }}/${{ strategy.job-total }}
           LINKS_UI_TEST_LOGS: ${{ github.workspace }}/ios/diagnostics/ui-test-logs
         run: ios/scripts/ui-tests.sh
+
+      - name: Check Simulator system crash reports
+        if: ${{ !cancelled() && env.LINKS_UI_TEST_SIMULATOR_UDID != '' }}
+        shell: bash
+        run: |
+          diagnostics=ios/diagnostics/simulator
+          mkdir -p "$diagnostics"
+          {
+            xcrun simctl runtime list -v || true
+            mount | grep -Ei 'coresimulator|cryptex|simruntime' || true
+            df -h / "${LINKS_UI_TEST_RUNTIME_ROOT:-/}" || true
+          } 2>&1 | tee "$diagnostics/runtime-after.log"
+
+          python3 - "$diagnostics" <<'PY' | tee "$diagnostics/system-crashes.log"
+          import json
+          import os
+          import shutil
+          import sys
+          from pathlib import Path
+
+          udid = os.environ["LINKS_UI_TEST_SIMULATOR_UDID"]
+          coalition = f"com.apple.CoreSimulator.SimDevice.{udid}"
+          start = (Path(os.environ["RUNNER_TEMP"]) / "links-ui-simulator-start").stat().st_mtime_ns
+          output = Path(sys.argv[1]) / "system-crashes"
+          root = os.environ.get("LINKS_UI_TEST_RUNTIME_ROOT")
+          system_paths = ("/Volumes/", "/Library/Developer/", "/System/", "/usr/",
+                          "/private/var/run/com.apple.security.cryptexd/")
+          if root:
+              system_paths += (f"{root}/",)
+          keyboard = other = 0
+          for report in sorted((Path.home() / "Library/Logs/DiagnosticReports").glob("*.ips")):
+              if report.stat().st_mtime_ns <= start:
+                  continue
+              try:
+                  with report.open() as file:
+                      header = json.loads(file.readline())
+                      crash = json.load(file)
+              except (OSError, ValueError) as error:
+                  print(f"Could not read {report.name}: {error}")
+                  continue
+              if crash.get("coalitionName") != coalition:
+                  continue
+              input_ui = (crash.get("procName") == "InputUI"
+                          or header.get("bundleID") == "com.apple.InputUI")
+              if not input_ui and not crash.get("procPath", "").startswith(system_paths):
+                  continue
+              output.mkdir(exist_ok=True)
+              shutil.copy2(report, output / report.name)
+              reason = crash.get("termination", {})
+              print(f"{report.name}: {reason.get('namespace', '')} {reason.get('indicator', '')}".rstrip())
+              keyboard += input_ui
+              other += not input_ui
+          print(f"Simulator {udid}: {keyboard} InputUI and {other} other system-process crash reports")
+          sys.exit(1 if keyboard else 0)
+          PY
 
       - name: Collect UI test diagnostics
         if: failure()
@@ -149,6 +246,13 @@ jobs:
           path: |
             ios/build/Logs/Test/*.xcresult
             ios/diagnostics/
+
+      - name: Upload Simulator diagnostics on success
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-ui-test-diagnostics-${{ matrix.shard }}
+          retention-days: 5
+          path: ios/diagnostics/simulator/
 
   check:
     # The name main's ruleset requires: rename it there too if it changes.
