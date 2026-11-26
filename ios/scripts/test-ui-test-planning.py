@@ -135,7 +135,8 @@ class XctestrunTests(unittest.TestCase):
 
 class ScriptTests(unittest.TestCase):
     def run_script(self, action, artifact=True, recovery=False, booted=True,
-                   launch_failures=0, expected_status=0, shard=None, stall=False, long_process_list=False):
+                   launch_failures=0, expected_status=0, shard=None, stall=False,
+                   long_process_list=False, github_actions=False):
         with tempfile.TemporaryDirectory(prefix="links script ") as directory:
             root = pathlib.Path(directory)
             products = root / "build/Build/Products"
@@ -239,6 +240,9 @@ elif command == "sort":
                 for name in ("memory_pressure", "sysctl", "ps", "sort"):
                     (commands / name).symlink_to(mock)
                 environment.update(LINKS_UI_TEST_LOGS=str(root / "logs"), LINKS_UI_TEST_STALL_SECONDS="2")
+            environment.pop("GITHUB_ACTIONS", None)
+            if github_actions:
+                environment["GITHUB_ACTIONS"] = "true"
             environment.pop("LINKS_UI_TEST_SHARD", None)
             args = ["bash", str(SCRIPTS / "ui-tests.sh")]
             if shard is None:
@@ -307,15 +311,20 @@ elif command == "sort":
             self.assertIn(["launchctl", "bootout", "user/foreground/com.apple.PosterBoard"], stops)
 
     def test_healthy_warm_up_does_not_reset(self):
-        invocations, commands, result = self.run_script("test-without-building")
+        invocations, commands, result = self.run_script("test-without-building", github_actions=True)
         self.assertEqual(len(invocations), 1)
         self.assertIn("Simulator warm-up reset=no", result.stdout)
         self.assertFalse(any(args[:2] == ["simctl", "erase"] for args in commands))
         self.assertEqual(sum(args[:2] == ["simctl", "launch"] for args in commands), 1)
         self.assertPosterBoardStoppedAfterEveryBoot(commands)
 
+    def test_local_warm_up_leaves_posterboard_alone(self):
+        _, commands, _ = self.run_script("test-without-building")
+        self.assertTrue(any(args[:2] == ["simctl", "launch"] for args in commands))
+        self.assertEqual([args for args in commands if args[-1:] == ["user/foreground/com.apple.PosterBoard"]], [])
+
     def test_warm_up_recovers_after_one_reset(self):
-        invocations, commands, result = self.run_script("test-without-building", launch_failures=6)
+        invocations, commands, result = self.run_script("test-without-building", launch_failures=6, github_actions=True)
         self.assertEqual(len(invocations), 1)
         operations = [args[1] for args in commands if args[0] == "simctl"]
         reset = operations.index("erase")
@@ -369,7 +378,7 @@ elif command == "sort":
         self.assertFalse(any(args[:2] == ["simctl", "install"] for args in simctl))
 
     def test_killed_runner_uses_xcresult_reboots_and_refreshes_tokens(self):
-        invocations, commands, result = self.run_script("test-without-building", recovery="killed")
+        invocations, commands, result = self.run_script("test-without-building", recovery="killed", github_actions=True)
         self.assertEqual(len(invocations), 2)
         self.assertTrue(any(args[:4] == ["xcresulttool", "get", "object", "--legacy"] for args in commands))
         self.assertTrue(any(args[:2] == ["simctl", "shutdown"] for args in commands))
