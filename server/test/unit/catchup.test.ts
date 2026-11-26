@@ -203,3 +203,47 @@ test("enabling after the chosen time waits until tomorrow; unchanged settings do
   await push.catchUp(new Date("2026-03-09T08:00:00Z"));
   expect(bodies).toHaveLength(1);
 });
+
+test("catch-up claim preserves a skip set while the pass is sending to another person", async () => {
+  enable();
+  enable("Other");
+  add("Maya");
+  const firstSend = Promise.withResolvers<void>();
+  spyOn(push, "send").mockImplementationOnce(() => firstSend.promise);
+  const pass = push.catchUp(new Date("2026-03-08T08:00:00Z"));
+  try {
+    expect(push.send).toHaveBeenCalledWith(expect.objectContaining({ user_id: "Reader" }), "alert", expect.any(String));
+    setSystemTime(new Date("2026-03-08T08:01:00Z"));
+    accounts.setNotifications("Other", { catchup: null });
+    accounts.setNotifications("Other", { catchup: { time: "08:00", timeZone: "UTC" } });
+    expect(db.query("SELECT catchup_sent_on FROM users WHERE id = 'Other'").get())
+      .toEqual({ catchup_sent_on: "skipped:2026-03-08" });
+  } finally {
+    firstSend.resolve();
+    await pass;
+  }
+  expect(bodies).toHaveLength(0);
+  await push.catchUp(new Date("2026-03-09T08:00:00Z"));
+  expect(push.send).toHaveBeenCalledWith(expect.objectContaining({ user_id: "Other" }), "alert", expect.any(String));
+});
+
+test("catch-up claim from before midnight cannot overwrite a newer day's claim", async () => {
+  enable("Reader", "UTC", 23 * 60);
+  enable("Other", "UTC", 0);
+  add("Maya");
+  const firstSend = Promise.withResolvers<void>();
+  spyOn(push, "send").mockImplementationOnce(() => firstSend.promise);
+  const older = push.catchUp(new Date("2026-03-08T23:59:30Z"));
+  try {
+    expect(push.send).toHaveBeenCalledWith(expect.objectContaining({ user_id: "Reader" }), "alert", expect.any(String));
+    await push.catchUp(new Date("2026-03-09T00:00:30Z"));
+    expect(bodies).toHaveLength(1);
+    expect(db.query("SELECT catchup_sent_on FROM users WHERE id = 'Other'").get())
+      .toEqual({ catchup_sent_on: "2026-03-09" });
+  } finally {
+    firstSend.resolve();
+    await older;
+  }
+  await push.catchUp(new Date("2026-03-09T00:01:30Z"));
+  expect(bodies).toHaveLength(1);
+});
