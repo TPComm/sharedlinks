@@ -458,8 +458,9 @@ describe("browser landing page", () => {
   test("shows a short feature list and links to the public changelog", async () => {
     const home = await call("/");
     expect(home.data).toContain('aria-labelledby="features-title"');
-    expect(home.data).toContain("Keep private favorites");
-    expect(home.data).toContain("Catch up from a widget");
+    expect(home.data).toContain("<h3>Favorites</h3>");
+    expect(home.data).toContain("<h3>Taste Match</h3>");
+    expect(home.data).toContain("<h3>Queue widget</h3>");
     const href = home.data.match(/href="(\/changelog)"/)?.[1];
     expect(href).toBe("/changelog");
 

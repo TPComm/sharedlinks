@@ -59,6 +59,7 @@ ${metadata}
   h3{font-size:16px;letter-spacing:-.3px;font-weight:650;margin:0 0 6px}
   .features p{font-size:13px;line-height:1.8;color:var(--muted);margin:0}
   .feature-list{list-style:none;margin:0;padding:0}
+  .feature-list img{display:block;width:100%;height:auto;margin-bottom:14px;border:1px solid var(--line);border-radius:12px}
   .changelog{max-width:680px;padding-top:44px;padding-bottom:48px}
   .changelog .intro{max-width:none}
   .change{padding:24px 0;border-top:1px solid var(--line)}
@@ -137,11 +138,20 @@ ${banner}`,
       </div>
     </section>
     <section class="how" id="features" aria-labelledby="features-title">
-      <h2 class="section-label" id="features-title">More things to do with Links</h2>
+      <h2 class="section-label" id="features-title">A closer look at Links</h2>
       <ul class="features feature-list" role="list">
-        <li><h3>Keep private favorites</h3><p>Star the links you want to come back to. Only you can see what you save.</p></li>
-        <li><h3>Share with your people</h3><p>Keep finds between you and a friend in a private chat, or share them with the whole group.</p></li>
-        <li><h3>Catch up from a widget</h3><p>See your Queue or Sent receipts at a glance, and mark links seen without opening the app.</p></li>
+        <li>
+          <img src="/favorites.webp" width="640" height="640" loading="lazy" alt="Favorites list with stars beside saved links">
+          <h3>Favorites</h3><p>Keep the best finds in a list only you can see.</p>
+        </li>
+        <li>
+          <img src="/taste-match.webp" width="640" height="640" loading="lazy" alt="Weekend Club’s Taste Match: all five members loved three links">
+          <h3>Taste Match</h3><p>Rediscover the links everyone in your chat loved.</p>
+        </li>
+        <li>
+          <img src="/queue-widget.webp" width="640" height="640" loading="lazy" alt="Queue widget with a checkmark button beside each link">
+          <h3>Queue widget</h3><p>Mark links seen right from your Home Screen.</p>
+        </li>
       </ul>
     </section>`,
   });

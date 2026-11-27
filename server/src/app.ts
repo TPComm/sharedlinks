@@ -13,6 +13,9 @@ import { Pusher, type PushOptions } from "./push.ts";
 // Embedded in the compiled binary (bun build --compile), for invite pages and their link previews.
 import iconPath from "../../assets/icon/previews/B/default-256.png" with { type: "file" };
 import appPreviewPath from "../../assets/landing/inbox.png" with { type: "file" };
+import favoritesPath from "../../assets/landing/favorites.webp" with { type: "file" };
+import tasteMatchPath from "../../assets/landing/taste-match.webp" with { type: "file" };
+import queueWidgetPath from "../../assets/landing/queue-widget.webp" with { type: "file" };
 import { BUILD_COMMIT } from "./version.ts";
 
 // The Unicode RGI set matches whole emoji sequences, not individual emoji code points.
@@ -1084,6 +1087,15 @@ export function createApp(config: Config, opts: AppOptions = {}) {
     }),
     "/app-preview.png": new Response(Bun.file(appPreviewPath), {
       headers: { "Content-Type": "image/png", "Cache-Control": "public, max-age=86400" },
+    }),
+    "/favorites.webp": new Response(Bun.file(favoritesPath), {
+      headers: { "Content-Type": "image/webp", "Cache-Control": "public, max-age=86400" },
+    }),
+    "/taste-match.webp": new Response(Bun.file(tasteMatchPath), {
+      headers: { "Content-Type": "image/webp", "Cache-Control": "public, max-age=86400" },
+    }),
+    "/queue-widget.webp": new Response(Bun.file(queueWidgetPath), {
+      headers: { "Content-Type": "image/webp", "Cache-Control": "public, max-age=86400" },
     }),
 
     // Report a link, comment or person. Links and comments are hidden for the reporter at once.
