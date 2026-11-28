@@ -277,7 +277,7 @@ describe("a day with Links", () => {
     expect(preview.status).toBe(200);
     expect(preview.headers.get("content-type")).toBe("image/png");
     expect([...new Uint8Array(await preview.arrayBuffer()).slice(0, 8)]).toEqual([137, 80, 78, 71, 13, 10, 26, 10]);
-    for (const path of ["/favorites.webp", "/taste-match.webp", "/queue-widget.webp"]) {
+    for (const path of ["/share-sheet.webp", "/queue-widget.webp", "/link-reactions.webp"]) {
       expect(home.text).toContain(`src="${path}"`);
       const capture = await fetch(server.url + path);
       expect(capture.status).toBe(200);
