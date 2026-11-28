@@ -446,6 +446,37 @@ describe("pushes", () => {
     }
   });
 
+  test("a reported unseen link in a direct chat prevents a catch-up alert", async () => {
+    const friend = app.accounts.mintSession("private-report@team.test", "Friend");
+    const device = hex(8);
+    expect((await register(friend, device)).status).toBe(200);
+    try {
+      const { data: { group } } = await call("/api/groups", { token: friend, body: { name: "Shared", members: ["user_01ALEX"] } });
+      const { data: { groups } } = await call("/api/state", { token: friend });
+      const direct = groups.find((g: any) => g.direct && g.members.includes("user_01ALEX"));
+      const add = async (name: string, group_id: number) => (await call("/api/links", {
+        token: friend, body: { group_id, url: `${fakeOrigin.url.origin}/video?n=private-report-${name}` },
+      })).data.link.id as number;
+      const reported = await add("direct", direct.id), visible = await add("shared", group.id);
+      expect((await call("/api/reports", { token: alex, body: { link_id: reported, reason: "spam" } })).status).toBe(201);
+      await settle();
+      sent = [];
+
+      expect((await watch(visible, alex)).status).toBe(200);
+      await settle();
+      const reader = await call(`/api/state?group_id=${direct.id}`, { token: alex });
+      expect(reader.data.links).toEqual([]);
+      const sender = await call(`/api/state?group_id=${direct.id}`, { token: friend });
+      expect(sender.status).toBe(200);
+      expect(sender.data.links).toMatchObject([{ id: reported, seen: {} }]);
+      expect(sender.data.links[0].seen.user_01ALEX).toBeUndefined();
+      expect(sent.filter((s) => s.token === device && s.body.aps.alert).map((s) => s.body.aps.alert.body))
+        .toEqual(["saw your link: Cats & Dogs"]);
+    } finally {
+      await call("/api/me", { token: friend, method: "DELETE" });
+    }
+  });
+
   test("watching a link is a passive alert for its sender, once; watching your own sends nothing", async () => {
     const id = await samsLink("watch");
     await watch(id, alex);

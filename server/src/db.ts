@@ -770,8 +770,11 @@ export const VISIBLE_LINK = `EXISTS (SELECT 1 FROM group_members WHERE group_id 
   AND NOT EXISTS (SELECT 1 FROM reports WHERE reporter = ?1 AND link_id = links.id)
   AND NOT EXISTS (SELECT 1 FROM blocks WHERE blocker = ?1 AND blocked = links.added_by)`;
 
-export const SHARED_SENDER_LINK = `links.added_by = ?2 AND ${VISIBLE_LINK}
-  AND EXISTS (SELECT 1 FROM group_members WHERE group_id = links.group_id AND user_id = ?2)`;
+// Reported links still count: a catch-up alert must not reveal which unseen links the reader hid.
+export const SHARED_SENDER_LINK = `links.added_by = ?2
+  AND EXISTS (SELECT 1 FROM group_members WHERE group_id = links.group_id AND user_id = ?1)
+  AND EXISTS (SELECT 1 FROM group_members WHERE group_id = links.group_id AND user_id = ?2)
+  AND NOT EXISTS (SELECT 1 FROM blocks WHERE blocker = ?1 AND blocked = links.added_by)`;
 
 export const UNSEEN_LINK = "NOT EXISTS (SELECT 1 FROM seen WHERE link_id = links.id AND person = ?1)";
 
