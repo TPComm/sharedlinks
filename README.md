@@ -36,6 +36,11 @@ who hasn't seen it, or **Nudge Everyone**; each person can be nudged once per da
 even if iOS closed the app meanwhile. Long-press **Open in TikTok** still goes straight there and
 marks it seen in one go.
 
+When you mark the last unseen link from a friend as seen, they get a single catch-up
+notification instead of the usual alert for that last link. It counts across your shared chats,
+and only happens again after they send more and you catch up. To turn these alerts off for links
+you send, turn off **When someone sees my link** under **Profile → Notify Me**.
+
 Tap **+** after the quick reactions to react with an emoji from your keyboard. Tap your current
 reaction again to remove it.
 
@@ -398,7 +403,7 @@ API endpoints except sign-in need `Authorization: Bearer <session token>`; pages
 | POST | `/api/auth/logout` | ends this session (and removes its device tokens) |
 | POST | `/api/devices` | `{token, env}`: this session's APNs device token (hex), `env` is `sandbox` or `production` → `{ok, push}` (`push`: whether the server sends any). Registering a token again moves it to this session |
 | DELETE | `/api/devices/:token` | forget one of your device tokens |
-| GET/PATCH/DELETE | `/api/me` | `{user, claimable, notifications}`; PATCH `{name}` and/or `{notifications: {watched?, reactions?, catchup?}}` (catchup is null by default or {time: "HH:MM", timeZone: "IANA"}; watched/reactions are booleans, both on to start: whether I get a push when someone watches or reacts to a link I sent; a watch and a reaction from one person within a minute go out as one); DELETE deletes the account, its sessions, watched marks and reactions, and the links it sent (with their notes and thumbnails, for everyone). Also the WorkOS user, given `WORKOS_API_KEY` |
+| GET/PATCH/DELETE | `/api/me` | `{user, claimable, notifications}`; PATCH `{name}` and/or `{notifications: {watched?, reactions?, catchup?}}` (catchup is null by default or {time: "HH:MM", timeZone: "IANA"}; watched/reactions are booleans, both on to start: whether I get a push when someone sees or reacts to a link I sent; `watched` also controls catch-up alerts; a seen mark and a reaction from one person within a minute go out as one); DELETE deletes the account, its sessions, seen marks and reactions, and the links it sent (with their notes and thumbnails, for everyone). Also the WorkOS user, given `WORKOS_API_KEY` |
 | PUT/DELETE | `/api/me/photo` | PUT's body is my profile photo itself, a JPEG or PNG up to 2 MB and 4096px a side (the app sends a 512px JPEG); it replaces the WorkOS picture as my `avatar` everywhere, at a new `/photos/:token` address each time. DELETE goes back to initials. Both return what `GET /api/me` does |
 | GET | `/photos/:token` | A profile photo, no sign-in needed (`AsyncImage` sends none): the address is random and stops working once its photo is replaced or removed, or its account deleted |
 | POST | `/api/me/claim` | `{id}` of a legacy person in my `claimable` (one `links-server claim` approved for my account) |
@@ -412,7 +417,7 @@ API endpoints except sign-in need `Authorization: Bearer <session token>`; pages
 | POST | `/api/groups/:id/link` | Create a reusable chat invite link or return the existing one → 201 `{link}`. Only `{reset: true}` replaces it, stopping the old URL immediately. Only people already on Links can join; default chat refused |
 | DELETE | `/api/groups/:id/link` | Turn off the chat invite link → `{link: null}` |
 | DELETE | `/api/groups/:id` | Leave the chat; the links I sent stay in it. The last one out deletes it and its links (never the default chat). Leave shared group chats before leaving the direct chat with a group mate |
-| POST | `/api/links/:id/seen` | `{seen: true/false}` |
+| POST | `/api/links/:id/seen` | `{seen: true/false}` → `{link}`. On a new seen mark that clears the sender's unseen links across shared chats, the seen alert becomes a catch-up alert. Nothing repeats until the sender shares more and the reader clears those links too. Respects blocks, the final link's chat mute, and the sender's `watched` push preference. |
 | POST | `/api/links/:id/nudge` | Sender only: `{people?: [userId, …]}`; omitted or empty means all eligible unwatched chat members. Excludes unclaimed legacy people and people the sender blocked. Records nudges at most once per person per link per 24 hours → `{nudged: [userId, …], link}`. A recipient's block of the sender or report of the link stops delivery without changing the response or cooldown; muted chats and missing devices also prevent delivery. 429 if only the cooldown prevents a nudge, otherwise 400 when nobody is eligible. Only the sender's link JSON includes `nudged: {personId: UnixSeconds, …}` (all recorded times) |
 | PUT / DELETE | `/api/links/:id/favorite` | Star / unstar a visible link, both idempotent → `{link}`. In link responses (including `/api/state`), `favorited_at` is present only for links the caller starred, in Unix seconds. |
 | POST / PUT | `/api/links/:id/react` | `{emoji}`: one standard Unicode emoji sequence (up to 64 UTF-8 bytes); `null` removes. Invalid values return 400 without changing the reaction. Use `PUT` for custom emoji so older servers reject the request instead of clearing the reaction |

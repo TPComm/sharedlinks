@@ -4,7 +4,7 @@ import { readdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { Accounts, AuthError, INVITE_TOKEN_RE, MAX_GROUP_MEMBERS, MAX_PHOTO_BYTES, photoType, publicUser, reportPhoto } from "./accounts.ts";
 import type { Config } from "./config.ts";
-import { defaultGroup, deleteEmptyGroups, deleteLink, ensureDirectChatsFor, LEGACY, now, openDatabase, sharesGroupWithDirectPeer, type CommentRow, type GroupRow, type LinkRow, type UserRow } from "./db.ts";
+import { defaultGroup, deleteEmptyGroups, deleteLink, ensureDirectChatsFor, LEGACY, now, openDatabase, sharesGroupWithDirectPeer, SHARED_SENDER_LINK, UNSEEN_LINK, VISIBLE_LINK as VISIBLE, type CommentRow, type GroupRow, type LinkRow, type UserRow } from "./db.ts";
 import { BadRequest, canonical, clipText, extractUrl } from "./links.ts";
 import { changelogPage, landingPage } from "./landing.ts";
 import { REPORT_REASONS } from "./moderation.ts";
@@ -305,15 +305,6 @@ export function createApp(config: Config, opts: AppOptions = {}) {
   }
   if (config.previewBackfillMs > 0) setTimeout(backfillNext, config.previewBackfillMs).unref();
 
-  /**
-   * A link `?1` can see: one in a chat they're in (#12), but not one they reported, nor one from
-   * someone they blocked. Everyone else in the chat still sees it. getState, getLink's callers (via
-   * linkId) and addLink's duplicate check use this.
-   */
-  const VISIBLE = `EXISTS (SELECT 1 FROM group_members WHERE group_id = links.group_id AND user_id = ?1)
-    AND NOT EXISTS (SELECT 1 FROM reports WHERE reporter = ?1 AND link_id = links.id)
-    AND NOT EXISTS (SELECT 1 FROM blocks WHERE blocker = ?1 AND blocked = links.added_by)`;
-
   const isVisible = (id: number, me: string) =>
     !!db.query(`SELECT 1 FROM links WHERE ${VISIBLE} AND id = ?2`).get(me, id);
 
@@ -571,6 +562,22 @@ export function createApp(config: Config, opts: AppOptions = {}) {
   }
 
   const sender = (id: number) => (db.query("SELECT added_by FROM links WHERE id = ?").get(id) as { added_by: string }).added_by;
+
+  function recordSenderCatchUp(id: number, me: string): boolean {
+    const by = sender(id);
+    if (by === me) return false;
+    // Use the insertion high-water mark so joining another chat can't make old links new again.
+    return db.query(`
+      INSERT INTO sender_catchups (reader, sender, through_link_id)
+      SELECT ?1, ?2, seq FROM sqlite_sequence WHERE name = 'links'
+        AND EXISTS (SELECT 1 FROM links WHERE ${SHARED_SENDER_LINK} AND links.id = ?3)
+        AND EXISTS (SELECT 1 FROM links WHERE ${SHARED_SENDER_LINK} AND links.id > COALESCE(
+          (SELECT through_link_id FROM sender_catchups WHERE reader = ?1 AND sender = ?2), 0))
+        AND NOT EXISTS (SELECT 1 FROM links WHERE ${SHARED_SENDER_LINK} AND ${UNSEEN_LINK})
+      ON CONFLICT (reader, sender) DO UPDATE SET through_link_id = excluded.through_link_id
+      RETURNING through_link_id
+    `).get(me, by, id) !== null;
+  }
 
   /** A report snapshot: what was reported as it was, since it can be edited or deleted later. */
   function reportTarget(data: Record<string, any>, me: string) {
@@ -1178,6 +1185,7 @@ export function createApp(config: Config, opts: AppOptions = {}) {
           const { lastInsertRowid } = db.run("INSERT INTO comments (link_id, person, body, created_at) VALUES (?, ?, ?, ?)", [id, me, body, at]);
           // Replying means they've seen it. No "saw your link" push: the comment alert covers it.
           const nowSeen = db.run("INSERT OR IGNORE INTO seen (link_id, person, seen_at) VALUES (?, ?, ?)", [id, me, at]).changes > 0;
+          if (nowSeen) recordSenderCatchUp(id, me);
           const row = db.query("SELECT * FROM comments WHERE id = ?").get(lastInsertRowid) as CommentRow;
           return { row, leftToWatch: nowSeen && (db.query("SELECT added_by FROM links WHERE id = ?").get(id) as { added_by: string }).added_by !== me };
         });
@@ -1255,16 +1263,17 @@ export function createApp(config: Config, opts: AppOptions = {}) {
       POST: route<WithId>(async (req, me) => {
         const id = linkId(req, me);
         const seen = (await readJson(req)).seen ?? true;
-        const watched = asUser(me, () => {
+        const { newlySeen, caughtUp } = asUser(me, () => {
           stillSees(id, me);
           if (seen) {
-            return db.run("INSERT OR IGNORE INTO seen (link_id, person, seen_at) VALUES (?, ?, ?)", [id, me, now()]).changes > 0;
+            const newlySeen = db.run("INSERT OR IGNORE INTO seen (link_id, person, seen_at) VALUES (?, ?, ?)", [id, me, now()]).changes > 0;
+            return { newlySeen, caughtUp: newlySeen && recordSenderCatchUp(id, me) };
           }
           db.run("DELETE FROM seen WHERE link_id = ? AND person = ?", [id, me]);
-          return false;
+          return { newlySeen: false, caughtUp: false };
         });
         push.badges([me]);
-        if (watched) push.activity(id, me, "watched");
+        if (newlySeen) push.activity(id, me, "watched", caughtUp);
         return json({ link: getLink(id, me) });
       }),
     },

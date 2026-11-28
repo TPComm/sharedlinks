@@ -148,7 +148,7 @@ struct ProfileSheet: View {
                     } header: {
                         Text("Notify Me")
                     } footer: {
-                        Text("If someone sees a link and reacts within a minute, you get one notification for both.")
+                        Text("Seen notifications include when someone catches up on all your links. If they see a link and react within a minute, you get one notification for both.")
                     }
                 }
                 Section("Settings") {
