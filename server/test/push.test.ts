@@ -370,6 +370,8 @@ describe("pushes", () => {
 
   const toSam = () => sent.filter((s) => s.token === SAM && s.body.aps.alert); // not Sam's own badge updates
   const samsLink = async (n: string) => {
+    app.db.run(`INSERT OR IGNORE INTO links (url, platform, added_by, added_at, group_id)
+      VALUES ('https://links.test/unseen-backlog', 'web', 'user_01SAM', 1, 1)`);
     const { data } = await call("/api/links", { token: sam, body: { url: `${fakeOrigin.url.origin}/video?n=${n}` } });
     await settle();
     sent = [];
@@ -378,6 +380,102 @@ describe("pushes", () => {
   const watch = (id: number, token: string, seen = true) => call(`/api/links/${id}/seen`, { token, body: { seen } });
   const react = (id: number, token: string, emoji: string | null) => call(`/api/links/${id}/react`, { token, body: { emoji } });
   const setNotifications = (token: string, notifications: object) => call("/api/me", { method: "PATCH", token, body: { notifications } });
+
+  test("clearing a sender's links across chats sends one catch-up alert until new links are seen", async () => {
+    const friend = app.accounts.mintSession("catchup@team.test", "Friend");
+    const device = hex(8);
+    expect((await register(friend, device)).status).toBe(200);
+    const alerts = () => sent.filter((s) => s.token === device && s.body.aps.alert);
+    const chat = async (name: string) => {
+      const added = await call("/api/groups", { token: friend, body: { name, members: ["user_01ALEX", "user_01KIM"] } });
+      expect(added.status).toBe(201);
+      return added.data.group.id as number;
+    };
+    const share = async (n: string, groupID: number) => {
+      const added = await call("/api/links", {
+        token: friend, body: { url: `${fakeOrigin.url.origin}/video?n=sender-catch-up-${n}`, group_id: groupID },
+      });
+      expect(added.status).toBe(201);
+      await settle();
+      sent = [];
+      return added.data.link.id as number;
+    };
+    try {
+      const groupA = await chat("Catch-up A"), groupB = await chat("Catch-up B");
+      const first = await share("first", groupA), last = await share("last", groupB);
+      await watch(last, friend);
+      await settle();
+      expect(alerts()).toEqual([]);
+
+      // Kim still has both links and Alex has unseen links from other senders.
+      await watch(last, alex);
+      await settle();
+      expect(alerts().map((s) => s.body.aps.alert.body)).toEqual(["saw your link: Cats & Dogs"]);
+
+      sent = [];
+      await Promise.all([watch(first, alex), watch(first, alex)]);
+      await settle();
+      expect(alerts().map((s) => s.body.aps.alert)).toEqual([{ title: "Alex", body: "is all caught up on your links" }]);
+
+      sent = [];
+      await watch(first, alex, false);
+      await watch(first, alex);
+      await settle();
+      expect(alerts().map((s) => s.body.aps.alert.body)).toEqual(["saw your link: Cats & Dogs"]);
+
+      const next = await share("next", groupA);
+      await react(next, alex, "🔥");
+      await watch(next, alex);
+      await settle();
+      expect(alerts().map((s) => s.body.aps.alert.body)).toEqual(["is all caught up on your links and reacted 🔥 to this one: Cats & Dogs"]);
+
+      await setNotifications(friend, { watched: false });
+      const silenced = await share("silenced", groupB);
+      await watch(silenced, alex);
+      await settle();
+      expect(alerts()).toEqual([]);
+
+      await setNotifications(friend, { watched: true });
+      const blocked = await share("blocked", groupB);
+      expect((await call("/api/blocks", { token: friend, body: { user_id: "user_01ALEX" } })).status).toBe(200);
+      await watch(blocked, alex);
+      await settle();
+      expect(alerts()).toEqual([]);
+    } finally {
+      await call("/api/me", { token: friend, method: "DELETE" });
+    }
+  });
+
+  test("a reported unseen link in a direct chat prevents a catch-up alert", async () => {
+    const friend = app.accounts.mintSession("private-report@team.test", "Friend");
+    const device = hex(8);
+    expect((await register(friend, device)).status).toBe(200);
+    try {
+      const { data: { group } } = await call("/api/groups", { token: friend, body: { name: "Shared", members: ["user_01ALEX"] } });
+      const { data: { groups } } = await call("/api/state", { token: friend });
+      const direct = groups.find((g: any) => g.direct && g.members.includes("user_01ALEX"));
+      const add = async (name: string, group_id: number) => (await call("/api/links", {
+        token: friend, body: { group_id, url: `${fakeOrigin.url.origin}/video?n=private-report-${name}` },
+      })).data.link.id as number;
+      const reported = await add("direct", direct.id), visible = await add("shared", group.id);
+      expect((await call("/api/reports", { token: alex, body: { link_id: reported, reason: "spam" } })).status).toBe(201);
+      await settle();
+      sent = [];
+
+      expect((await watch(visible, alex)).status).toBe(200);
+      await settle();
+      const reader = await call(`/api/state?group_id=${direct.id}`, { token: alex });
+      expect(reader.data.links).toEqual([]);
+      const sender = await call(`/api/state?group_id=${direct.id}`, { token: friend });
+      expect(sender.status).toBe(200);
+      expect(sender.data.links).toMatchObject([{ id: reported, seen: {} }]);
+      expect(sender.data.links[0].seen.user_01ALEX).toBeUndefined();
+      expect(sent.filter((s) => s.token === device && s.body.aps.alert).map((s) => s.body.aps.alert.body))
+        .toEqual(["saw your link: Cats & Dogs"]);
+    } finally {
+      await call("/api/me", { token: friend, method: "DELETE" });
+    }
+  });
 
   test("watching a link is a passive alert for its sender, once; watching your own sends nothing", async () => {
     const id = await samsLink("watch");

@@ -10,7 +10,7 @@ import http2 from "node:http2";
 import { type Accounts, publicUser } from "./accounts.ts";
 import type { ApnsEnv, Config } from "./config.ts";
 import { localClock } from "./catchup.ts";
-import { now, type UserRow } from "./db.ts";
+import { now, SHARED_SENDER_LINK, UNSEEN_LINK, type UserRow } from "./db.ts";
 import { clip, clipText } from "./links.ts";
 
 /** Same nouns as `Platform.noun` in ios/LinksKit/Sources/LinksKit/Models.swift, mid-sentence. */
@@ -40,7 +40,7 @@ export type PushType = "alert" | "badge";
 
 /** What someone did to a link that its sender can get a push about. */
 export type Activity = "watched" | "reacted";
-interface PendingActivity { linkId: number; actor: string; kinds: Set<Activity>; timer: Timer; done: () => void }
+interface PendingActivity { linkId: number; actor: string; kinds: Set<Activity>; caughtUp: boolean; timer: Timer; done: () => void }
 const wants = (sender: { push_watched: number; push_reactions: number }, kind: Activity) =>
   !!(kind === "watched" ? sender.push_watched : sender.push_reactions);
 
@@ -198,7 +198,7 @@ export class Pusher {
    * push ("watched and reacted 😂 to your TikTok"): the first waits for the other unless it can't
    * come (they'd watched it before, already reacted, or the sender turned that kind off).
    */
-  activity(linkId: number, actor: string, kind: Activity) {
+  activity(linkId: number, actor: string, kind: Activity, caughtUp = false) {
     if (!this.enabled) return;
     const target = this.activityTarget(linkId, actor);
     if (!target || !wants(target, kind)) return;
@@ -208,11 +208,12 @@ export class Pusher {
       let done!: () => void;
       const task = new Promise<void>((resolve) => { done = resolve; });
       const timer = setTimeout(() => this.flushActivity(key), this.activityDelayMs);
-      pending = { linkId, actor, kinds: new Set(), timer, done };
+      pending = { linkId, actor, kinds: new Set(), caughtUp: false, timer, done };
       this.pendingActivity.set(key, pending);
       this.track(task);
     }
     pending.kinds.add(kind);
+    pending.caughtUp ||= caughtUp;
     const other: Activity = kind === "watched" ? "reacted" : "watched";
     if (pending.kinds.has(other) || !wants(target, other) || this.did(linkId, actor, other)) this.flushActivity(key);
   }
@@ -222,7 +223,7 @@ export class Pusher {
       AND muted = 1 AND (muted_until IS NULL OR muted_until > ?)`).get(groupId, user, now());
   }
 
-  /** The link's sender and their settings, if they're still in its chat and `actor` is someone they haven't blocked. */
+  /** The link's sender and their settings, if they're still in its chat and neither person blocked the other. */
   private activityTarget(linkId: number, actor: string) {
     const link = this.db.query(
       `SELECT l.title, l.platform, l.added_by, l.group_id, g.is_default, u.push_watched, u.push_reactions
@@ -232,7 +233,8 @@ export class Pusher {
                        push_watched: number; push_reactions: number } | null;
     if (!link || link.added_by === actor) return null; // also once the sender has left the chat
     if (this.isMuted(link.group_id, link.added_by)) return null;
-    if (this.db.query("SELECT 1 FROM blocks WHERE blocker = ? AND blocked = ?").get(link.added_by, actor)) return null;
+    if (this.db.query(`SELECT 1 FROM blocks WHERE (blocker = ?1 AND blocked = ?2)
+      OR (blocker = ?2 AND blocked = ?1)`).get(link.added_by, actor)) return null;
     return link;
   }
 
@@ -251,7 +253,7 @@ export class Pusher {
     this.sendActivity(pending).catch((e) => console.error(`push: ${e}`)).finally(pending.done);
   }
 
-  private async sendActivity({ linkId, actor, kinds }: PendingActivity) {
+  private async sendActivity({ linkId, actor, kinds, caughtUp }: PendingActivity) {
     const link = this.activityTarget(linkId, actor);
     if (!link) return;
     const watched = kinds.has("watched") && wants(link, "watched") && this.did(linkId, actor, "watched");
@@ -262,11 +264,15 @@ export class Pusher {
     const name = (this.db.query("SELECT name FROM users WHERE id = ?").get(actor) as { name: string } | null)?.name;
     if (!name) return;
     const noun = nounOf(link.platform);
-    const lead = watched && emoji ? `saw and reacted ${emoji} to your ${noun}`
+    const summary = watched && caughtUp && !this.db.query(
+      `SELECT 1 FROM links WHERE ${SHARED_SENDER_LINK} AND ${UNSEEN_LINK} LIMIT 1`,
+    ).get(actor, link.added_by);
+    const lead = summary ? `is all caught up on your links${emoji ? ` and reacted ${emoji} to this one` : ""}`
+      : watched && emoji ? `saw and reacted ${emoji} to your ${noun}`
       : emoji ? `reacted ${emoji} to your ${noun}` : `saw your ${noun}`;
     await this.toPerson(link.added_by, "alert", (badge) => this.fit({
       aps: {
-        alert: { title: name, body: [lead, link.title, ""] as const },
+        alert: { title: name, body: [lead, summary && !emoji ? null : link.title, ""] as const },
         badge, "thread-id": threadId(link.group_id, link.is_default), "interruption-level": "passive",
       },
       link_id: linkId, sender_id: actor, group_id: link.group_id,

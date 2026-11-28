@@ -217,6 +217,7 @@ export function openDatabase(dataDir: string, legacyAllowedEmails: string[] = []
   migrateToV21(db);
   migrateToV22(db);
   migrateToV23(db);
+  migrateToV24(db);
   db.transaction(() => {
     const update = db.query("UPDATE links SET share_token = ? WHERE id = ? AND share_token IS NULL");
     for (const row of db.query("SELECT id FROM links WHERE share_token IS NULL").all() as { id: number }[]) {
@@ -287,6 +288,23 @@ function migrateToV23(db: Database) {
     const have = (db.query("PRAGMA table_info(reactions)").all() as { name: string }[]).map((c) => c.name);
     if (!have.includes("reacted_at")) db.run("ALTER TABLE reactions ADD COLUMN reacted_at REAL");
     db.run("PRAGMA user_version = 23");
+  })();
+}
+
+function migrateToV24(db: Database) {
+  const { user_version } = db.query("PRAGMA user_version").get() as { user_version: number };
+  if (user_version >= 24) return;
+  db.transaction(() => {
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS sender_catchups (
+        reader TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        sender TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        through_link_id INTEGER NOT NULL,
+        PRIMARY KEY (reader, sender)
+      );
+      CREATE INDEX IF NOT EXISTS links_sender ON links (added_by);
+      PRAGMA user_version = 24;
+    `);
   })();
 }
 
@@ -747,6 +765,18 @@ function respellLinks(db: Database) {
 }
 
 export const now = () => Date.now() / 1000;
+
+export const VISIBLE_LINK = `EXISTS (SELECT 1 FROM group_members WHERE group_id = links.group_id AND user_id = ?1)
+  AND NOT EXISTS (SELECT 1 FROM reports WHERE reporter = ?1 AND link_id = links.id)
+  AND NOT EXISTS (SELECT 1 FROM blocks WHERE blocker = ?1 AND blocked = links.added_by)`;
+
+// Reported links still count: a catch-up alert must not reveal which unseen links the reader hid.
+export const SHARED_SENDER_LINK = `links.added_by = ?2
+  AND EXISTS (SELECT 1 FROM group_members WHERE group_id = links.group_id AND user_id = ?1)
+  AND EXISTS (SELECT 1 FROM group_members WHERE group_id = links.group_id AND user_id = ?2)
+  AND NOT EXISTS (SELECT 1 FROM blocks WHERE blocker = ?1 AND blocked = links.added_by)`;
+
+export const UNSEEN_LINK = "NOT EXISTS (SELECT 1 FROM seen WHERE link_id = links.id AND person = ?1)";
 
 /** Delete a link for everyone, with its thumbnail (seen marks and reactions cascade). */
 export function deleteLink(db: Database, dataDir: string, id: number) {
