@@ -455,11 +455,12 @@ describe("browser landing page", () => {
     expect(res.data).not.toContain("<script");
   });
 
-  test("shows a short feature list and links to the public changelog", async () => {
+  test("illustrates the three steps and links to the public changelog", async () => {
     const home = await call("/");
-    expect(home.data).toContain('aria-labelledby="features-title"');
-    expect(home.data).toContain("Keep private favorites");
-    expect(home.data).toContain("Catch up from a widget");
+    expect(home.data).toContain('aria-labelledby="how-title"');
+    expect(home.data).toContain('src="/share-sheet.webp"');
+    expect(home.data).toContain('src="/queue-widget.webp"');
+    expect(home.data).toContain('src="/link-reactions.webp"');
     const href = home.data.match(/href="(\/changelog)"/)?.[1];
     expect(href).toBe("/changelog");
 

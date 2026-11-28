@@ -277,6 +277,14 @@ describe("a day with Links", () => {
     expect(preview.status).toBe(200);
     expect(preview.headers.get("content-type")).toBe("image/png");
     expect([...new Uint8Array(await preview.arrayBuffer()).slice(0, 8)]).toEqual([137, 80, 78, 71, 13, 10, 26, 10]);
+    for (const path of ["/share-sheet.webp", "/queue-widget.webp", "/link-reactions.webp"]) {
+      expect(home.text).toContain(`src="${path}"`);
+      const capture = await fetch(server.url + path);
+      expect(capture.status).toBe(200);
+      expect(capture.headers.get("content-type")).toBe("image/webp");
+      const signature = new TextDecoder().decode((await capture.arrayBuffer()).slice(0, 12));
+      expect(signature).toMatch(/^RIFF[\s\S]{4}WEBP$/);
+    }
     expect(await call("/nope")).toMatchObject({ status: 404, data: { error: "Not found" } });
   });
 

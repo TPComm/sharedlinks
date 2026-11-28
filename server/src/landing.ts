@@ -58,7 +58,7 @@ ${metadata}
   .number{display:block;font:italic 18px Georgia,serif;color:#6b866e;margin-bottom:12px}
   h3{font-size:16px;letter-spacing:-.3px;font-weight:650;margin:0 0 6px}
   .features p{font-size:13px;line-height:1.8;color:var(--muted);margin:0}
-  .feature-list{list-style:none;margin:0;padding:0}
+  .steps img{display:block;width:100%;max-width:360px;height:auto;margin-bottom:14px;border:1px solid var(--line);border-radius:12px}
   .changelog{max-width:680px;padding-top:44px;padding-bottom:48px}
   .changelog .intro{max-width:none}
   .change{padding:24px 0;border-top:1px solid var(--line)}
@@ -130,19 +130,20 @@ ${banner}`,
     </section>
     <section class="how" id="how-it-works" aria-labelledby="how-title">
       <h2 class="section-label" id="how-title">Less scrolling back. More catching up.</h2>
-      <div class="features">
-        <div><span class="number" aria-hidden="true">01 /</span><h3>Find it. Share it.</h3><p>See something they’d love? Send it to Links from your iPhone’s share sheet, with a little note if you like.</p></div>
-        <div><span class="number" aria-hidden="true">02 /</span><h3>A place for “later”.</h3><p>Articles, videos, recipes, gift ideas. They’re all in your Queue, not buried in a conversation.</p></div>
-        <div><span class="number" aria-hidden="true">03 /</span><h3>Stay in the loop.</h3><p>Catch up in your own time. React, leave a comment, and see when your friends have seen what you sent.</p></div>
+      <div class="features steps">
+        <div>
+          <img src="/share-sheet.webp" width="540" height="270" loading="lazy" alt="Links beside Messages and Mail in the iPhone share sheet">
+          <span class="number" aria-hidden="true">01 /</span><h3>Find it. Share it.</h3><p>See something they’d love? Send it to Links from your iPhone’s share sheet, with a little note if you like.</p>
+        </div>
+        <div>
+          <img src="/queue-widget.webp" width="640" height="320" loading="lazy" alt="Recent links in the Queue widget on the iPhone Home Screen">
+          <span class="number" aria-hidden="true">02 /</span><h3>A place for “later”.</h3><p>Articles, videos, recipes, gift ideas. They’re all in your Queue, not buried in a conversation.</p>
+        </div>
+        <div>
+          <img src="/link-reactions.webp" width="640" height="320" loading="lazy" alt="A shared article with a heart reaction and two comments">
+          <span class="number" aria-hidden="true">03 /</span><h3>Stay in the loop.</h3><p>Catch up in your own time. React, leave a comment, and see when your friends have seen what you sent.</p>
+        </div>
       </div>
-    </section>
-    <section class="how" id="features" aria-labelledby="features-title">
-      <h2 class="section-label" id="features-title">More things to do with Links</h2>
-      <ul class="features feature-list" role="list">
-        <li><h3>Keep private favorites</h3><p>Star the links you want to come back to. Only you can see what you save.</p></li>
-        <li><h3>Share with your people</h3><p>Keep finds between you and a friend in a private chat, or share them with the whole group.</p></li>
-        <li><h3>Catch up from a widget</h3><p>See your Queue or Sent receipts at a glance, and mark links seen without opening the app.</p></li>
-      </ul>
     </section>`,
   });
 }
